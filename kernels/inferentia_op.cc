@@ -65,7 +65,7 @@ tensorflow::Status InferentiaOp::initialize(
         const std::vector<std::string> &output_names,
         const std::vector<DataType> &output_dtypes,
         const std::vector<TensorShape> &output_shapes) {
-    krtd_server_ = env_get("KAENA_KRTD_SERVER_ADDRESS", "unix:/run/infa.sock");
+    krtd_server_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
     grpc::ChannelArguments ch_args;
     ch_args.SetMaxReceiveMessageSize(-1);
@@ -174,7 +174,7 @@ tensorflow::Status InferentiaOp::initialize(
             output_tensors_.emplace_back(output_dtypes[idx], output_shapes[idx]);
         }
     }
-    profile_dir_ = env_get("INFA_PROFILE");
+    profile_dir_ = env_get("NEURON_PROFILE");
     profile_enabled_ = "" != profile_dir_;
     ready_ = true;
     return tensorflow::Status::OK();
@@ -603,18 +603,18 @@ tensorflow::Status InferentiaOp::profile_start_session() {
                         << krt_nn_id_ << "-" << profile_session_id_ << ".ipd";
         profile_session_filename_ = filename_stream.str();
         std::ostringstream cmd_stream;
-        cmd_stream << "infa-profile start-session -s " << profile_session_filename_
+        cmd_stream << "neuron-profile start-session -s " << profile_session_filename_
                    << " -k " << krtd_server_ << " " << krt_nn_id_;
         KAENALOG(1) << "Starting profiling session by " << cmd_stream.str();
         std::ostringstream krt_nn_id_stream;
         krt_nn_id_stream << krt_nn_id_;
         tensorflow::Status status = subprocess_run(
-            "infa-profile", "infa-profile", "start-session", "-s",
+            "neuron-profile", "neuron-profile", "start-session", "-s",
             profile_session_filename_.c_str(), "-k", krtd_server_.c_str(),
             krt_nn_id_stream.str().c_str());
         if (!status.ok()) {
             profile_session_filename_ = "";
-            LOG(WARNING) << "infa-profile start-session failed. "
+            LOG(WARNING) << "neuron-profile start-session failed. "
                          << "Did you install aws-neuron-tools-core?";
             return status;
         }
@@ -627,13 +627,13 @@ tensorflow::Status InferentiaOp::profile_start_session() {
 void InferentiaOp::profile_stop_session() {
     if (profile_enabled_ && "" != profile_session_filename_) {
         std::ostringstream cmd_stream;
-        cmd_stream << "infa-profile stop-session -s " << profile_session_filename_;
+        cmd_stream << "neuron-profile stop-session -s " << profile_session_filename_;
         KAENALOG(1) << "Stopping profiling session by " << cmd_stream.str();
         tensorflow::Status status = subprocess_run(
-            "infa-profile", "infa-profile", "stop-session", "-s",
+            "neuron-profile", "neuron-profile", "stop-session", "-s",
             profile_session_filename_.c_str());
         if (!status.ok()) {
-            KAENA_ERROR("infa-profile stop-session failed");
+            KAENA_ERROR("neuron-profile stop-session failed");
         }
         profile_session_filename_ = "";
     }

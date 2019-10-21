@@ -48,7 +48,7 @@ def test_simple_save():
     pred_ref = tf.contrib.predictor.from_saved_model(export_dir_ref)
     pred_test = tf.contrib.predictor.from_saved_model(export_dir_test)
     _assert_compiler_success(pred_test.graph)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         # Test for accuracy
         model_feed_dict = {
             'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
@@ -85,7 +85,7 @@ def test_convert_to_inference_model():
     pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
     assert len(pred_tonga.graph.get_operations()) == 5
     assert pred_tonga.graph.get_operations()[2].type == 'InferentiaOp'
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         model_feed_dict = {
             'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
@@ -125,7 +125,7 @@ def test_convert_to_inference_model_with_feed_dict():
     pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
     assert len(pred_tonga.graph.get_operations()) == 5
     assert pred_tonga.graph.get_operations()[2].type == 'InferentiaOp'
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
         result_tonga = pred_tonga(model_feed_dict)
         for name in result_ref.keys():
@@ -170,7 +170,7 @@ def test_convert_to_inference_model_regress_api():
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
     pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
     _assert_compiler_success(pred_tonga.graph)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
         result_tonga = pred_tonga(model_feed_dict)
         for name in result_ref.keys():
@@ -219,7 +219,7 @@ def test_convert_to_inference_model_classify_api():
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
     pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
     _assert_compiler_success(pred_tonga.graph)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
         result_tonga = pred_tonga(model_feed_dict)
         for name in result_ref.keys():
@@ -299,7 +299,7 @@ def test_saved_model_cli_convert_kaena():
     assert pred_tonga_b3.graph.get_operations()[2].type == 'InferentiaOp'
     assert len(pred_tonga_b4.graph.get_operations()) == 5
     assert pred_tonga_b4.graph.get_operations()[2].type == 'InferentiaOp'
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref_b1 = pred_ref(model_feed_dict_b1)
         result_ref_b2 = pred_ref(model_feed_dict_b2)
         result_ref_b3 = pred_ref(model_feed_dict_b3)

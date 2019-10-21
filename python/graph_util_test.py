@@ -49,7 +49,7 @@ def test_inference_graph_from_session():
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
     _assert_compiler_success(infer_graph0)
     _assert_compiler_success(infer_graph1)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph0) as sess:
             result_tonga0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
             assert len(result_tonga0) == len(result_ref0)
@@ -87,7 +87,7 @@ def test_inference_graph_from_session_variable():
             sess, feed_dict=feed_dict, output_tensors={'relu0:0', 'sigmoid0:0', relu1, 'add0:0'},
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
     _assert_compiler_success(infer_graph)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
             assert len(result_tonga) == len(result_ref)
@@ -116,7 +116,7 @@ def test_conv2d_nchw():
         relu0 = tf.nn.relu(conv2d0, name='relu0')
         result_ref_nhwc = sess_ref.run('relu0:0', {'input0:0': input0_nchw.transpose([0, 2, 3, 1])})
         result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph0) as sess:
             result_tonga_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
             np.testing.assert_allclose(result_tonga_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
@@ -160,7 +160,7 @@ def test_inference_graph_from_session_mid():
         infer_graph.get_tensor_by_name(name)
     _assert_compiler_success(infer_graph)
     assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 2
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
             assert len(result_tonga) == len(result_ref)
@@ -208,7 +208,7 @@ def test_inference_graph_from_session_mid_dynamic_batchsize():
             compiler_workdir='./workdir')
     _assert_compiler_success(infer_graph)
     assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 2
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
                 result_tonga = sess.run(result_names, feed_dict)
@@ -250,7 +250,7 @@ def test_inference_graph_from_session_mid_timeout():
         infer_graph.get_tensor_by_name(name)
     for name in result_names:
         infer_graph.get_tensor_by_name(name)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
             assert len(result_tonga) == len(result_ref)
@@ -294,7 +294,7 @@ def test_inference_graph_from_session_mid_large_constants():
         infer_graph.get_tensor_by_name(name)
     _assert_compiler_success(infer_graph)
     assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 1
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
             assert len(result_tonga) == len(result_ref)
@@ -353,7 +353,7 @@ def test_inference_graph_from_session_input_identity():
         infer_graph.get_tensor_by_name(name)
     _assert_compiler_success(infer_graph)
     assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 1
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
             assert len(result_tonga) == len(result_ref)
@@ -386,7 +386,7 @@ def test_inference_graph_from_session_while_loop():
         infer_graph = tf.neuron.graph_util.inference_graph_from_session(
             sess, compiler_workdir='./workdir', output_tensors={output0})
     _assert_compiler_success(infer_graph)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(output0.name, feed_dict=feed_dict)
             np.testing.assert_allclose(result_tonga, result_tf, rtol=1e-2, atol=1e-4)
@@ -413,7 +413,7 @@ def test_inference_graph_from_session_while_parloop():
             sess, compiler_workdir='./workdir', output_tensors={output0},
             no_fuse_ops={'while/kernel0'})
     _assert_compiler_success(infer_graph)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga_list = [sess.run(output0.name, feed_dict) for _ in range(2)]
         for result_tonga, result_tf in zip(result_tonga_list, result_tf_list):
@@ -572,7 +572,7 @@ def test_inference_graph_from_session_inferentia_op_different_name():
         infer_graph.get_tensor_by_name(name)
     for name in result_names:
         infer_graph.get_tensor_by_name(name)
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
             assert len(result_tonga) == len(result_ref)
@@ -830,7 +830,7 @@ def test_whitelist_partition_branch_merge():
     with tf.Session(graph=tf.Graph()) as sess:
         tf.import_graph_def(subgraph_def, name='')
         assert len([op for op in sess.graph.get_operations() if op.type == 'Placeholder']) == 1
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         compiled_graph_def = compile_subgraphs(partitioned_graph_def, workdir='./workdir')
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(compiled_graph_def, name='')
@@ -867,7 +867,7 @@ def test_whitelist_partition_no_fuse():
         op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
         no_fuse_ops=['add0'])
     assert len(partitioned_graph_def.node) == 8
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         compiled_graph_def = compile_subgraphs(
             partitioned_graph_def, workdir='./workdir')
         with tf.Session(graph=tf.Graph()) as sess:
@@ -905,7 +905,7 @@ def test_whitelist_partition_no_fuse_force_fuse():
         op_whitelist={'Conv2D', 'Const', 'Relu'},
         no_fuse_ops=[conv2d2.op], force_fuse_ops=['add0', add5.op])
     assert len(partitioned_graph_def.node) == 12
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         compiled_graph_def = compile_subgraphs(
             partitioned_graph_def, workdir='./workdir')
         with tf.Session(graph=tf.Graph()) as sess:
@@ -1020,7 +1020,7 @@ def test_compile_subgraphs():
     for node in compiled_graph_def.node:
         if node.op == 'InferentiaOp':
             assert node.attr['executable'].s != b''
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(compiled_graph_def, name='')
             output_tonga = [tensor.name for tensor in sg2]

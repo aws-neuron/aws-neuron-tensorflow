@@ -48,7 +48,7 @@ def test_fuse_simple():
         relu0, sigmoid0 = network_cpu(input0, input1, kernel0, kernel1)
         result_ref = sess.run([relu0, sigmoid0], feed_dict)
 
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
             input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
@@ -75,7 +75,7 @@ def actualtest_fuse_eager_execution():
     input1 = tf.constant(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16))
     result_ref = network_cpu(input0, input1, kernel0, kernel1)
 
-    if 'KAENA_KRTD_SERVER_ADDRESS' in os.environ:
+    if 'NEURON_RTD_ADDRESS' in os.environ:
         result_tonga = network_tonga(input0, input1, kernel0, kernel1)
         for res_tonga, res_ref in zip(result_tonga, result_ref):
             np.testing.assert_allclose(res_tonga.numpy(), res_ref.numpy(), rtol=1e-2, atol=1e-3)

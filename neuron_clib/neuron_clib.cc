@@ -107,7 +107,7 @@ tensorflow::Status TPBManager::initialize() {
     setenv("PATH", (env_path + ":/opt/aws/kaena/bin:/opt/aws/neuron/bin").c_str(), 1);
 
     // get krtd stub
-    std::string krtd_server = env_get("KAENA_KRTD_SERVER_ADDRESS", "unix:/run/neuron.sock");
+    std::string krtd_server = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
     grpc::ChannelArguments ch_args;
     ch_args.SetMaxReceiveMessageSize(-1);
@@ -124,7 +124,7 @@ tensorflow::Status TPBManager::initialize() {
 
     // get number of tpbs from comma-separated list of integers
     std::vector<int> tpb_count_vector;
-    std::string tpb_nums = env_get("KAENA_FRAMEWORK_DEVICE_SIZES", "1");
+    std::string tpb_nums = env_get("NEURON_DEVICE_SIZES", "1");
     std::stringstream tpb_nums_stream(tpb_nums);
     while (tpb_nums_stream.good()) {
         std::string substr;
@@ -135,7 +135,7 @@ tensorflow::Status TPBManager::initialize() {
         tpb_count_vector.push_back(std::stoi(substr));
     }
     if (tpb_count_vector.empty()) {
-        KAENA_ERROR_STATUS("KAENA_FRAMEWORK_DEVICE_SIZES=", tpb_nums, " is ill-formatted");
+        KAENA_ERROR_STATUS("NEURON_DEVICE_SIZES=", tpb_nums, " is ill-formatted");
     }
 
     tensorflow::Status status;
