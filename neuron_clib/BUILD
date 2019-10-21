@@ -1,0 +1,39 @@
+package(default_visibility = ["//tensorflow:__subpackages__"])
+
+load("//tensorflow:tensorflow.bzl", "tf_custom_op_library_additional_deps",)
+load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
+
+cc_library(
+    name = "neuron_clib",
+    srcs = ["neuron_clib.cc"],
+    hdrs = ["neuron_clib.h"],
+    deps = [
+        ":kmgr_service.grpc.o",
+        ":libuuid",
+        "@grpc//:grpc++_codegen_base",
+        "//tensorflow/python/neuron:neuron_logging",
+    ] + tf_custom_op_library_additional_deps(),
+)
+
+cc_library(
+    name = "libuuid",
+    srcs = ["uuid/libuuid.so"],
+    hdrs = ["uuid/uuid.h"],
+)
+
+# nrt proto libraries
+cc_proto_library(
+    name = "kmgr_service.grpc.o",
+    srcs = [
+        "nrt_proto/kmgr_service.proto",
+        "nrt_proto/kmgr.proto",
+        "nrt_proto/kmetric.proto",
+        "nrt_proto/common.proto",
+        "nrt_proto/kerr.proto",
+    ],
+    protoc = "@com_google_protobuf//:protoc",
+    include = "nrt_proto/",
+    use_grpc_plugin = True,
+    default_runtime = "@com_google_protobuf//:protobuf",
+    visibility = ["//visibility:public"],
+)
