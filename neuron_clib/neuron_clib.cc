@@ -101,7 +101,7 @@ void SharedMemoryAllocator::DeallocateRaw(void *ptr) {
 }
 
 
-tensorflow::Status TPBManager::initialize() {
+tensorflow::Status NeuronDeviceManager::initialize() {
     // append /opt/aws/neuron/bin to PATH
     std::string env_path = env_get("PATH", "");
     setenv("PATH", (env_path + ":/opt/aws/kaena/bin:/opt/aws/neuron/bin").c_str(), 1);
@@ -122,74 +122,74 @@ tensorflow::Status TPBManager::initialize() {
         KAENA_ERROR_STATUS("cannot create stub");
     }
 
-    // get number of tpbs from comma-separated list of integers
-    std::vector<int> tpb_count_vector;
-    std::string tpb_nums = env_get("NEURON_DEVICE_SIZES", "1");
-    std::stringstream tpb_nums_stream(tpb_nums);
-    while (tpb_nums_stream.good()) {
+    // get number of neuron cores from comma-separated list of integers
+    std::vector<int> num_cores_vector;
+    std::string neuron_device_sizes = env_get("NEURON_DEVICE_SIZES", "1");
+    std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
+    while (neuron_device_sizes_stream.good()) {
         std::string substr;
-        std::getline(tpb_nums_stream, substr, ',');
+        std::getline(neuron_device_sizes_stream, substr, ',');
         if (substr.empty()) {
             continue;
         }
-        tpb_count_vector.push_back(std::stoi(substr));
+        num_cores_vector.push_back(std::stoi(substr));
     }
-    if (tpb_count_vector.empty()) {
-        KAENA_ERROR_STATUS("NEURON_DEVICE_SIZES=", tpb_nums, " is ill-formatted");
+    if (num_cores_vector.empty()) {
+        KAENA_ERROR_STATUS("NEURON_DEVICE_SIZES=", neuron_device_sizes, " is ill-formatted");
     }
 
     tensorflow::Status status;
-    for (size_t idx = 0; idx < tpb_count_vector.size(); ++idx) {
-        int tpb_count = tpb_count_vector[idx];
-        status = tpb_group_array_[idx].initialize(stub_, tpb_count, krtd_server);
+    for (size_t idx = 0; idx < num_cores_vector.size(); ++idx) {
+        int num_cores = num_cores_vector[idx];
+        status = device_array_[idx].initialize(stub_, num_cores, krtd_server);
         if (!status.ok()) {
             return status;
         }
-        ++tpb_group_size_;
+        ++num_devices_;
     }
     ready_ = true;
     return tensorflow::Status::OK();
 }
 
-bool TPBManager::is_empty() {
-    if (tpb_group_size_ > 1) {
+bool NeuronDeviceManager::is_empty() {
+    if (num_devices_ > 1) {
         return false;
     }
     bool empty = true;
-    for (size_t idx = 0; idx < tpb_group_size_; ++idx) {
-        if (0 != tpb_group_array_[idx].get_num_executable()) {
+    for (size_t idx = 0; idx < num_devices_; ++idx) {
+        if (0 != device_array_[idx].get_num_executable()) {
             empty = false;
         }
     }
     return empty;
 }
 
-void TPBManager::clear() {
-    for (size_t idx = 0; idx < tpb_group_size_; ++idx) {
-        tpb_group_array_[idx].clear(stub_);
+void NeuronDeviceManager::clear() {
+    for (size_t idx = 0; idx < num_devices_; ++idx) {
+        device_array_[idx].clear(stub_);
     }
-    tpb_group_size_ = 0;
-    tpb_group_index_ = 0;
+    num_devices_ = 0;
+    device_index_ = 0;
     ready_ = false;
 }
 
-TPBGroup *TPBManager::get_tpb_group() {
-    TPBGroup *tpb_group = &tpb_group_array_[tpb_group_index_];
-    ++tpb_group_index_;
-    if (tpb_group_index_ >= tpb_group_size_) {
-        tpb_group_index_ = 0;
+NeuronDevice *NeuronDeviceManager::get_device() {
+    NeuronDevice *device = &device_array_[device_index_];
+    ++device_index_;
+    if (device_index_ >= num_devices_) {
+        device_index_ = 0;
     }
-    return tpb_group;
+    return device;
 }
 
 
-tensorflow::Status TPBGroup::initialize(
-        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int tpb_count,
+tensorflow::Status NeuronDevice::initialize(
+        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int size,
         const std::string &krtd_server) {
     grpc::Status status;
     grpc::ClientContext context;
     nrt::create_eg_request create_eg_request;
-    create_eg_request.set_nc_count(tpb_count);
+    create_eg_request.set_nc_count(size);
     nrt::create_eg_response create_eg_response;
     status = stub->create_eg(&context, create_eg_request, &create_eg_response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
@@ -210,7 +210,7 @@ tensorflow::Status TPBGroup::initialize(
     return tensorflow::Status::OK();
 }
 
-void TPBGroup::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
+void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     grpc::Status status;
     for (uint32_t nn_id : krt_h_nn_ids_) {
         // stop
@@ -245,19 +245,19 @@ void TPBGroup::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     }
 }
 
-bool TPBGroup::some_nn_is_running() {
+bool NeuronDevice::some_nn_is_running() {
     return krt_nn_id_running_ != 0;
 }
 
-bool TPBGroup::nn_is_running(uint32_t krt_nn_id) {
+bool NeuronDevice::nn_is_running(uint32_t krt_nn_id) {
     return krt_nn_id_running_ == krt_nn_id;
 }
 
-uint32_t TPBGroup::nn_get_current_running() {
+uint32_t NeuronDevice::nn_get_current_running() {
     return krt_nn_id_running_;
 }
 
-void TPBGroup::nn_set_current_running(uint32_t krt_nn_id) {
+void NeuronDevice::nn_set_current_running(uint32_t krt_nn_id) {
     krt_nn_id_running_ = krt_nn_id;
 }
 

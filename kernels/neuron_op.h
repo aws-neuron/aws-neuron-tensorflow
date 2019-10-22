@@ -47,7 +47,7 @@ private:
                                   const std::vector<const Tensor*> &input_tensors);
     tensorflow::Status infer_wait(uint64_t infer_post_cookie);
     std::string op_name_;
-    TPBGroup *tpb_group_ = nullptr;
+    NeuronDevice *neuron_device_ = nullptr;
     std::string krtd_server_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     uint32_t krt_nn_id_ = NRT_INVALID_NN_ID;

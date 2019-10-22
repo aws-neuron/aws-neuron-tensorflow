@@ -89,11 +89,11 @@ private:
 };
 
 
-class TPBGroup {
+class NeuronDevice {
 public:
-    TPBGroup() {};
+    NeuronDevice() {};
     tensorflow::Status initialize(
-        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int tpb_count,
+        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int size,
         const std::string &krtd_server);
     void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     uint32_t get_krt_eg_id() { return krt_eg_id_; };
@@ -116,21 +116,21 @@ private:
 };
 
 
-class TPBManager {
+class NeuronDeviceManager {
 public:
-    TPBManager() {};
+    NeuronDeviceManager() {};
     tensorflow::Status initialize();
     bool ready() { return ready_; };
-    TPBGroup *get_tpb_group();
+    NeuronDevice *get_device();
     bool is_empty();
     void clear();
-    ~TPBManager() { clear(); };
+    ~NeuronDeviceManager() { clear(); };
 private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
-    static const int MAX_NUM_TPB = 64;
-    std::array<TPBGroup, MAX_NUM_TPB> tpb_group_array_;
-    size_t tpb_group_index_ = 0;
-    size_t tpb_group_size_ = 0;
+    static const int MAX_NUM_CORES = 64;
+    std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
+    size_t device_index_ = 0;
+    size_t num_devices_ = 0;
     bool ready_ = false;
 };
 

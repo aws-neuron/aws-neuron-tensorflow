@@ -69,7 +69,6 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=300,
                    '--output', 'kelp.tgz.kelp', '--io-config', _io_config(placeholders, outputs)]
         if compiler_args is not None:
             command.extend(compiler_args)
-        command.extend(['--num-tpbs', '1'])
         if workdir is None:
             if verbose:
                 popen_kwargs = {}

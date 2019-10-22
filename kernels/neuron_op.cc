@@ -26,7 +26,7 @@ static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable numbe
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 
 
-TPBManager global_tpb_manager;
+NeuronDeviceManager global_neuron_device_manager;
 
 
 NeuronOp::NeuronOp(OpKernelConstruction *context) : OpKernel(context) {
@@ -80,19 +80,19 @@ tensorflow::Status NeuronOp::initialize(
         KAENA_ERROR_STATUS("cannot create krtd stub");
     }
 
-    if (!global_tpb_manager.ready()) {
-        tensorflow::Status status = global_tpb_manager.initialize();
+    if (!global_neuron_device_manager.ready()) {
+        tensorflow::Status status = global_neuron_device_manager.initialize();
         if (!status.ok()) {
             return status;
         }
     }
-    if (!global_tpb_manager.ready()) {
-        KAENA_ERROR_STATUS("global_tpb_manager initialization failure");
+    if (!global_neuron_device_manager.ready()) {
+        KAENA_ERROR_STATUS("global_neuron_device_manager initialization failure");
     }
 
     // create_eg
     grpc::Status status;
-    tpb_group_ = global_tpb_manager.get_tpb_group();
+    neuron_device_ = global_neuron_device_manager.get_device();
 
     // load
     grpc::ClientContext context;
@@ -102,7 +102,7 @@ tensorflow::Status NeuronOp::initialize(
     nrt::load_request load_request;
 
     // krt_eg_id
-    load_request.mutable_h_eg()->set_id(tpb_group_->get_krt_eg_id());
+    load_request.mutable_h_eg()->set_id(neuron_device_->get_krt_eg_id());
     writer->Write(load_request);
 
     // nef_size
@@ -132,8 +132,8 @@ tensorflow::Status NeuronOp::initialize(
     KRTD_CHECK_RETURN("load", status, load_response);
     krt_nn_id_ = load_response.h_nn().id();
     krt_load_done_ = true;
-    tpb_group_->register_executable(krt_nn_id_);
-    KAENALOG(1) << "load: number of executables: " << tpb_group_->get_num_executable();
+    neuron_device_->register_executable(krt_nn_id_);
+    KAENALOG(1) << "load: number of executables: " << neuron_device_->get_num_executable();
 
     // check argument sizes
     if (input_names.size() != input_dtypes_.size()
@@ -206,7 +206,7 @@ tensorflow::Status NeuronOp::prepare_shared_memory(
                     << " ready at address " << output_shms_.back().ptr();
     }
     for (auto &out_shm : output_shms_) {
-        tpb_group_->get_ptr2shm()->emplace(out_shm.ptr(), &out_shm);
+        neuron_device_->get_ptr2shm()->emplace(out_shm.ptr(), &out_shm);
     }
     for (auto &out_shm : output_shms_) {
         output_shm_allocs_.emplace_back(&out_shm);
@@ -216,21 +216,21 @@ tensorflow::Status NeuronOp::prepare_shared_memory(
 
 
 NeuronOp::~NeuronOp() {
-    if (nullptr == tpb_group_) {
-        KAENA_ERROR("tpb_group_ not available; not tearing down");
+    if (nullptr == neuron_device_) {
+        KAENA_ERROR("neuron_device_ not available; not tearing down");
         return;
     }
     grpc::Status status;
 
     // stop
-    if (tpb_group_->nn_is_running(krt_nn_id_)) {
+    if (neuron_device_->nn_is_running(krt_nn_id_)) {
         grpc::ClientContext context;
         nrt::stop_request stop_request;
         stop_request.mutable_h_nn()->set_id(krt_nn_id_);
         nrt::stop_response stop_response;
         status = stub_->stop(&context, stop_request, &stop_response);
         KRTD_CHECK("stop", status, stop_response);
-        tpb_group_->nn_set_current_running(NRT_INVALID_NN_ID);
+        neuron_device_->nn_set_current_running(NRT_INVALID_NN_ID);
     }
 
     // unload
@@ -242,21 +242,21 @@ NeuronOp::~NeuronOp() {
         status = stub_->unload(&context, unload_request, &unload_response);
         KRTD_CHECK("unload", status, unload_response);
     }
-    tpb_group_->deregister_executable(krt_nn_id_);
-    KAENALOG(1) << "unload: number of executables: " << tpb_group_->get_num_executable();
+    neuron_device_->deregister_executable(krt_nn_id_);
+    KAENALOG(1) << "unload: number of executables: " << neuron_device_->get_num_executable();
 
     // unmap all shared memories
     for (auto &shm : input_shms_) {
         shm.clear(stub_);
     }
     for (auto &shm : output_shms_) {
-        tpb_group_->get_ptr2shm()->erase(shm.ptr());
+        neuron_device_->get_ptr2shm()->erase(shm.ptr());
         shm.clear(stub_);
     }
 
-    // clear global_tpb_manager if it's empty -- triggers only in single-eg case
-    if (global_tpb_manager.is_empty()) {
-        global_tpb_manager.clear();
+    // clear global_neuron_device_manager if it's empty -- triggers only in single-eg case
+    if (global_neuron_device_manager.is_empty()) {
+        global_neuron_device_manager.clear();
     }
 }
 
@@ -456,7 +456,7 @@ void NeuronOp::Compute(OpKernelContext *context) {
 
         std::vector<uint64_t> infer_post_cookie_vec;
         {
-            std::lock_guard<std::mutex> guard(*tpb_group_->get_mutex_infer());
+            std::lock_guard<std::mutex> guard(*neuron_device_->get_mutex_infer());
             timestamps.mark_above_krtd_infer();
             int64_t start = 0;
             int64_t end = std::min(start + infer_queue_length_, num_batches);
@@ -525,20 +525,20 @@ void NeuronOp::Compute(OpKernelContext *context) {
 
 
 tensorflow::Status NeuronOp::start_model() {
-    std::lock_guard<std::mutex> guard(*tpb_group_->get_mutex_infer());
+    std::lock_guard<std::mutex> guard(*neuron_device_->get_mutex_infer());
 
     grpc::Status status;
-    if (!tpb_group_->nn_is_running(krt_nn_id_) && tpb_group_->some_nn_is_running()) {
+    if (!neuron_device_->nn_is_running(krt_nn_id_) && neuron_device_->some_nn_is_running()) {
         // if krt_nn_id_ is not running, stop the current running model
         grpc::ClientContext context;
         nrt::stop_request stop_request;
-        stop_request.mutable_h_nn()->set_id(tpb_group_->nn_get_current_running());
+        stop_request.mutable_h_nn()->set_id(neuron_device_->nn_get_current_running());
         nrt::stop_response stop_response;
         status = stub_->stop(&context, stop_request, &stop_response);
         KRTD_CHECK_RETURN("stop", status, stop_response);
-        tpb_group_->nn_set_current_running(NRT_INVALID_NN_ID);
+        neuron_device_->nn_set_current_running(NRT_INVALID_NN_ID);
     }
-    if (!tpb_group_->some_nn_is_running()) {
+    if (!neuron_device_->some_nn_is_running()) {
         // if no model is running, start krt_nn_id_
         grpc::ClientContext context;
         nrt::start_request start_request;
@@ -546,7 +546,7 @@ tensorflow::Status NeuronOp::start_model() {
         nrt::start_response start_response;
         status = stub_->start(&context, start_request, &start_response);
         KRTD_CHECK_RETURN("start", status, start_response);
-        tpb_group_->nn_set_current_running(krt_nn_id_);
+        neuron_device_->nn_set_current_running(krt_nn_id_);
     }
     return tensorflow::Status::OK();
 }
@@ -647,7 +647,7 @@ tensorflow::Status NeuronOp::infer(
         KAENA_ERROR_STATUS("not ready for inference");
     }
 
-    std::lock_guard<std::mutex> guard(*tpb_group_->get_mutex_infer());
+    std::lock_guard<std::mutex> guard(*neuron_device_->get_mutex_infer());
 
     // set input tensors
     if (input_tensors.size() != input_names_.size()) {
@@ -668,7 +668,7 @@ tensorflow::Status NeuronOp::infer(
         void *data = (void*)tensor_data.data();
         if (use_shared_memory_) {
             SharedMemory* shm;
-            std::unordered_map<void*, SharedMemory*> *ptr2shm = tpb_group_->get_ptr2shm();
+            std::unordered_map<void*, SharedMemory*> *ptr2shm = neuron_device_->get_ptr2shm();
             if (ptr2shm->find(data) != ptr2shm->end()) {
                 shm = ptr2shm->at(data);
             } else {

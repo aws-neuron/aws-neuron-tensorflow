@@ -58,7 +58,7 @@ def test_fuse_simple():
             np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
 
 
-@pytest.mark.xfail(run=False, reason='Running this test together with others requires 2 TPBs')
+@pytest.mark.xfail(run=False, reason='Running this test together with others requires 2 neuron cores')
 def test_fuse_eager_execution():
     assert subprocess.run([
         sys.executable, '-c', 'from tensorflow.python.neuron.python import fuse_test;'
