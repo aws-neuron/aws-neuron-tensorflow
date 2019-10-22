@@ -84,7 +84,7 @@ def test_convert_to_inference_model():
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
     pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
     assert len(pred_tonga.graph.get_operations()) == 5
-    assert pred_tonga.graph.get_operations()[2].type == 'InferentiaOp'
+    assert pred_tonga.graph.get_operations()[2].type == 'NeuronOp'
     if 'NEURON_RTD_ADDRESS' in os.environ:
         model_feed_dict = {
             'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
@@ -124,7 +124,7 @@ def test_convert_to_inference_model_with_feed_dict():
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
     pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
     assert len(pred_tonga.graph.get_operations()) == 5
-    assert pred_tonga.graph.get_operations()[2].type == 'InferentiaOp'
+    assert pred_tonga.graph.get_operations()[2].type == 'NeuronOp'
     if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
         result_tonga = pred_tonga(model_feed_dict)
@@ -292,13 +292,13 @@ def test_saved_model_cli_convert_kaena():
     pred_tonga_b3 = tf.contrib.predictor.from_saved_model(new_model_dir_b3)
     pred_tonga_b4 = tf.contrib.predictor.from_saved_model(new_model_dir_b4)
     assert len(pred_tonga_b1.graph.get_operations()) == 5
-    assert pred_tonga_b1.graph.get_operations()[2].type == 'InferentiaOp'
+    assert pred_tonga_b1.graph.get_operations()[2].type == 'NeuronOp'
     assert len(pred_tonga_b2.graph.get_operations()) == 5
-    assert pred_tonga_b2.graph.get_operations()[2].type == 'InferentiaOp'
+    assert pred_tonga_b2.graph.get_operations()[2].type == 'NeuronOp'
     assert len(pred_tonga_b3.graph.get_operations()) == 5
-    assert pred_tonga_b3.graph.get_operations()[2].type == 'InferentiaOp'
+    assert pred_tonga_b3.graph.get_operations()[2].type == 'NeuronOp'
     assert len(pred_tonga_b4.graph.get_operations()) == 5
-    assert pred_tonga_b4.graph.get_operations()[2].type == 'InferentiaOp'
+    assert pred_tonga_b4.graph.get_operations()[2].type == 'NeuronOp'
     if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref_b1 = pred_ref(model_feed_dict_b1)
         result_ref_b2 = pred_ref(model_feed_dict_b2)

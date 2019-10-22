@@ -13,7 +13,7 @@
 #include <fstream>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include "tensorflow/python/neuron/kernels/inferentia_op.h"
+#include "tensorflow/python/neuron/kernels/neuron_op.h"
 #include "tensorflow/python/neuron/util/logging.h"
 #include <grpcpp/grpcpp.h>
 
@@ -29,7 +29,7 @@ static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized ba
 TPBManager global_tpb_manager;
 
 
-InferentiaOp::InferentiaOp(OpKernelConstruction *context) : OpKernel(context) {
+NeuronOp::NeuronOp(OpKernelConstruction *context) : OpKernel(context) {
     // read executable
     std::string executable;
     OP_REQUIRES_OK(context, context->GetAttr("executable", &executable));
@@ -59,7 +59,7 @@ InferentiaOp::InferentiaOp(OpKernelConstruction *context) : OpKernel(context) {
 }
 
 
-tensorflow::Status InferentiaOp::initialize(
+tensorflow::Status NeuronOp::initialize(
         const std::string &executable,
         const std::vector<std::string> &input_names,
         const std::vector<std::string> &output_names,
@@ -181,7 +181,7 @@ tensorflow::Status InferentiaOp::initialize(
 }
 
 
-tensorflow::Status InferentiaOp::prepare_shared_memory(
+tensorflow::Status NeuronOp::prepare_shared_memory(
         const std::vector<DataType> &output_dtypes,
         const std::vector<TensorShape> &output_shapes) {
     for (size_t idx = 0; idx < input_tensor_sizes_.size(); ++idx) {
@@ -215,7 +215,7 @@ tensorflow::Status InferentiaOp::prepare_shared_memory(
 }
 
 
-InferentiaOp::~InferentiaOp() {
+NeuronOp::~NeuronOp() {
     if (nullptr == tpb_group_) {
         KAENA_ERROR("tpb_group_ not available; not tearing down");
         return;
@@ -325,7 +325,7 @@ static tensorflow::Status tensor_memset(Tensor *tensor, int ch) {
 }
 
 
-void InferentiaOp::Compute(OpKernelContext *context) {
+void NeuronOp::Compute(OpKernelContext *context) {
     FALTimestamps timestamps;
     timestamps.mark_enter();
 
@@ -524,7 +524,7 @@ void InferentiaOp::Compute(OpKernelContext *context) {
 }
 
 
-tensorflow::Status InferentiaOp::start_model() {
+tensorflow::Status NeuronOp::start_model() {
     std::lock_guard<std::mutex> guard(*tpb_group_->get_mutex_infer());
 
     grpc::Status status;
@@ -586,7 +586,7 @@ static std::string mangle_op_name(const std::string &op_name) {
 }
 
 
-void InferentiaOp::profile_dump_info(const std::string &graph_def, const std::string &executable) {
+void NeuronOp::profile_dump_info(const std::string &graph_def, const std::string &executable) {
     std::string filename_base = profile_dir_ + "/" + mangle_op_name(op_name_);
     std::string filename_pb = filename_base + ".pb";
     std::string filename_kelp = filename_base + ".kelp";
@@ -595,7 +595,7 @@ void InferentiaOp::profile_dump_info(const std::string &graph_def, const std::st
 }
 
 
-tensorflow::Status InferentiaOp::profile_start_session() {
+tensorflow::Status NeuronOp::profile_start_session() {
     if (profile_enabled_) {
         std::string new_op_name = mangle_op_name(op_name_);
         std::ostringstream filename_stream;
@@ -624,7 +624,7 @@ tensorflow::Status InferentiaOp::profile_start_session() {
 }
 
 
-void InferentiaOp::profile_stop_session() {
+void NeuronOp::profile_stop_session() {
     if (profile_enabled_ && "" != profile_session_filename_) {
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile stop-session -s " << profile_session_filename_;
@@ -640,7 +640,7 @@ void InferentiaOp::profile_stop_session() {
 }
 
 
-tensorflow::Status InferentiaOp::infer(
+tensorflow::Status NeuronOp::infer(
         const std::vector<const Tensor*> &input_tensors,
         FALTimestamps *timestamps) {
     if (!ready_) {
@@ -737,7 +737,7 @@ tensorflow::Status InferentiaOp::infer(
 }
 
 
-tensorflow::Status InferentiaOp::infer_post(
+tensorflow::Status NeuronOp::infer_post(
         uint64_t *infer_post_cookie, const std::vector<const Tensor*> &input_tensors) {
     if (!ready_) {
         KAENA_ERROR_STATUS("not ready for inference");
@@ -775,7 +775,7 @@ tensorflow::Status InferentiaOp::infer_post(
 }
 
 
-tensorflow::Status InferentiaOp::infer_wait(uint64_t infer_post_cookie) {
+tensorflow::Status NeuronOp::infer_wait(uint64_t infer_post_cookie) {
     if (!ready_) {
         KAENA_ERROR_STATUS("not ready for inference");
     }
@@ -816,7 +816,7 @@ tensorflow::Status InferentiaOp::infer_wait(uint64_t infer_post_cookie) {
 }
 
 
-REGISTER_KERNEL_BUILDER(Name("InferentiaOp").Device(DEVICE_CPU), InferentiaOp);
+REGISTER_KERNEL_BUILDER(Name("NeuronOp").Device(DEVICE_CPU), NeuronOp);
 
 }  // namespace kaena
 }  // namespace tensorflow

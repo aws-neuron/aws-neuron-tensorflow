@@ -15,7 +15,7 @@ limitations under the License.
 
 namespace tensorflow {
 
-REGISTER_OP("InferentiaOp")
+REGISTER_OP("NeuronOp")
     .SetIsStateful()
     .Attr("graph_def: string")
     .Attr("input_names: list(string)")

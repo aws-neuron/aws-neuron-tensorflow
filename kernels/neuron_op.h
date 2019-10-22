@@ -22,11 +22,11 @@ namespace tensorflow {
 namespace kaena {
 
 
-class InferentiaOp : public OpKernel {
+class NeuronOp : public OpKernel {
 public:
-    explicit InferentiaOp(OpKernelConstruction *context);
+    explicit NeuronOp(OpKernelConstruction *context);
     void Compute(OpKernelContext *context) override;
-    ~InferentiaOp() override;
+    ~NeuronOp() override;
 
 private:
     tensorflow::Status initialize(const std::string &executable,

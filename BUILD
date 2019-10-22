@@ -11,12 +11,12 @@ load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 
 cc_library(
     name = "all_ops",
-    deps = [":inferentia_op_op_lib"],
+    deps = [":neuron_op_op_lib"],
 )
 
 cc_library(
     name = "all_kernels",
-    deps = [":inferentia_op_kernel"],
+    deps = [":neuron_op_kernel"],
 )
 
 cc_library(
@@ -32,7 +32,7 @@ tf_py_wrap_cc(
     copts = tf_copts(),
     deps = [
         ":convert_graph",
-        ":inferentia_op_kernel",
+        ":neuron_op_kernel",
         "//tensorflow/c:tf_status_helper",
         "//third_party/python_runtime:headers",
     ],
@@ -94,16 +94,16 @@ py_library(
 )
 
 tf_custom_op_library(
-    name = "python/ops/_inferentia_op.so",
-    srcs = ["ops/inferentia_op.cc"],
-    deps = [":inferentia_op_kernel"],
+    name = "python/ops/_neuron_op.so",
+    srcs = ["ops/neuron_op.cc"],
+    deps = [":neuron_op_kernel"],
 )
 
 cc_library(
-    name = "inferentia_op_kernel",
-    srcs = ["kernels/inferentia_op.cc"],
+    name = "neuron_op_kernel",
+    srcs = ["kernels/neuron_op.cc"],
     hdrs = [
-        "kernels/inferentia_op.h",
+        "kernels/neuron_op.h",
         "util/logging.h",
     ],
     copts = tf_copts(),
@@ -117,20 +117,20 @@ cc_library(
 )
 
 tf_gen_op_libs(
-    op_lib_names = ["inferentia_op"],
+    op_lib_names = ["neuron_op"],
 )
 
 tf_gen_op_wrapper_py(
-    name = "inferentia_op",
-    out = "ops/gen_inferentia_op.py",
-    deps = [":inferentia_op_op_lib"],
+    name = "neuron_op",
+    out = "ops/gen_neuron_op.py",
+    deps = [":neuron_op_op_lib"],
 )
 
 tf_custom_op_py_library(
-    name = "inferentia_py",
+    name = "neuron_op_py",
     srcs = glob(["python/ops/*.py"]),
-    dso = [":python/ops/_inferentia_op.so"],
-    kernels = [":inferentia_op_kernel",":inferentia_op_op_lib"],
+    dso = [":python/ops/_neuron_op.so"],
+    kernels = [":neuron_op_kernel",":neuron_op_op_lib"],
     srcs_version = "PY2AND3",
     visibility = ["//visibility:public"],
     deps = ["//tensorflow/python:framework_for_generated_wrappers"]
@@ -173,9 +173,9 @@ cc_library(
 )
 
 py_library(
-    name = "inferentia_ops_py",
+    name = "neuron_ops_py",
     srcs_version = "PY2AND3",
-    deps = [":inferentia_op", ":inferentia_py"],
+    deps = [":neuron_op", ":neuron_op_py"],
 )
 
 py_library(
@@ -184,7 +184,7 @@ py_library(
         "python/fuse.py",
     ],
     srcs_version = "PY2AND3",
-    deps = [":inferentia_ops_py"],
+    deps = [":neuron_ops_py"],
 )
 
 py_library(
@@ -193,7 +193,7 @@ py_library(
         ":saved_model_py",
         ":graph_util_py",
         ":predictor_py",
-        ":inferentia_ops_py",
+        ":neuron_ops_py",
         ":fuse_py",
         ":graph_util_test_py",
         ":saved_model_test_py",

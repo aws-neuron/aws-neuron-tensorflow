@@ -269,7 +269,7 @@ static std::string uint64_to_string(uint64 number) {
 }
 
 std::string FALTimestamps::timing_string() {
-    std::string result("InferentiaOp enter timestamp: ");
+    std::string result("NeuronOp enter timestamp: ");
     result += uint64_to_string(enter);
     result += time_unit;
     if (above_krtd_infer.size() > 0) {

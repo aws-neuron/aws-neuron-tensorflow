@@ -95,7 +95,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             in the `SavedModel`.
         signature_def_key: (Optional) Iterable of strings specifying the `signature_def`s
             to use. Default is to use all `signature_def`s corresponding to `tags`.
-        minimum_segment_size: Integer; minimum number of ops in an `InferentiaOp` used by
+        minimum_segment_size: Integer; minimum number of ops in an `NeuronOp` used by
             `whitelist_partition`.
         no_fuse_ops: None or iterable of strings (unordered) representing names of ops
             that are forcibly placed on CPU.
@@ -207,7 +207,7 @@ def register_convert_parser(convert_subparsers):
         type=int,
         default=2,
         help=('the minimum number of nodes required for a subgraph to be replaced'
-              'in a InferentiaOp node'))
+              'in a NeuronOp node'))
     parser.add_argument(
         '--input_shape_dict',
         default=None,

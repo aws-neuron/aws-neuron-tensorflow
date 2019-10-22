@@ -16,7 +16,7 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.eager.context import executing_eagerly
-from tensorflow.python.neuron.ops.gen_inferentia_op import inferentia_op
+from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.python.neuron.python.graph_util import most_popular_namescope
 
 
@@ -97,7 +97,7 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=300,
             except ValueError:
                 ops.enable_eager_execution()
         with ops.name_scope(op_name):
-            output_tensors = inferentia_op(
+            output_tensors = neuron_op(
                 input_tensors=input_tensors, graph_def=serialized_graph_def,
                 input_names=[ts.name for ts in placeholders],
                 input_shapes=[ts.shape for ts in placeholders],
@@ -142,7 +142,7 @@ def _get_executable(compiler, timeout, op_name):
 
 def kaena_wait_all(sess):
     for op in sess.graph.get_operations():
-        if op.type == 'InferentiaOp' and hasattr(op, 'kaena_wait') and callable(op.kaena_wait):
+        if op.type == 'NeuronOp' and hasattr(op, 'kaena_wait') and callable(op.kaena_wait):
             op.kaena_wait()
 
 

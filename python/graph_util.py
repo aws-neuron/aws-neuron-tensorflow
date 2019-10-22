@@ -38,7 +38,7 @@ from tensorflow.python.framework import meta_graph
 from tensorflow.python.neuron.whitelist_partition_swig import WhitelistPartition
 
 
-_INFERENTIA_OP = 'InferentiaOp'
+_NEURON_OP = 'NeuronOp'
 _LARGE_CONST_SIZE = 1024
 
 
@@ -53,11 +53,11 @@ def inference_graph_from_session(
 
     Generally decomposes into 5 passes:
         1. Convert all variables to constants, `Assign`s to `Identity`s.
-        2. Whitelist-based graph partitioning, each subgraph (wrapped in an `InferentiaOp`)
+        2. Whitelist-based graph partitioning, each subgraph (wrapped in an `NeuronOp`)
             will contain only operations whose types match the types listed in `op_whitelist`.
-        3. Shape inference to find shapes for input/output tensors of `InferentiaOp` subgraphs.
-        4. Call neuron-cc compiler on each `InferentiaOp`.
-        5. Restore `InferentiaOp`s that are failed to compile into their original form.
+        3. Shape inference to find shapes for input/output tensors of `NeuronOp` subgraphs.
+        4. Call neuron-cc compiler on each `NeuronOp`.
+        5. Restore `NeuronOp`s that are failed to compile into their original form.
 
     Args:
         sess: Active TensorFlow session.
@@ -77,9 +77,9 @@ def inference_graph_from_session(
         op_whitelist: Iterable of strings (unordered) representing compilable op names.
         no_fuse_ops: None or iterable of strings (unordered) representing names of ops
             that are forcibly placed on CPU.
-        force_fuse_ops: None or iterable of strings (unordered) representing names
-            of ops that are forcibly placed on Inferentia.
-        minimum_segment_size: Integer; minimum number of ops in an `InferentiaOp` used by
+        force_fuse_ops: None or iterable of strings (unordered) representing names of ops
+            that are forcibly sent to the neuron-cc compiler.
+        minimum_segment_size: Integer; minimum number of ops in an `NeuronOp` used by
             `whitelist_partition`.
         max_num_compilers: Integer representing maximum allowed compiler processes.
         compiler_args: List of strings representing compiler arguments. Note that these
@@ -264,7 +264,7 @@ def inference_graph_from_session(
     else:
         shaped_graph = graph
 
-    # fuse ops into `InferentiaOp`'s and determine tensors that require shapes
+    # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
         graph_def, input_names, output_names, op_whitelist=op_whitelist,
         no_fuse_ops=no_fuse_ops, force_fuse_ops=force_fuse_ops,
@@ -278,10 +278,10 @@ def inference_graph_from_session(
     if feed_dict is not None:
         subgraph_shapes = shape_inference_with_inputs(sess, graph, feed_dict, subgraph_shapes)
 
-    # call compiler for each `InferentiaOp`
+    # call compiler for each `NeuronOp`
     args_dict = {}
     if compiler_args is not None:
-        args_dict = {node.name: compiler_args for node in _gd_inferentia_nodes(part_graph_def)}
+        args_dict = {node.name: compiler_args for node in _gd_neuron_nodes(part_graph_def)}
     compiled_graph_def = compile_subgraphs(
         part_graph_def, subgraph_shapes, large_constants, workdir=compiler_workdir,
         args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers)
@@ -296,9 +296,9 @@ def inference_graph_from_session(
     if dynamic_batch_size:
         compiled_graph_def = mark_batch_axis(compiled_graph_def)
 
-    # rename InferentiaOp's for better visualization
+    # rename NeuronOp's for better visualization
     name_change_map = {}
-    for node in _gd_inferentia_nodes(compiled_graph_def):
+    for node in _gd_neuron_nodes(compiled_graph_def):
         prefix = most_popular_namescope(sn.name for sn in _get_subgraph_def(node).node)
         if not prefix:
             continue
@@ -344,12 +344,12 @@ def _graph_def_to_graph(graph_def):
     return graph
 
 
-def _inferentia_ops(graph):
-    return (op for op in graph.get_operations() if op.type == _INFERENTIA_OP)
+def _neuron_ops(graph):
+    return (op for op in graph.get_operations() if op.type == _NEURON_OP)
 
 
-def _gd_inferentia_nodes(graph_def):
-    return (node for node in graph_def.node if node.op == _INFERENTIA_OP)
+def _gd_neuron_nodes(graph_def):
+    return (node for node in graph_def.node if node.op == _NEURON_OP)
 
 
 def _gd_op_index(graph_def_tensor_name):
@@ -365,7 +365,7 @@ def _gd_op_index(graph_def_tensor_name):
 def _init_subgraph_shapes(graph, part_graph):
     all_tensor_names = {ts.name for op in graph.get_operations() for ts in op.outputs}
     subgraph_shapes = {}
-    for op in _inferentia_ops(part_graph):
+    for op in _neuron_ops(part_graph):
         subgraph = _get_subgraph(op.node_def)
         subgraph_shape_map = {}
         for sg_ts_name, in_tensor in zip(op.get_attr('input_names'), op.inputs):
@@ -377,7 +377,7 @@ def _init_subgraph_shapes(graph, part_graph):
                     value_index = in_tensor.value_index
                     if in_tensor.op.type == 'IdentityN':
                         in_tensor = in_tensor.op.inputs[value_index]
-                    elif in_tensor.op.type == _INFERENTIA_OP:
+                    elif in_tensor.op.type == _NEURON_OP:
                         ts_name = in_tensor.op.get_attr('output_names')[value_index]
                         in_tensor = graph.get_tensor_by_name(ts_name.decode())
                         break
@@ -600,7 +600,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
                         op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
                         minimum_segment_size=None):
     """Partitions a `GraphDef` proto according to a TensorFlow op whitelist and
-    fuses each whitelisted subgraph into an `InferentiaOp`.
+    fuses each whitelisted subgraph into an `NeuronOp`.
 
     Args:
         graph_def: input `GraphDef` proto.
@@ -613,11 +613,11 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         no_fuse_ops: None or iterable of strings (unordered) representing
             names of ops that will stay unfused.
         force_fuse_ops: None or iterable of strings (unordered) representing
-            names of ops that will be forcibly fused into `InferentiaOp`.
-        minimum_segment_size: int; minimum number of ops in an `InferentiaOp`.
+            names of ops that will be forcibly fused into `NeuronOp`.
+        minimum_segment_size: int; minimum number of ops in an `NeuronOp`.
 
     Returns:
-        A `GraphDef` proto with whitelisted subgraphs fused as `InferentiaOp`s.
+        A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
     graph = _graph_def_to_graph(graph_def)
     if input_tensors is None:
@@ -652,11 +652,11 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     new_graph_def_str = WhitelistPartition(graph_def_str, inputs, outputs, op_whitelist,
                                            no_fuse_ops, force_fuse_ops, minimum_segment_size)
 
-    # unify `InferentiaOp`'s same-name outputs across the graph
+    # unify `NeuronOp`'s same-name outputs across the graph
     graph_def = graph_pb2.GraphDef()
     graph_def.ParseFromString(new_graph_def_str)
     tensor_name_map = {}
-    for node in _gd_inferentia_nodes(graph_def):
+    for node in _gd_neuron_nodes(graph_def):
         output_names = [name for name in node.attr['output_names'].list.s]
         tensor_name_to_out_name = {}
         for idx, out_name in enumerate(output_names):
@@ -686,8 +686,8 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     for node in graph_def.node:
         node.input[:] = [tensor_name_map.get(inp, inp) for inp in node.input]
 
-    # remove `InferentiaOp`'s internal placeholder duplications
-    for node in _gd_inferentia_nodes(graph_def):
+    # remove `NeuronOp`'s internal placeholder duplications
+    for node in _gd_neuron_nodes(graph_def):
         subgraph_def = _get_subgraph_def(node)
         tensor_name_map = {}
         unique_input_tensor_names = {}  # maps input tensor name to its placeholder name
@@ -727,9 +727,9 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         new_subgraph_def = _graph_def_to_graph(new_subgraph_def).as_graph_def(add_shapes=True)
         node.attr['graph_def'].s = new_subgraph_def.SerializeToString()
 
-    # add subgraph's control input to `InferentiaOp`'s control input
+    # add subgraph's control input to `NeuronOp`'s control input
     all_op_names = {op.name for op in graph.get_operations()}
-    for node in _gd_inferentia_nodes(graph_def):
+    for node in _gd_neuron_nodes(graph_def):
         for sg_node in _get_subgraph_def(node).node:
             if sg_node.name in all_op_names:
                 op_original = graph.get_operation_by_name(sg_node.name)
@@ -754,10 +754,10 @@ def _gd_tensor_name(tensor_name):
 
 def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
                       workdir=None, args_dict=None, timeout=None, max_num_compilers=None):
-    """Compile `InferentiaOp`s in a `GraphDef` proto.
+    """Compile `NeuronOp`s in a `GraphDef` proto.
 
     Args:
-        graph_def: Input `GraphDef` proto that contains `InferentiaOp`s.
+        graph_def: Input `GraphDef` proto that contains `NeuronOp`s.
         subgraph_shapes: Nested dict `{str: {str: <str or TensorShapeProto>}}`
             1st level key: subgraph name
             2nd level key: subgraph tensor name
@@ -766,16 +766,16 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         workdir: None or path-like representing the working directory used by the compiler;
             if None, will use `tempfile` to create a temporary workdir for each subgraph,
             else will create and use 'workdir/op_name' for each subgraph.
-        args_dict: Dict `{str: list}` that maps InferentiaOp names to compiler arguments;
+        args_dict: Dict `{str: list}` that maps NeuronOp names to compiler arguments;
             compiler arguments should be a list of strings, as used in `subprocess.run`.
         timeout: Integer representing timeout limit for the compiler. Default: 1800.
         max_num_compilers: Integer representing maximum allowed compiler processes.
             Default is number of cpu cores.
 
     Returns:
-        A `GraphDef` proto with `InferentiaOp`s already compiled.
+        A `GraphDef` proto with `NeuronOp`s already compiled.
     """
-    if all(node.op != _INFERENTIA_OP for node in graph_def.node):
+    if all(node.op != _NEURON_OP for node in graph_def.node):
         return graph_def
     subgraph_compilers = {}
     if workdir is None:
@@ -790,7 +790,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     _neuron_executable_name = 'graph_def.neff'
     # todo: remove infa-cc
     neuron_cc = spawn.find_executable('neuron-cc') or spawn.find_executable('infa-cc')
-    for node in _gd_inferentia_nodes(graph_def):
+    for node in _gd_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
         io_config_json = _io_config(node, _get_subgraph(node), subgraph_shapes)
@@ -833,7 +833,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     for node_name in subgraph_compilers.keys():
         if not compiler_returns[node_name]:
             subgraph_compilers[node_name] = None
-    for node in _gd_inferentia_nodes(graph_def):
+    for node in _gd_neuron_nodes(graph_def):
         node.attr['input_batch_axis'].list.i[:] = [-1 for _ in node.attr['input_names'].list.s]
         node.attr['output_batch_axis'].list.i[:] = [-1 for _ in node.attr['output_names'].list.s]
         if subgraph_compilers.get(node.name, None) is None:
@@ -895,14 +895,14 @@ def _wait_compiler(proc, timeout):
 
 
 def restore_compiler_failures(compiled_graph_def, graph):
-    """Restore `InferentiaOp`'s that failed to compile
+    """Restore `NeuronOp`'s that failed to compile
     """
-    inferentia_op_dict = {node.name: node for node in compiled_graph_def.node
-                                          if node.op == _INFERENTIA_OP}
+    neuron_op_dict = {node.name: node for node in compiled_graph_def.node
+                                          if node.op == _NEURON_OP}
     restore_nodes = []
     remove_node_names = set()
     gd_tensor_name_map = {}
-    for node in _gd_inferentia_nodes(compiled_graph_def):
+    for node in _gd_neuron_nodes(compiled_graph_def):
         if not node.attr['executable'].s:
             remove_node_names.add(node.name)
             subgraph_def = _get_subgraph_def(node)
@@ -910,8 +910,8 @@ def restore_compiler_failures(compiled_graph_def, graph):
             for gd_ts_name, sg_ph_name in zip(node.input, node.attr['input_names'].list.s):
                 sgd_ph_name = _gd_tensor_name(sg_ph_name.decode())
                 op_name, ts_index = _gd_op_index(gd_ts_name)
-                if op_name in inferentia_op_dict:
-                    in_node = inferentia_op_dict[op_name]
+                if op_name in neuron_op_dict:
+                    in_node = neuron_op_dict[op_name]
                     if not in_node.attr['executable'].s:
                         gd_ts_name = in_node.attr['output_names'].list.s[ts_index].decode()
                 sgd_tensor_name_map[sgd_ph_name] = gd_ts_name
@@ -942,7 +942,7 @@ def restore_compiler_failures(compiled_graph_def, graph):
 
 
 def mark_batch_axis(compiled_graph_def):
-    for node in _gd_inferentia_nodes(compiled_graph_def):
+    for node in _gd_neuron_nodes(compiled_graph_def):
         subgraph = _get_subgraph(node)
         node.attr['input_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'input_names')
         node.attr['output_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'output_names')

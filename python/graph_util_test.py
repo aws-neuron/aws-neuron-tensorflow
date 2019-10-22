@@ -159,7 +159,7 @@ def test_inference_graph_from_session_mid():
     for name in result_names:
         infer_graph.get_tensor_by_name(name)
     _assert_compiler_success(infer_graph)
-    assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 2
+    assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
@@ -207,7 +207,7 @@ def test_inference_graph_from_session_mid_dynamic_batchsize():
             dynamic_batch_size=True,
             compiler_workdir='./workdir')
     _assert_compiler_success(infer_graph)
-    assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 2
+    assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
@@ -293,7 +293,7 @@ def test_inference_graph_from_session_mid_large_constants():
     for name in result_names:
         infer_graph.get_tensor_by_name(name)
     _assert_compiler_success(infer_graph)
-    assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 1
+    assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 1
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
@@ -352,7 +352,7 @@ def test_inference_graph_from_session_input_identity():
     for name in result_names:
         infer_graph.get_tensor_by_name(name)
     _assert_compiler_success(infer_graph)
-    assert len([op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']) == 1
+    assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 1
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             result_tonga = sess.run(result_names, feed_dict)
@@ -420,7 +420,7 @@ def test_inference_graph_from_session_while_parloop():
             np.testing.assert_allclose(result_tonga, result_tf, rtol=1e-2, atol=1e-5)
 
 
-def test_inference_graph_from_session_inferentia_op_different_name():
+def test_inference_graph_from_session_neuron_op_different_name():
     NUMHID = 512
     HEADSIZE = 64
     WMIN = -0.01
@@ -821,12 +821,12 @@ def test_whitelist_partition_branch_merge():
         sess.graph.as_graph_def(add_shapes=True), input_tensors={'input0:0'},
         output_tensors={'add0:0', 'relu0:0'},
         op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-    inferentia_op_node = partitioned_graph_def.node[1]
-    assert len(inferentia_op_node.input) == 1
-    assert len(inferentia_op_node.attr['input_names'].list.s) == 1
-    assert len(inferentia_op_node.attr['input_dtypes'].list.type) == 1
+    neuron_op_node = partitioned_graph_def.node[1]
+    assert len(neuron_op_node.input) == 1
+    assert len(neuron_op_node.attr['input_names'].list.s) == 1
+    assert len(neuron_op_node.attr['input_dtypes'].list.type) == 1
     subgraph_def = tf.GraphDef()
-    subgraph_def.ParseFromString(inferentia_op_node.attr['graph_def'].s)
+    subgraph_def.ParseFromString(neuron_op_node.attr['graph_def'].s)
     with tf.Session(graph=tf.Graph()) as sess:
         tf.import_graph_def(subgraph_def, name='')
         assert len([op for op in sess.graph.get_operations() if op.type == 'Placeholder']) == 1
@@ -961,64 +961,64 @@ def test_compile_subgraphs():
     with graph.as_default():
         input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
-        with tf.name_scope('inferentia_op0'):
-            sg0 = tf.inferentia_op(
+        with tf.name_scope('neuron_op0'):
+            sg0 = tf.neuron_op(
                 [input0, input1], graph_def=subgraph_graph_def_str,
                 input_names=['input0:0', 'input1:0'],
                 input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
                 output_names=['relu0:0', 'sigmoid0:0'],
                 output_dtypes=[tf.float16, tf.float16],
                 output_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
-                executable=b'', name='inferentia_op0',
+                executable=b'', name='neuron_op0',
             )
             sg0 = tf.identity_n(sg0)
         input2 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input2')
         input3 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input3')
-        with tf.name_scope('inferentia_op1'):
-            sg1 = tf.inferentia_op(
+        with tf.name_scope('neuron_op1'):
+            sg1 = tf.neuron_op(
                 [input2, input3], graph_def=subgraph_graph_def_str,
                 input_names=['input0:0', 'input1:0'],
                 input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
                 output_names=['relu0:0', 'sigmoid0:0'],
                 output_dtypes=[tf.float16, tf.float16],
                 output_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
-                executable=b'', name='inferentia_op1',
+                executable=b'', name='neuron_op1',
             )
             sg1 = tf.identity_n(sg1)
-        with tf.name_scope('inferentia_op2'):
+        with tf.name_scope('neuron_op2'):
             input4 = tf.identity(sg0[0], name='input4')
             input5 = tf.identity(sg1[0], name='input5')
-            sg2 = tf.inferentia_op(
+            sg2 = tf.neuron_op(
                 [input4, input5], graph_def=subgraph_graph_def_str,
                 input_names=['input0:0', 'input1:0'],
                 input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
                 output_names=['relu0:0', 'sigmoid0:0'],
                 output_dtypes=[tf.float16, tf.float16],
                 output_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
-                executable=b'', name='inferentia_op2',
+                executable=b'', name='neuron_op2',
             )
             sg2 = tf.identity_n(sg2)
         input6 = tf.identity(sg0[1], name='input6')
         input7 = tf.identity(sg1[1], name='input7')
-        sg3 = tf.inferentia_op(
+        sg3 = tf.neuron_op(
             [input6, input7], graph_def=subgraph_graph_def_str,
             input_names=['input0:0', 'input1:0'],
             input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
             output_names=['relu0:0', 'sigmoid0:0'],
             output_dtypes=[tf.float16, tf.float16],
             output_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
-            executable=b'', name='inferentia_op3',
+            executable=b'', name='neuron_op3',
         )
         sg3 = tf.identity_n(sg3)
 
     graph_def = graph.as_graph_def()
     compiled_graph_def = compile_subgraphs(graph_def, workdir='./workdir')
     for node in compiled_graph_def.node:
-        if node.op == 'InferentiaOp':
+        if node.op == 'NeuronOp':
             assert node.attr['executable'].s != b''
     compiled_graph_def = compile_subgraphs(graph_def)
     for node in compiled_graph_def.node:
-        if node.op == 'InferentiaOp':
+        if node.op == 'NeuronOp':
             assert node.attr['executable'].s != b''
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=tf.Graph()) as sess:
@@ -1030,15 +1030,15 @@ def test_compile_subgraphs():
                 np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
 
 
-def _assert_inferentia_op(infer_graph):
-    op_list = [op for op in infer_graph.get_operations() if op.type == 'InferentiaOp']
+def _assert_neuron_op(infer_graph):
+    op_list = [op for op in infer_graph.get_operations() if op.type == 'NeuronOp']
     if not op_list:
-        raise AssertionError('No InferentiaOp is found')
+        raise AssertionError('No NeuronOp is found')
     return op_list
 
 
 def _assert_compiler_success(infer_graph):
-    op_list = _assert_inferentia_op(infer_graph)
+    op_list = _assert_neuron_op(infer_graph)
     for op in op_list:
         if not op.node_def.attr['executable'].s:
-            raise AssertionError('InferentiaOp {} is not compiled'.format(op.name))
+            raise AssertionError('NeuronOp {} is not compiled'.format(op.name))

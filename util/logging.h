@@ -35,7 +35,7 @@ int LogLevelStrToInt(const char* tf_env_var_val);
 
 #define INFERENTIA_OP_ERROR(CTX, ...) {                                     \
   ::tensorflow::Status _s = tensorflow::errors::Unknown(__VA_ARGS__);       \
-  LOG(ERROR) << "InferentiaOp kernel Error at "                             \
+  LOG(ERROR) << "NeuronOp kernel Error at "                             \
              << __FILE__ << ":" << __LINE__ << " : " << _s;   \
   CTX->SetStatus(_s);                                                       \
   return;                                                                   \

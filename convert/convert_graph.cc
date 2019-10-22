@@ -294,7 +294,7 @@ std::vector<string> split_tensor(string out_tensor) {
 
 // This function creates subgraph graph def and adds to main graph.
 tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
-  string eop_name = StrCat("inferentia_op_", s.eop_index);
+  string eop_name = StrCat("neuron_op_", s.eop_index);
   EILOG(1) << "Start Node building ...." << eop_name;
 
   std::vector<string> input_names;
@@ -536,7 +536,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   EILOG(2) << "String to be hashed " << hash_string << "Hashed String "
            << hasher(hash_string) << "Hex Rep" << hex_string;
 
-  eop_name = "inferentia_op_" + hex_string;
+  eop_name = "neuron_op_" + hex_string;
 
   s.eop_index_to_name_map->insert({hex_string, s.eop_index});
 
@@ -547,7 +547,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
 
   // todo: need ei_node_output_shapes to construct output tensors until krtd has shapes
   Node* eia_node;
-  TF_CHECK_OK(NodeBuilder(eop_name, "InferentiaOp")
+  TF_CHECK_OK(NodeBuilder(eop_name, "NeuronOp")
                   .Input(input_nodes)
                   .Attr("graph_def", in_graph_def_string)
                   .Attr("input_names", input_names)
@@ -962,7 +962,7 @@ void FindCulpritOps(Node* curr_node, std::set<string>& culprit_ops,
   // if current node is an EIAOp or a processed node which is already a culprit
   // node, and we have already seen EIA op in its ancestor, add all the ops
   // collected to the final culprit_ops list.
-  if (op_name == "InferentiaOp" ||
+  if (op_name == "NeuronOp" ||
       (processed_nodes.count(node_name) && culprit_ops.count(op_name))) {
     if (start_collection) {
       culprit_ops.insert(temp_list.begin(), temp_list.end());
@@ -1043,7 +1043,7 @@ std::set<string> GetOpsBetweenEIOps(tensorflow::Graph& graph,
     auto op_name = node->op_def().name();
     if (processed_nodes.find(node->name()) == processed_nodes.end()) {
       EILOG(1) << " GetOpsBetweenEIOps: Unprocessed nodes: " << op_name;
-      if (op_name == "InferentiaOp") {
+      if (op_name == "NeuronOp") {
         FindCulpritOps(node, culprit_ops, temp_list, input_names_set,
                        output_names_set, processed_nodes,
                        op_whitelist, op_cpu, op_inferentia,
@@ -1154,7 +1154,7 @@ static tensorflow::Status BuildEIAOp(
   // The loop eia ops could  be consumed by another eia  segment.
   // We will replace the loop eia op with all the nodes inside it , while
   // forming the final graph
-  op_whitelist->insert("InferentiaOp");
+  op_whitelist->insert("NeuronOp");
 
   // All inout nodes to exclude list
   for (auto omit_node_name : inputs) {
@@ -1244,7 +1244,7 @@ static tensorflow::Status BuildEIAOp(
   // ################## STEP 3 DONE ##########################
 
   // Reset whitelist. Not needed but doing for sanity.
-  op_whitelist->erase("InferentiaOp");
+  op_whitelist->erase("NeuronOp");
 
   // Loops ops can be removed from whitelist in 2 places:
   // 1. SanitizeWhiteListforLoopOps()
