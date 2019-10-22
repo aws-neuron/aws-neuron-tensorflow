@@ -7,16 +7,16 @@
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
-#include "kerr.pb.h"
-#include "kmgr_service.pb.h"
-#include "kmgr_service.grpc.pb.h"
+#include "nerr.pb.h"
+#include "nmgr_service.pb.h"
+#include "nmgr_service.grpc.pb.h"
 
 
 namespace tensorflow {
 namespace kaena {
 
 
-#define KRT_INVALID_NN_ID 0
+#define NRT_INVALID_NN_ID 0
 
 #define KAENA_ERROR(...)                                        \
     tensorflow::Status kstatus = tensorflow::errors::Unknown(   \
@@ -42,7 +42,7 @@ namespace kaena {
 
 #define KRTD_ERROR(fn_name, status, krtd_status)                                    \
     KAENA_ERROR(                                                                    \
-        "krt::", (fn_name), " failed with grpc status code ", status.error_code(),  \
+        "nrt::", (fn_name), " failed with grpc status code ", status.error_code(),  \
         ", error message \"", status.error_message(), "\"; krtd status code ",      \
         (krtd_status).code(), ", details \"", (krtd_status).details(), "\"");
 
@@ -63,11 +63,11 @@ namespace kaena {
 class SharedMemory {
 public:
     SharedMemory(size_t size) : size_(size) {}
-    tensorflow::Status initialize(const std::unique_ptr<krt::kmgr_v1::Stub> &stub);
+    tensorflow::Status initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     const std::string name() { return name_; }
     const size_t size() { return size_; }
     void *ptr() { return ptr_; }
-    void clear(const std::unique_ptr<krt::kmgr_v1::Stub> &stub);
+    void clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
 private:
     bool shm_open_done_ = false;
     bool krtd_shm_map_done_ = false;
@@ -93,9 +93,9 @@ class TPBGroup {
 public:
     TPBGroup() {};
     tensorflow::Status initialize(
-        std::unique_ptr<krt::kmgr_v1::Stub> &stub, int tpb_count,
+        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int tpb_count,
         const std::string &krtd_server);
-    void clear(std::unique_ptr<krt::kmgr_v1::Stub> &stub);
+    void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     uint32_t get_krt_eg_id() { return krt_eg_id_; };
     std::mutex *get_mutex_infer() { return &mutex_infer_; };
     size_t get_num_executable() { return krt_h_nn_ids_.size(); };
@@ -126,7 +126,7 @@ public:
     void clear();
     ~TPBManager() { clear(); };
 private:
-    std::unique_ptr<krt::kmgr_v1::Stub> stub_;
+    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int MAX_NUM_TPB = 64;
     std::array<TPBGroup, MAX_NUM_TPB> tpb_group_array_;
     size_t tpb_group_index_ = 0;

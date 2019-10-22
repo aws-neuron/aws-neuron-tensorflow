@@ -29,7 +29,7 @@ static std::string gen_shm_name() {
 
 
 tensorflow::Status SharedMemory::initialize(
-        const std::unique_ptr<krt::kmgr_v1::Stub> &stub) {
+        const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     name_ = gen_shm_name();
     int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG);
     if (shm_fd < 0) {
@@ -45,10 +45,10 @@ tensorflow::Status SharedMemory::initialize(
     }
     grpc::Status status;
     grpc::ClientContext context;
-    krt::shm_map_request shm_map_request;
+    nrt::shm_map_request shm_map_request;
     shm_map_request.set_path(name_);
     shm_map_request.set_mmap_prot(PROT_READ | PROT_WRITE);
-    krt::shm_map_response shm_map_response;
+    nrt::shm_map_response shm_map_response;
     status = stub->shm_map(&context, shm_map_request, &shm_map_response);
     if (!(status.ok() && 0 == shm_map_response.status().code())) {
         return tensorflow::errors::Unavailable("shared memory API is not available");
@@ -57,14 +57,14 @@ tensorflow::Status SharedMemory::initialize(
     return tensorflow::Status::OK();
 }
 
-void SharedMemory::clear(const std::unique_ptr<krt::kmgr_v1::Stub> &stub) {
+void SharedMemory::clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     if (krtd_shm_map_done_) {
-        krt::shm_unmap_request shm_unmap_request;
+        nrt::shm_unmap_request shm_unmap_request;
         shm_unmap_request.set_path(name_);
         shm_unmap_request.set_mmap_prot(PROT_READ | PROT_WRITE);
         grpc::Status status;
         grpc::ClientContext context;
-        krt::shm_unmap_response shm_unmap_response;
+        nrt::shm_unmap_response shm_unmap_response;
         status = stub->shm_unmap(&context, shm_unmap_request, &shm_unmap_response);
         if (status.ok() && 0 == shm_unmap_response.status().code()) {
             krtd_shm_map_done_ = false;
@@ -117,7 +117,7 @@ tensorflow::Status TPBManager::initialize() {
     if (nullptr == krt_channel) {
         KAENA_ERROR_STATUS("cannot establish grpc channel to neuron-rtd server");
     }
-    stub_ = krt::kmgr_v1::NewStub(krt_channel);
+    stub_ = nrt::nmgr_v1::NewStub(krt_channel);
     if (nullptr == stub_) {
         KAENA_ERROR_STATUS("cannot create stub");
     }
@@ -184,13 +184,13 @@ TPBGroup *TPBManager::get_tpb_group() {
 
 
 tensorflow::Status TPBGroup::initialize(
-        std::unique_ptr<krt::kmgr_v1::Stub> &stub, int tpb_count,
+        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int tpb_count,
         const std::string &krtd_server) {
     grpc::Status status;
     grpc::ClientContext context;
-    krt::create_eg_request create_eg_request;
-    create_eg_request.set_tpb_count(tpb_count);
-    krt::create_eg_response create_eg_response;
+    nrt::create_eg_request create_eg_request;
+    create_eg_request.set_nc_count(tpb_count);
+    nrt::create_eg_response create_eg_response;
     status = stub->create_eg(&context, create_eg_request, &create_eg_response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
         std::string message(" is unavailable. Is neuron-rtd running?");
@@ -206,29 +206,29 @@ tensorflow::Status TPBGroup::initialize(
     KRTD_CHECK_RETURN("create_eg", status, create_eg_response);
     krt_eg_id_ = create_eg_response.h_eg().id();
     create_eg_done_ = true;
-    krt_nn_id_running_ = KRT_INVALID_NN_ID;
+    krt_nn_id_running_ = NRT_INVALID_NN_ID;
     return tensorflow::Status::OK();
 }
 
-void TPBGroup::clear(std::unique_ptr<krt::kmgr_v1::Stub> &stub) {
+void TPBGroup::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     grpc::Status status;
     for (uint32_t nn_id : krt_h_nn_ids_) {
         // stop
         if (nn_is_running(nn_id)) {
             grpc::ClientContext context;
-            krt::stop_request stop_request;
+            nrt::stop_request stop_request;
             stop_request.mutable_h_nn()->set_id(nn_id);
-            krt::stop_response stop_response;
+            nrt::stop_response stop_response;
             status = stub->stop(&context, stop_request, &stop_response);
             KRTD_CHECK("stop", status, stop_response);
-            nn_set_current_running(KRT_INVALID_NN_ID);
+            nn_set_current_running(NRT_INVALID_NN_ID);
         }
 
         // unload
         grpc::ClientContext context;
-        krt::unload_request unload_request;
+        nrt::unload_request unload_request;
         unload_request.mutable_h_nn()->set_id(nn_id);
-        krt::unload_response unload_response;
+        nrt::unload_response unload_response;
         status = stub->unload(&context, unload_request, &unload_response);
         KRTD_CHECK("unload", status, unload_response);
     }
@@ -236,9 +236,9 @@ void TPBGroup::clear(std::unique_ptr<krt::kmgr_v1::Stub> &stub) {
     if (create_eg_done_) {
         // destroy_eg
         grpc::ClientContext context;
-        krt::destroy_eg_request destroy_eg_request;
+        nrt::destroy_eg_request destroy_eg_request;
         destroy_eg_request.mutable_h_eg()->set_id(krt_eg_id_);
-        krt::destroy_eg_response destroy_eg_response;
+        nrt::destroy_eg_response destroy_eg_response;
         status = stub->destroy_eg(&context, destroy_eg_request, &destroy_eg_response);
         KRTD_CHECK("destroy_eg", status, destroy_eg_response);
         create_eg_done_ = false;

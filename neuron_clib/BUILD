@@ -8,7 +8,7 @@ cc_library(
     srcs = ["neuron_clib.cc"],
     hdrs = ["neuron_clib.h"],
     deps = [
-        ":kmgr_service.grpc.o",
+        ":nmgr_service.grpc.o",
         ":libuuid",
         "@grpc//:grpc++_codegen_base",
         "//tensorflow/python/neuron:neuron_logging",
@@ -23,13 +23,13 @@ cc_library(
 
 # nrt proto libraries
 cc_proto_library(
-    name = "kmgr_service.grpc.o",
+    name = "nmgr_service.grpc.o",
     srcs = [
-        "nrt_proto/kmgr_service.proto",
-        "nrt_proto/kmgr.proto",
-        "nrt_proto/kmetric.proto",
+        "nrt_proto/nmgr_service.proto",
+        "nrt_proto/nmgr.proto",
+        "nrt_proto/nmetric.proto",
         "nrt_proto/common.proto",
-        "nrt_proto/kerr.proto",
+        "nrt_proto/nerr.proto",
     ],
     protoc = "@com_google_protobuf//:protoc",
     include = "nrt_proto/",

@@ -49,8 +49,8 @@ private:
     std::string op_name_;
     TPBGroup *tpb_group_ = nullptr;
     std::string krtd_server_;
-    std::unique_ptr<krt::kmgr_v1::Stub> stub_;
-    uint32_t krt_nn_id_ = KRT_INVALID_NN_ID;
+    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
+    uint32_t krt_nn_id_ = NRT_INVALID_NN_ID;
     bool krt_load_done_ = false;
     bool use_shared_memory_ = false;
     bool ready_ = false;

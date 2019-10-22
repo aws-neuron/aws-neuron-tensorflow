@@ -75,7 +75,7 @@ tensorflow::Status NeuronOp::initialize(
     if (nullptr == krtd_channel) {
         KAENA_ERROR_STATUS("cannot establish grpc channel to krtd server");
     }
-    stub_ = krt::kmgr_v1::NewStub(krtd_channel);
+    stub_ = nrt::nmgr_v1::NewStub(krtd_channel);
     if (nullptr == stub_) {
         KAENA_ERROR_STATUS("cannot create krtd stub");
     }
@@ -96,35 +96,35 @@ tensorflow::Status NeuronOp::initialize(
 
     // load
     grpc::ClientContext context;
-    krt::load_response load_response;
-    std::unique_ptr<grpc::ClientWriter<krt::load_request> > writer(
+    nrt::load_response load_response;
+    std::unique_ptr<grpc::ClientWriter<nrt::load_request> > writer(
         stub_->load(&context, &load_response));
-    krt::load_request load_request;
+    nrt::load_request load_request;
 
     // krt_eg_id
     load_request.mutable_h_eg()->set_id(tpb_group_->get_krt_eg_id());
     writer->Write(load_request);
 
-    // kelp_size
+    // nef_size
     size_t exec_total_size = executable.size();
-    load_request.set_kelp_size(exec_total_size);
+    load_request.set_nef_size(exec_total_size);
     writer->Write(load_request);
 
-    // todo: read these info from kelp
+    // todo: read these info from nef
     infer_timeout_ = 10;
     infer_queue_length_ = 4;
-    krt::model_params *model_params = load_request.mutable_model_params();
+    nrt::model_params *model_params = load_request.mutable_model_params();
     model_params->mutable_timeout()->set_data(infer_timeout_);
     model_params->mutable_ninfer()->set_data(infer_queue_length_);
     writer->Write(load_request);
 
-    // kelp file content
+    // nef file content
     StringPiece executable_view(executable);
     for (size_t pos = 0; pos < exec_total_size; pos += EXEC_MAX_CHUNK_SIZE) {
         size_t remaining = exec_total_size - pos;
         size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
         StringPiece file_chunk = executable_view.substr(pos, chunk_size);
-        load_request.mutable_kelp_chunk()->set_chunk(file_chunk.data(), chunk_size);
+        load_request.mutable_nef_chunk()->set_chunk(file_chunk.data(), chunk_size);
         writer->Write(load_request);
     }
     writer->WritesDone();
@@ -225,20 +225,20 @@ NeuronOp::~NeuronOp() {
     // stop
     if (tpb_group_->nn_is_running(krt_nn_id_)) {
         grpc::ClientContext context;
-        krt::stop_request stop_request;
+        nrt::stop_request stop_request;
         stop_request.mutable_h_nn()->set_id(krt_nn_id_);
-        krt::stop_response stop_response;
+        nrt::stop_response stop_response;
         status = stub_->stop(&context, stop_request, &stop_response);
         KRTD_CHECK("stop", status, stop_response);
-        tpb_group_->nn_set_current_running(KRT_INVALID_NN_ID);
+        tpb_group_->nn_set_current_running(NRT_INVALID_NN_ID);
     }
 
     // unload
     if (krt_load_done_) {
         grpc::ClientContext context;
-        krt::unload_request unload_request;
+        nrt::unload_request unload_request;
         unload_request.mutable_h_nn()->set_id(krt_nn_id_);
-        krt::unload_response unload_response;
+        nrt::unload_response unload_response;
         status = stub_->unload(&context, unload_request, &unload_response);
         KRTD_CHECK("unload", status, unload_response);
     }
@@ -531,19 +531,19 @@ tensorflow::Status NeuronOp::start_model() {
     if (!tpb_group_->nn_is_running(krt_nn_id_) && tpb_group_->some_nn_is_running()) {
         // if krt_nn_id_ is not running, stop the current running model
         grpc::ClientContext context;
-        krt::stop_request stop_request;
+        nrt::stop_request stop_request;
         stop_request.mutable_h_nn()->set_id(tpb_group_->nn_get_current_running());
-        krt::stop_response stop_response;
+        nrt::stop_response stop_response;
         status = stub_->stop(&context, stop_request, &stop_response);
         KRTD_CHECK_RETURN("stop", status, stop_response);
-        tpb_group_->nn_set_current_running(KRT_INVALID_NN_ID);
+        tpb_group_->nn_set_current_running(NRT_INVALID_NN_ID);
     }
     if (!tpb_group_->some_nn_is_running()) {
         // if no model is running, start krt_nn_id_
         grpc::ClientContext context;
-        krt::start_request start_request;
+        nrt::start_request start_request;
         start_request.mutable_h_nn()->set_id(krt_nn_id_);
-        krt::start_response start_response;
+        nrt::start_response start_response;
         status = stub_->start(&context, start_request, &start_response);
         KRTD_CHECK_RETURN("start", status, start_response);
         tpb_group_->nn_set_current_running(krt_nn_id_);
@@ -589,9 +589,9 @@ static std::string mangle_op_name(const std::string &op_name) {
 void NeuronOp::profile_dump_info(const std::string &graph_def, const std::string &executable) {
     std::string filename_base = profile_dir_ + "/" + mangle_op_name(op_name_);
     std::string filename_pb = filename_base + ".pb";
-    std::string filename_kelp = filename_base + ".kelp";
+    std::string filename_nef = filename_base + ".nef";
     std::ofstream(filename_pb, std::ios::binary) << graph_def;
-    std::ofstream(filename_kelp, std::ios::binary) << executable;
+    std::ofstream(filename_nef, std::ios::binary) << executable;
 }
 
 
@@ -655,9 +655,9 @@ tensorflow::Status NeuronOp::infer(
                            input_tensors.size(), ", input_names_ size",
                            input_names_.size());
     }
-    krt::infer_request infer_request;
+    nrt::infer_request infer_request;
     for (size_t idx = 0; idx < input_names_.size(); ++idx) {
-        krt::infer_io *infer_io = infer_request.add_ifmap();
+        nrt::infer_io *infer_io = infer_request.add_ifmap();
         infer_io->set_name(input_names_[idx]);
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (tensor_data.size() != input_tensor_sizes_[idx]) {
@@ -682,7 +682,7 @@ tensorflow::Status NeuronOp::infer(
     }
     if (use_shared_memory_) {
         for (size_t idx = 0; idx < output_names_.size(); ++idx) {
-            krt::infer_io *infer_io = infer_request.add_shm_ofmap();
+            nrt::infer_io *infer_io = infer_request.add_shm_ofmap();
             infer_io->set_name(output_names_[idx]);
             infer_io->mutable_buf_shm()->set_path(output_shms_[idx].name());
         }
@@ -691,15 +691,15 @@ tensorflow::Status NeuronOp::infer(
 
     // infer
     grpc::ClientContext context;
-    krt::infer_response infer_response;
+    nrt::infer_response infer_response;
     timestamps->mark_above_krtd_infer();
     grpc::Status status = stub_->infer(&context, infer_request, &infer_response);
     timestamps->mark_below_krtd_infer();
     if (status.ok()) {
         int code = infer_response.status().code();
         // ignore inf/nan errors
-        if (krt::kerr::KERR_INFER_COMPLETED_WITH_NUM_ERR == code) {
-            infer_response.mutable_status()->set_code(krt::kerr::KERR_OK);
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == code) {
+            infer_response.mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
     KRTD_CHECK_RETURN("infer", status, infer_response);
@@ -750,9 +750,9 @@ tensorflow::Status NeuronOp::infer_post(
                            input_names_.size());
     }
 
-    krt::infer_request infer_request;
+    nrt::infer_request infer_request;
     for (size_t idx = 0; idx < input_names_.size(); ++idx) {
-        krt::infer_io *infer_io = infer_request.add_ifmap();
+        nrt::infer_io *infer_io = infer_request.add_ifmap();
         infer_io->set_name(input_names_[idx]);
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (tensor_data.size() != input_tensor_sizes_[idx]) {
@@ -767,7 +767,7 @@ tensorflow::Status NeuronOp::infer_post(
 
     // infer
     grpc::ClientContext context;
-    krt::infer_post_response infer_post_response;
+    nrt::infer_post_response infer_post_response;
     grpc::Status status = stub_->infer_post(&context, infer_request, &infer_post_response);
     KRTD_CHECK_RETURN("infer_post", status, infer_post_response);
     *infer_post_cookie = infer_post_response.cookie();
@@ -780,12 +780,12 @@ tensorflow::Status NeuronOp::infer_wait(uint64_t infer_post_cookie) {
         KAENA_ERROR_STATUS("not ready for inference");
     }
 
-    krt::infer_wait_request infer_wait_request;
+    nrt::infer_wait_request infer_wait_request;
     infer_wait_request.set_cookie(infer_post_cookie);
 
     // infer_wait
     grpc::ClientContext context;
-    krt::infer_response infer_response;
+    nrt::infer_response infer_response;
     grpc::Status status = stub_->infer_wait(&context, infer_wait_request, &infer_response);
     KRTD_CHECK_RETURN("infer_wait", status, infer_response);
 
