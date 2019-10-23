@@ -19,13 +19,6 @@ cc_library(
     deps = [":neuron_op_kernel"],
 )
 
-cc_library(
-    name = "neuron_logging",
-    srcs = ["util/logging.cc"],
-    hdrs = ["util/logging.h"],
-    deps = ["//tensorflow/core:logger"],
-)
-
 tf_py_wrap_cc(
     name = "whitelist_partition_swig",
     srcs = ["convert/whitelist_partition.i"],
@@ -104,13 +97,11 @@ cc_library(
     srcs = ["kernels/neuron_op.cc"],
     hdrs = [
         "kernels/neuron_op.h",
-        "util/logging.h",
     ],
     copts = tf_copts(),
     visibility = ["//visibility:public"],
     deps = [
         "//tensorflow/core:protos_all_cc",
-        ":neuron_logging",
         ":neuron_clib",
     ] + tf_custom_op_library_additional_deps(),
     alwayslink = 1,
@@ -146,7 +137,6 @@ cc_library(
         "//tensorflow/core:core_cpu_headers_lib",
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",
-        ":neuron_logging",
         ":neuron_clib",
     ],
     visibility = ["//visibility:public"],

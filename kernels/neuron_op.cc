@@ -14,7 +14,6 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include "tensorflow/python/neuron/kernels/neuron_op.h"
-#include "tensorflow/python/neuron/util/logging.h"
 #include <grpcpp/grpcpp.h>
 
 
@@ -114,12 +113,12 @@ tensorflow::Status NeuronOp::initialize(
     load_request.mutable_h_eg()->set_id(neuron_device_->get_krt_eg_id());
     writer->Write(load_request);
 
-    // nef_size
+    // neff_size
     size_t exec_total_size = executable.size();
     load_request.set_neff_size(exec_total_size);
     writer->Write(load_request);
 
-    // todo: read these info from nef
+    // todo: read these info from neff
     infer_timeout_ = 10;
     infer_queue_length_ = 4;
     nrt::model_params *model_params = load_request.mutable_model_params();
@@ -127,7 +126,7 @@ tensorflow::Status NeuronOp::initialize(
     model_params->mutable_ninfer()->set_data(infer_queue_length_);
     writer->Write(load_request);
 
-    // nef file content
+    // neff file content
     StringPiece executable_view(executable);
     for (size_t pos = 0; pos < exec_total_size; pos += EXEC_MAX_CHUNK_SIZE) {
         size_t remaining = exec_total_size - pos;
@@ -604,9 +603,9 @@ static std::string mangle_op_name(const std::string &op_name) {
 void NeuronOp::profile_dump_info(const std::string &graph_def, const std::string &executable) {
     std::string filename_base = profile_dir_ + "/" + mangle_op_name(op_name_);
     std::string filename_pb = filename_base + ".pb";
-    std::string filename_nef = filename_base + ".nef";
+    std::string filename_neff = filename_base + ".neff";
     std::ofstream(filename_pb, std::ios::binary) << graph_def;
-    std::ofstream(filename_nef, std::ios::binary) << executable;
+    std::ofstream(filename_neff, std::ios::binary) << executable;
 }
 
 

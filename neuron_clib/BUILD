@@ -11,7 +11,6 @@ cc_library(
         ":nmgr_service.grpc.o",
         ":libuuid",
         "@grpc//:grpc++_codegen_base",
-        "//tensorflow/python/neuron:neuron_logging",
     ] + tf_custom_op_library_additional_deps(),
 )
 

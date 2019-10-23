@@ -26,7 +26,7 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 #include "tensorflow/python/neuron/convert/convert_graph.h"
 #include "tensorflow/python/neuron/segment/segment.h"
-#include "tensorflow/python/neuron/util/logging.h"
+
 
 namespace tensorflow {
 namespace kaena {
@@ -120,7 +120,6 @@ Status MakePlaceholder(string name, Node* old_node, Node** new_node, Graph* g,
             .Attr("dtype", n_type)
             .Finalize(g, new_node);
   } else if ((GetNodeAttr(attrs, "output_shapes", &v_partial_shape).ok())) {
-    EILOG(1) << v_partial_shape[output_index];
     s = NodeBuilder(name, "Placeholder")
             .Attr("shape", v_partial_shape[output_index])
             .Attr("dtype", n_type)
@@ -130,8 +129,10 @@ Status MakePlaceholder(string name, Node* old_node, Node** new_node, Graph* g,
             .Attr("dtype", n_type)
             .Finalize(g, new_node);
   }
-  EILOG(1) << new_node ? (*new_node)->DebugString()
-                       : "MakePlaceholder failed. new_node is NULL";
+#ifndef NDEBUG
+  LOG(INFO) << new_node ? (*new_node)->DebugString()
+                        : "MakePlaceholder failed. new_node is NULL";
+#endif
   TF_CHECK_OK(s);
   return s;
 }
@@ -145,11 +146,15 @@ void GetSubGraphIncomingEdges(const tensorflow::Graph& graph,
     for (const tensorflow::Edge* edge : node->in_edges()) {
       if (!subgraph_node_ids.count(edge->src()->id()) &&
           !edge->src()->IsSource()) {
-        EILOG(2) << "src: " << edge->src()->name()
-                 << " dst: " << edge->dst()->name();
+#ifndef NDEBUG
+        LOG(INFO) << "src: " << edge->src()->name()
+                  << " dst: " << edge->dst()->name();
+#endif
         incoming_edges->insert(edge);
       } else {
-        EILOG(2) << node->name() << " -> " << edge->src()->name() << " N, ";
+#ifndef NDEBUG
+        LOG(INFO) << node->name() << " -> " << edge->src()->name() << " N, ";
+#endif
       }
     }
   }
@@ -164,10 +169,14 @@ void GetSubGraphOutgoingEdges(const tensorflow::Graph& graph,
     for (const tensorflow::Edge* edge : node->out_edges()) {
       if (!subgraph_node_ids.count(edge->dst()->id()) &&
           !edge->dst()->IsSink()) {
-        EILOG(2) << node->name() << " -> " << edge->dst()->name() << " Y, ";
+#ifndef NDEBUG
+        LOG(INFO) << node->name() << " -> " << edge->dst()->name() << " Y, ";
+#endif
         outgoing_edges->insert(edge);
       } else {
-        EILOG(2) << node->name() << " -> " << edge->dst()->name() << " N, ";
+#ifndef NDEBUG
+        LOG(INFO) << node->name() << " -> " << edge->dst()->name() << " N, ";
+#endif
       }
     }
   }
@@ -198,38 +207,40 @@ tensorflow::Status BuildNodeMap(
   return tensorflow::Status::OK();
 }
 
+#ifndef NDEBUG
 static void printDataTypeVector(std::vector<tensorflow::DataType>& dt_vec) {
-  EILOG(2) << "printing data type vector" << std::endl;
+  LOG(INFO) << "printing data type vector" << std::endl;
   for (tensorflow::DataType dt : dt_vec) {
-    EILOG(2) << dt << std::endl;
+    LOG(INFO) << dt << std::endl;
   }
 }
 
 static void printNodeOutVector(std::vector<NodeBuilder::NodeOut>& node_vec) {
   for (NodeBuilder::NodeOut node : node_vec) {
-    EILOG(2) << node.name << std::endl;
+    LOG(INFO) << node.name << std::endl;
   }
 }
 
 static void printNameVector(std::vector<string>& name_vec) {
-  EILOG(2) << "printing name vector" << std::endl;
+  LOG(INFO) << "printing name vector" << std::endl;
   for (string name : name_vec) {
-    EILOG(2) << name << std::endl;
+    LOG(INFO) << name << std::endl;
   }
 }
 
 static void printNodes(const Graph& graph) {
-  EILOG(2) << "printing nodes" << std::endl;
+  LOG(INFO) << "printing nodes" << std::endl;
   for (Node* node : graph.nodes()) {
-    if (node) EILOG(2) << node->name() << std::endl;
+    if (node) LOG(INFO) << node->name() << std::endl;
   }
 }
 
 static void printGraphDefNodes(const GraphDef& gdef) {
   for (int i = 0; i < gdef.node_size(); i++) {
-    EILOG(2) << "node: " << gdef.node(i).name();
+    LOG(INFO) << "node: " << gdef.node(i).name();
   }
 }
+#endif
 
 // helper function
 template <class T>
@@ -237,17 +248,18 @@ bool IsPresentinMap(const T& map_list, const string& value) {
   return (map_list.find(value) != map_list.end());
 }
 
+#ifndef NDEBUG
 static void GetOutputInforamtion(const tensorflow::Graph& graph,
                                  const std::set<int>& subgraph_node_ids,
                                  std::vector<string>& output_names,
                                  std::vector<tensorflow::DataType>& outT) {
   for (unsigned int ii = 0; ii < output_names.size(); ii++) {
-    EILOG(2) << subgraph_node_ids.size() << " Looking for " << output_names[ii]
+    LOG(INFO) << subgraph_node_ids.size() << " Looking for " << output_names[ii]
              << "\n";
     for (int node_id : subgraph_node_ids) {
       tensorflow::Node* node = graph.FindNodeId(node_id);
       string name = output_names[ii];
-      EILOG(2) << "curr node name:  " << node->name() << "\n";
+      LOG(INFO) << "curr node name:  " << node->name() << "\n";
       if (name.compare(node->name()) == 0) {
         Node* tmp;
         // Add Node to input and copy types and things
@@ -256,7 +268,9 @@ static void GetOutputInforamtion(const tensorflow::Graph& graph,
     }
   }
 }
+#endif
 
+#ifndef NDEBUG
 string GetCommonNameScope(const string& op_name_a, const string& op_name_b) {
   size_t last_scope_separator = 0;
   for (size_t i = 0; i < std::min(op_name_a.size(), op_name_b.size()); ++i) {
@@ -271,13 +285,14 @@ string GetCommonNameScope(const string& op_name_a, const string& op_name_b) {
 
 static void printGraphEdges(Graph* graph) {
   for (tensorflow::Edge* edge : graph->edges()) {
-    EILOG(2) << "edge " << edge->id() << ": " << edge->src()->name() << ":"
-             << edge->src_output() << " (" << edge->src()->op_def().name()
-             << ") -> " << edge->dst()->name() << ":" << edge->dst_input()
-             << " (" << edge->dst()->op_def().name() << ") "
-             << "Control Edge: " << edge->IsControlEdge();
+    LOG(INFO) << "edge " << edge->id() << ": " << edge->src()->name() << ":"
+              << edge->src_output() << " (" << edge->src()->op_def().name()
+              << ") -> " << edge->dst()->name() << ":" << edge->dst_input()
+              << " (" << edge->dst()->op_def().name() << ") "
+              << "Control Edge: " << edge->IsControlEdge();
   }
 }
+#endif
 
 // Helper function to return tensor_name and index in a vector
 // will return 0 if name doesn't contain ':' in name.
@@ -295,7 +310,9 @@ std::vector<string> split_tensor(string out_tensor) {
 // This function creates subgraph graph def and adds to main graph.
 tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   string eop_name = StrCat("neuron_op_", s.eop_index);
-  EILOG(1) << "Start Node building ...." << eop_name;
+#ifndef NDEBUG
+  LOG(INFO) << "Start Node building ...." << eop_name;
+#endif
 
   std::vector<string> input_names;
   std::vector<tensorflow::DataType> input_dtypes;
@@ -325,8 +342,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   // placeholders do not need to specify inputs.
   for (auto incoming_edge : s.subgraph_incoming_edges) {
     if (incoming_edge->IsControlEdge()) {
-      EILOG(2) << "Control edge: src-> " << incoming_edge->src()->name()
-               << " dst-> " << incoming_edge->dst()->name();
+#ifndef NDEBUG
+      LOG(INFO) << "Control edge: src-> " << incoming_edge->src()->name()
+                << " dst-> " << incoming_edge->dst()->name();
+#endif
 
       // Need to remove this input from the node. Control edges incoming to
       // the subgraph should point to eia op directly. The inputs in nodes
@@ -368,9 +387,11 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     tensorflow::Node* inside_node = s.graph.FindNodeId(inside_node_id);
     tensorflow::Node* outside_node = s.graph.FindNodeId(outside_node_id);
 
-    EILOG(2) << "edge->  src:" << outside_node->name()
-             << " idx: " << outside_node_index << " dst:" << inside_node->name()
-             << " idx: " << inside_node_index;
+#ifndef NDEBUG
+    LOG(INFO) << "edge->  src:" << outside_node->name()
+              << " idx: " << outside_node_index << " dst:" << inside_node->name()
+              << " idx: " << inside_node_index;
+#endif
 
     NodeDef placeholder_def;
     auto placeholder_name = s.graph.NewName(
@@ -402,8 +423,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
             : inside_node->def();
     inside_node_def.set_input(inside_node_index, placeholder_name.c_str());
 
-    EILOG(2) << "Input node def:" << inside_node_def.DebugString();
-    EILOG(2) << " Place holder def :" << placeholder_def.DebugString();
+#ifndef NDEBUG
+    LOG(INFO) << "Input node def:" << inside_node_def.DebugString();
+    LOG(INFO) << " Place holder def :" << placeholder_def.DebugString();
+#endif
 
     // for creating EIA op node,storing:
     // input_names -> Attr(input_names) -> name of input nodes inside subgraph
@@ -420,11 +443,13 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   }
 
   // Debug code
-  EILOG(2) << " Incoming nodes in graphdef";
+#ifndef NDEBUG
+  LOG(INFO) << " Incoming nodes in graphdef";
   for (auto it = subgraph_nodes.begin(); it != subgraph_nodes.end(); it++) {
-    EILOG(2) << "name:" << it->first << "\n Nodedef:\n"
-             << it->second.DebugString();
+    LOG(INFO) << "name:" << it->first << "\n Nodedef:\n"
+              << it->second.DebugString();
   }
+#endif
 
   // Adding all the interior nodes to the list.
   for (auto node_id : s.subgraph_node_ids) {
@@ -448,8 +473,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
         DataType tensor_dtype = node->output_type(tensor_index);
         main_graph_output_nodes[node->name()].push_back(tensor_dtype);
         main_graph_output_shapes[node->name()].push_back(v_partial_shape[tensor_index]);
-        EILOG(1) << " ConvertSubGraphToEIANodeDef node: making pair: ("
-                 << node->name() << " , " << tensor_dtype << " )";
+#ifndef NDEBUG
+        LOG(INFO) << " ConvertSubGraphToEIANodeDef node: making pair: ("
+                  << node->name() << " , " << tensor_dtype << " )";
+#endif
       }
     }
     if (subgraph_nodes.find(node->name()) == subgraph_nodes.end()) {
@@ -463,8 +490,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     (*subgraph_graph_def.add_node()) = it->second;
   }
 
-  EILOG(2) << "EI subgraph graphdef: " << subgraph_graph_def.DebugString();
+#ifndef NDEBUG
+  LOG(INFO) << "EI subgraph graphdef: " << subgraph_graph_def.DebugString();
   printGraphDefNodes(subgraph_graph_def);
+#endif
 
   string in_graph_def_string = "";
   if (!subgraph_graph_def.SerializeToString(&in_graph_def_string)) {
@@ -472,8 +501,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   }
 
   // Gather output metadata
-  EILOG(2) << "eia op: " << eop_name
-           << " s.output_inds: " << s.output_inds.size();
+#ifndef NDEBUG
+  LOG(INFO) << "eia op: " << eop_name
+            << " s.output_inds: " << s.output_inds.size();
+#endif
   std::vector<string> ei_node_output_names;
   std::vector<tensorflow::DataType> ei_node_output_dtypes;
   std::vector<PartialTensorShape> ei_node_output_shapes;
@@ -484,9 +515,13 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     string op_name = node->name();
     string tensor_name = op_name;
 
-    EILOG(2) << "op_name: " << op_name;
+#ifndef NDEBUG
+    LOG(INFO) << "op_name: " << op_name;
+#endif
     tensorflow::strings::StrAppend(&tensor_name, ":", output_idx);
-    EILOG(2) << "Output tensor name: " << tensor_name;
+#ifndef NDEBUG
+    LOG(INFO) << "Output tensor name: " << tensor_name;
+#endif
     ei_node_output_names.push_back(tensor_name);
 
     tensorflow::DataType tf_dtype = node->output_type(output_idx);
@@ -507,7 +542,9 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     auto name = name_type.first;
     auto dtype = name_type.second;
     for (auto dtype : name_type.second) {
-      EILOG(0) << "tensorname: " << name << " dtype: " << dtype;
+#ifndef NDEBUG
+      LOG(INFO) << "tensorname: " << name << " dtype: " << dtype;
+#endif
       ei_node_output_names.push_back(name + ":" + std::to_string(counter++));
       ei_node_output_dtypes.push_back(dtype);
     }
@@ -516,7 +553,9 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     }
   }
 
-  EILOG(1) << "Finished op preparation";
+#ifndef NDEBUG
+  LOG(INFO) << "Finished op preparation";
+#endif
 
   StringPieceHasher hasher;
   std::string hash_string = "";
@@ -533,8 +572,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   stream << std::hex << hasher(hash_string);
   std::string hex_string(stream.str());
 
-  EILOG(2) << "String to be hashed " << hash_string << "Hashed String "
-           << hasher(hash_string) << "Hex Rep" << hex_string;
+#ifndef NDEBUG
+  LOG(INFO) << "String to be hashed " << hash_string << "Hashed String "
+            << hasher(hash_string) << "Hex Rep" << hex_string;
+#endif
 
   eop_name = "neuron_op_" + hex_string;
 
@@ -566,28 +607,38 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   // start_index is the index of ei op output to which IdentityN node should be
   // connected to.
   auto start_index = s.output_inds.size();
-  EILOG(1) << "start_index: " << start_index;
+#ifndef NDEBUG
+  LOG(INFO) << "start_index: " << start_index;
+#endif
   std::vector<tensorflow::NodeBuilder::NodeOut> identity_inputs;
 
   // Iterate through the output node list found.
   for (auto name_index : main_graph_output_nodes) {
     identity_inputs.clear();
     auto name = name_index.first;
-    EILOG(1) << " indentity inputs: name:" << name;
-    EILOG(1) << " max index: " << map_out_names_to_index[name];
+#ifndef NDEBUG
+    LOG(INFO) << " indentity inputs: name:" << name;
+    LOG(INFO) << " max index: " << map_out_names_to_index[name];
+#endif
     for (int i = 0; i < main_graph_output_nodes[name].size(); ++i) {
-      EILOG(1) << "start_index: " << start_index;
+#ifndef NDEBUG
+      LOG(INFO) << "start_index: " << start_index;
+#endif
       identity_inputs.push_back(NodeBuilder::NodeOut(eia_node, start_index++));
     }
     Node* node;
     TF_CHECK_OK(NodeBuilder(name, "IdentityN")
                     .Input(identity_inputs)
                     .Finalize(&s.graph, &node));
-    EILOG(1) << " New output IdentityN node: " << node->def().DebugString();
+#ifndef NDEBUG
+    LOG(INFO) << " New output IdentityN node: " << node->def().DebugString();
+#endif
   }
 
-  EILOG(1) << "Created new node ..............";
-  EILOG(2) << " new node: " << eia_node->def().DebugString();
+#ifndef NDEBUG
+  LOG(INFO) << "Created new node ..............";
+  LOG(INFO) << " new node: " << eia_node->def().DebugString();
+#endif
 
   return tensorflow::Status::OK();
 }
@@ -599,7 +650,9 @@ std::unordered_map<string, std::vector<int>> BuildTensorNameMap(
     string node_name;
     int index;
     std::tie(node_name, index) = ParseTensorName(tensor_name);
-    EILOG(2) << "node_name : " << node_name << " index:" << index;
+#ifndef NDEBUG
+    LOG(INFO) << "node_name : " << node_name << " index:" << index;
+#endif
     result[node_name].push_back(index);
   }
   return result;
@@ -648,10 +701,14 @@ tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams* params) {
   // AddNode does not wire edges.
   // Re-map incoming edges to use the new eia node instead of the orig subgraph
   std::map<std::pair<int, int>, int> subgraph_edge_to_input_map;
-  EILOG(2) << "subgraph_edge_to_input_map: ";
+#ifndef NDEBUG
+  LOG(INFO) << "subgraph_edge_to_input_map: ";
+#endif
   for (size_t i = 0; i < params->subgraph_inputs.size(); ++i) {
-    EILOG(2) << params->subgraph_inputs.at(i).first << " , "
-             << params->subgraph_inputs.at(i).second << " i " << i;
+#ifndef NDEBUG
+    LOG(INFO) << params->subgraph_inputs.at(i).first << " , "
+              << params->subgraph_inputs.at(i).second << " i " << i;
+#endif
     subgraph_edge_to_input_map.insert({params->subgraph_inputs.at(i), i});
   }
   for (const tensorflow::Edge* edge : params->subgraph_incoming_edges) {
@@ -663,10 +720,12 @@ tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams* params) {
     params->graph.RemoveEdge(edge);
   }
 
-  EILOG(2) << "new wiring edges: " << eia_node->in_edges().size();
+#ifndef NDEBUG
+  LOG(INFO) << "new wiring edges: " << eia_node->in_edges().size();
   for (const tensorflow::Edge* edge : eia_node->in_edges()) {
-    EILOG(2) << edge->src()->name() << " port: " << edge->src_output();
+    LOG(INFO) << edge->src()->name() << " port: " << edge->src_output();
   }
+#endif
 
   TF_RETURN_IF_ERROR(status);
 
@@ -727,13 +786,17 @@ static tensorflow::Status ProcessSegments(
         string msg =
             "Failed to find node in the graph while creating "
             "processing segments !!!!";
-        EILOG(0) << msg;
+#ifndef NDEBUG
+        LOG(INFO) << msg;
+#endif
         return tensorflow::Status(tensorflow::error::Code::INTERNAL, msg);
       }
       subgraph_node_ids.insert(node_map.at(node_name)->id());
     }
-    EILOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
-    EILOG(2) << "Subgraph nodes" << oss.str();
+#ifndef NDEBUG
+    LOG(INFO) << "Subgraph num nodes" << subgraph_node_ids.size();
+    LOG(INFO) << "Subgraph nodes" << oss.str();
+#endif
     // defaulting to FP32 , this var is not used right now.
     int precision_mode = FP32MODE;
 
@@ -767,7 +830,9 @@ void ReplaceLoopEIAOpsWithNodes(
   for (auto node_name : segment_nodes) {
     if (node_name.find("eop") != std::string::npos) {
       internal_eop_ops.insert(node_name);
-      EILOG(2) << " eop op " << node_name;
+#ifndef NDEBUG
+      LOG(INFO) << " eop op " << node_name;
+#endif
       // loop_segments index will match the eop name index i.e 'x' in 'eop_x'
       // since we created eop_x while iterating through loop_segments
       std::size_t found = node_name.find_last_of("_");
@@ -775,7 +840,9 @@ void ReplaceLoopEIAOpsWithNodes(
       auto loop_segment_index = (*eop_index_to_name_map)[node_name.substr(
           found + 1, node_name.size())];
       eop_index_to_be_added.insert(loop_segment_index);
-      EILOG(0) << " loop_segment index: " << loop_segment_index;
+#ifndef NDEBUG
+      LOG(INFO) << " loop_segment index: " << loop_segment_index;
+#endif
     }
   }
 
@@ -826,8 +893,10 @@ void PreProcessSegmentsForResources(
 
     for (const tensorflow::Edge* edge : incoming_edges) {
       if (edge->dst()->input_type(edge->dst_input()) == DT_RESOURCE) {
-        EILOG(1) << "incoming edge src: " << edge->src()->name()
-                 << " dst: " << edge->dst()->name();
+#ifndef NDEBUG
+        LOG(INFO) << "incoming edge src: " << edge->src()->name()
+                  << " dst: " << edge->dst()->name();
+#endif
         remove_segment_index.insert(idx);
         break;
       }
@@ -835,8 +904,10 @@ void PreProcessSegmentsForResources(
 
     for (const tensorflow::Edge* edge : outgoing_edges) {
       if (edge->src()->output_type(edge->src_output()) == DT_RESOURCE) {
-        EILOG(1) << "outgoing edge src: " << edge->src()->name()
-                 << " dst: " << edge->dst()->name();
+#ifndef NDEBUG
+        LOG(INFO) << "outgoing edge src: " << edge->src()->name()
+                  << " dst: " << edge->dst()->name();
+#endif
         remove_segment_index.insert(idx);
         break;
       }
@@ -851,8 +922,10 @@ void PreProcessSegmentsForResources(
   uint remove_segment_count = 0;
   for (auto idx : remove_segment_index) {
     uint rel_idx = idx - remove_segment_count++;
-    EILOG(1) << " Removing segment :" << idx
-             << " num of segment nodes : " << normal_segments[rel_idx].size();
+#ifndef NDEBUG
+    LOG(INFO) << " Removing segment :" << idx
+              << " num of segment nodes : " << normal_segments[rel_idx].size();
+#endif
     normal_segments.erase(normal_segments.begin() + rel_idx);
   }
 }
@@ -873,7 +946,9 @@ const string& GetStringAttr(const NodeDef& node, const string& attr_name) {
 // 2. Removing _class:loc attr from nodedef
 Status PreProcessingGraphDef(const std::vector<string>& output_names,
                              GraphDef& in_graph_def) {
-  EILOG(1) << " Creating Identities for all outputs";
+#ifndef NDEBUG
+  LOG(INFO) << " Creating Identities for all outputs";
+#endif
 
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
                                              in_graph_def.library());
@@ -901,7 +976,9 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
   // string final_out_graph = "/tmp/startgraph.pb";
   // WriteBinaryProto(Env::Default(), final_out_graph, in_graph_def);
 
-  EILOG(2) << in_graph_def.DebugString();
+#ifndef NDEBUG
+  LOG(INFO) << in_graph_def.DebugString();
+#endif
 
   return tensorflow::Status::OK();
 }
@@ -945,16 +1022,20 @@ void FindCulpritOps(Node* curr_node, std::set<string>& culprit_ops,
                     const std::set<std::string>* op_cpu,
                     const std::set<std::string>* op_inferentia,
                     bool start_collection) {
-  EILOG(1) << " FindCulpritOps: Processing node: " << curr_node->name()
-           << " op: " << curr_node->op_def().name();
+#ifndef NDEBUG
+  LOG(INFO) << " FindCulpritOps: Processing node: " << curr_node->name()
+            << " op: " << curr_node->op_def().name();
+#endif
 
   auto op_name = curr_node->op_def().name();
   auto node_name = curr_node->name();
   // if we hit output node, then we will clear the temp_list, as these
   // ops are not between EIA ops
   if (output_names_set.count(node_name)) {
-    EILOG(1) << "FindCulpritOps : curr node: " << node_name
-             << " Is end node returning ..";
+#ifndef NDEBUG
+    LOG(INFO) << "FindCulpritOps : curr node: " << node_name
+              << " Is end node returning ..";
+#endif
     temp_list.clear();
     return;
   }
@@ -975,8 +1056,10 @@ void FindCulpritOps(Node* curr_node, std::set<string>& culprit_ops,
     // add this op to the temp_list.
     if (start_collection && !IsEIACandidate(
         curr_node, *op_whitelist, *op_cpu, *op_inferentia)) {
-      EILOG(1) << "FindCulpritOps: Inserting to list :" << curr_node->name()
-               << " Op: " << curr_node->op_def().name();
+#ifndef NDEBUG
+      LOG(INFO) << "FindCulpritOps: Inserting to list :" << curr_node->name()
+                << " Op: " << curr_node->op_def().name();
+#endif
       temp_list.insert(op_name);
     }
   }
@@ -984,8 +1067,10 @@ void FindCulpritOps(Node* curr_node, std::set<string>& culprit_ops,
   // If node  _SOURCE/_SINK/Processed Node  then return.
   if (curr_node->IsSource() || curr_node->IsSink() ||
       processed_nodes.count(node_name) > 0) {
-    EILOG(1) << "FindCulpritOps: curr op: " << op_name
-             << " Is Source/Sink/Processed returning ..";
+#ifndef NDEBUG
+    LOG(INFO) << "FindCulpritOps: curr op: " << op_name
+              << " Is Source/Sink/Processed returning ..";
+#endif
     return;
   }
 
@@ -1042,7 +1127,9 @@ std::set<string> GetOpsBetweenEIOps(tensorflow::Graph& graph,
   for (auto node : graph.op_nodes()) {
     auto op_name = node->op_def().name();
     if (processed_nodes.find(node->name()) == processed_nodes.end()) {
-      EILOG(1) << " GetOpsBetweenEIOps: Unprocessed nodes: " << op_name;
+#ifndef NDEBUG
+      LOG(INFO) << " GetOpsBetweenEIOps: Unprocessed nodes: " << op_name;
+#endif
       if (op_name == "NeuronOp") {
         FindCulpritOps(node, culprit_ops, temp_list, input_names_set,
                        output_names_set, processed_nodes,
@@ -1063,7 +1150,9 @@ std::set<string> GetOpsBetweenEIOps(tensorflow::Graph& graph,
 uint GetNumOfOpsInSegments(kaena::segment::SegmentNodesVector& segments) {
   uint total_num_nodes_in_segments = 0;
   for (auto s : segments) {
-    EILOG(2) << "size: " << s.size();
+#ifndef NDEBUG
+    LOG(INFO) << "size: " << s.size();
+#endif
     total_num_nodes_in_segments += s.size();
   }
   return total_num_nodes_in_segments;
@@ -1089,7 +1178,9 @@ static tensorflow::Status BuildEIAOp(
   // Segment the graph into subgraphs that can be converted to EIA op
   tensorflow::kaena::segment::SegmentOptions segment_options;
 
-  EILOG(1) << "Building EI Op\n";
+#ifndef NDEBUG
+  LOG(INFO) << "Building EI Op\n";
+#endif
 
   // Creating Identity node for all output nodes.
   TF_RETURN_IF_ERROR(PreProcessingGraphDef(tensor_output_names, in_graph_def));
@@ -1132,10 +1223,12 @@ static tensorflow::Status BuildEIAOp(
         in_graph_def, IsEIACandidate, &loop_segments,
         segment_options.exclude_node_list, loop_breaking_ops,
         op_whitelist, op_cpu, op_inferentia));
+#ifndef NDEBUG
     if (loop_segments.size() > 1) {
-      EILOG(1) << "MULTIPLE loop ei candidate conversion: "
-               << loop_segments.size();
+      LOG(INFO) << "MULTIPLE loop ei candidate conversion: "
+                << loop_segments.size();
     }
+#endif
 
     // Process segments only if there are any loop segments.
     if (loop_segments.size()) {
@@ -1175,9 +1268,11 @@ static tensorflow::Status BuildEIAOp(
   TF_RETURN_IF_ERROR(tensorflow::kaena::segment::SegmentGraph(
       graph_def_with_loops, IsEIACandidate, segment_options, &normal_segments,
       op_whitelist, op_cpu, op_inferentia));
+#ifndef NDEBUG
   if (normal_segments.size() > 1) {
-    EILOG(1) << "MULTIPLE ei candidate conversion: " << normal_segments.size();
+    LOG(INFO) << "MULTIPLE ei candidate conversion: " << normal_segments.size();
   }
+#endif
 
   if (normal_segments.size()) {
     PreProcessSegmentsForResources(loop_graph, normal_segments, loop_segments,
@@ -1216,7 +1311,9 @@ static tensorflow::Status BuildEIAOp(
             IsEIACandidate(node, *op_whitelist, *op_cpu, *op_inferentia) &&
             HasAttr(node_def, "data_format")) {
           if (GetStringAttr(node_def, "data_format") == "NCHW") {
-            EILOG(1) << " Node with data format: " << node_def.name();
+#ifndef NDEBUG
+            LOG(INFO) << " Node with data format: " << node_def.name();
+#endif
             hasNCHW = true;
           }
         }
@@ -1224,7 +1321,9 @@ static tensorflow::Status BuildEIAOp(
     }
 
     if (hasNCHW) {
-      EILOG(1) << "single node segment: " << node_def.name();
+#ifndef NDEBUG
+      LOG(INFO) << "single node segment: " << node_def.name();
+#endif
       std::set<string> single_item_set = {node_def.name()};
       one_node_NCHW_segments.push_back(single_item_set);
     }
@@ -1264,7 +1363,9 @@ static tensorflow::Status BuildEIAOp(
 
   graph.ToGraphDef(&new_graph_def);
 
-  EILOG(2) << "new_graph_def: " << new_graph_def.DebugString();
+#ifndef NDEBUG
+  LOG(INFO) << "new_graph_def: " << new_graph_def.DebugString();
+#endif
 
   return tensorflow::Status::OK();
 }
@@ -1334,7 +1435,7 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
   uint64 start_convert_us = Env::Default()->NowMicros();
 
   // Debug code
-  // EILOG(1) << "_______before______";
+  // LOG(INFO) << "_______before______";
   // tensorflow::FunctionLibraryDefinition
   // flib(tensorflow::OpRegistry::Global(),
   //                                            graph_def.library());
@@ -1343,12 +1444,12 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
   // TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
   //     tensorflow::GraphConstructorOptions(), graph_def, &graph));
   // printGraphEdges(&graph);
-  // EILOG(1) << "_______before______";
+  // LOG(INFO) << "_______before______";
   status = CreateEiaGraphDef(graph_def, inputs, outputs, min_seg_size,
                              &op_whitelist, &op_cpu, &op_inferentia, new_graph_def);
   new_graph_def.SerializeToString(new_graph_def_str);
   // Debug code
-  // EILOG(1) << "_______after______";
+  // LOG(INFO) << "_______after______";
   // tensorflow::FunctionLibraryDefinition
   // flib(tensorflow::OpRegistry::Global(),
   //                                            new_graph_def.library());
@@ -1356,10 +1457,12 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
   // TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
   //     tensorflow::GraphConstructorOptions(), new_graph_def, &graph));
   // printGraphEdges(&graph);
-  // EILOG(1) << "_______after______";
+  // LOG(INFO) << "_______after______";
 
   uint64 convert_time_us = Env::Default()->NowMicros() - start_convert_us;
-  EILOG(1) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
+#ifndef NDEBUG
+  LOG(INFO) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
+#endif
   return status;
 }
 

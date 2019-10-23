@@ -1,6 +1,5 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#include "tensorflow/python/neuron/util/logging.h"
 #include <sstream>
 #include <sys/mman.h>
 #include <fcntl.h>
