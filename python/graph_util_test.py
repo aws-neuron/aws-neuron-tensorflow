@@ -12,6 +12,7 @@ import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.neuron.python.graph_util import (
     shape_inference, shape_inference_with_inputs, whitelist_partition, compile_subgraphs)
+from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
 
 
 _RANDOM_SEED = 15213
@@ -962,7 +963,7 @@ def test_compile_subgraphs():
         input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
         with tf.name_scope('neuron_op0'):
-            sg0 = tf.neuron_op(
+            sg0 = neuron_op(
                 [input0, input1], graph_def=subgraph_graph_def_str,
                 input_names=['input0:0', 'input1:0'],
                 input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
@@ -975,7 +976,7 @@ def test_compile_subgraphs():
         input2 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input2')
         input3 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input3')
         with tf.name_scope('neuron_op1'):
-            sg1 = tf.neuron_op(
+            sg1 = neuron_op(
                 [input2, input3], graph_def=subgraph_graph_def_str,
                 input_names=['input0:0', 'input1:0'],
                 input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
@@ -988,7 +989,7 @@ def test_compile_subgraphs():
         with tf.name_scope('neuron_op2'):
             input4 = tf.identity(sg0[0], name='input4')
             input5 = tf.identity(sg1[0], name='input5')
-            sg2 = tf.neuron_op(
+            sg2 = neuron_op(
                 [input4, input5], graph_def=subgraph_graph_def_str,
                 input_names=['input0:0', 'input1:0'],
                 input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],
@@ -1000,7 +1001,7 @@ def test_compile_subgraphs():
             sg2 = tf.identity_n(sg2)
         input6 = tf.identity(sg0[1], name='input6')
         input7 = tf.identity(sg1[1], name='input7')
-        sg3 = tf.neuron_op(
+        sg3 = neuron_op(
             [input6, input7], graph_def=subgraph_graph_def_str,
             input_names=['input0:0', 'input1:0'],
             input_shapes=[[1, 2, 2, 3], [1, 2, 2, 3]],

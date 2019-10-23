@@ -16,7 +16,6 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.eager.context import executing_eagerly
-from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.python.neuron.python.graph_util import most_popular_namescope
 
 
@@ -29,6 +28,8 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=300,
             verbose=verbose, workdir=workdir)
     @wraps(func)
     def wrapper(*args, **kwargs):
+        # need to import here; otherwise bazel sees @tf_export in gen_neuron_op
+        from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
         eager = executing_eagerly()
         if eager:
             is_greedy = True
