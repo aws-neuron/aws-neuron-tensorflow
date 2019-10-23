@@ -116,7 +116,7 @@ tensorflow::Status NeuronOp::initialize(
 
     // nef_size
     size_t exec_total_size = executable.size();
-    load_request.set_nef_size(exec_total_size);
+    load_request.set_neff_size(exec_total_size);
     writer->Write(load_request);
 
     // todo: read these info from nef
@@ -133,7 +133,7 @@ tensorflow::Status NeuronOp::initialize(
         size_t remaining = exec_total_size - pos;
         size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
         StringPiece file_chunk = executable_view.substr(pos, chunk_size);
-        load_request.mutable_nef_chunk()->set_chunk(file_chunk.data(), chunk_size);
+        load_request.mutable_neff_chunk()->set_chunk(file_chunk.data(), chunk_size);
         writer->Write(load_request);
     }
     writer->WritesDone();
