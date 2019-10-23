@@ -18,45 +18,40 @@ namespace kaena {
 
 #define NRT_INVALID_NN_ID 0
 
-#define KAENA_ERROR(...)                                        \
-    tensorflow::Status kstatus = tensorflow::errors::Unknown(   \
-        "neuron_clib: ", __VA_ARGS__);                          \
-    KAENALOG_ERROR() << kstatus.error_message();
-
-#define KAENA_ERROR_STATUS(...) {                               \
-    tensorflow::Status kstatus = tensorflow::errors::Unknown(   \
-        "neuron_clib: ", __VA_ARGS__);                          \
-    KAENALOG_ERROR() << kstatus.error_message();                \
-    return kstatus;                                             \
+#define NRT_CHECK_RETURN(fn_name, status, response) {                       \
+    if (!((status).ok() && 0 == (response).status().code())) {              \
+        return nrt_error_status((fn_name), (status), (response).status());  \
+    }                                                                       \
 }
 
-#define KAENA_SYS_ERROR_STATUS(fn_name, errno) {                    \
-    KAENA_ERROR_STATUS((fn_name), " failed with errno ", (errno));  \
+#define NRT_CHECK_LOG(fn_name, status, response) {                      \
+    if (!((status).ok() && 0 == (response).status().code())) {          \
+        LOG(ERROR) << nrt_error_status(                                 \
+            (fn_name), (status), (response).status()).error_message();  \
+    }                                                                   \
 }
 
-#define KAENA_SYS_CHECK(fn_name, errno) {                           \
-    if ((ret) < 0) {                                                \
-        KAENA_ERROR((fn_name), " failed with errno ", (errno));     \
+#define SYS_FAIL_RETURN(failure_expr, fn_name) {        \
+    if (failure_expr) {                                 \
+        return tensorflow::errors::Unknown(             \
+            (fn_name), " failed with errno ", errno);   \
+    }                                                   \
+}
+
+#define SYS_FAIL_LOG(failure_expr, fn_name) {                       \
+    if (failure_expr) {                                             \
+        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
     }                                                               \
 }
 
-#define KRTD_ERROR(fn_name, status, krtd_status)                                    \
-    KAENA_ERROR(                                                                    \
-        "nrt::", (fn_name), " failed with grpc status code ", status.error_code(),  \
-        ", error message \"", status.error_message(), "\"; krtd status code ",      \
-        (krtd_status).code(), ", details \"", (krtd_status).details(), "\"");
-
-#define KRTD_CHECK(fn_name, status, response) {                 \
-    if (!((status).ok() && 0 == (response).status().code())) {  \
-        KRTD_ERROR((fn_name), (status), (response).status());   \
-    }                                                           \
-}
-
-#define KRTD_CHECK_RETURN(fn_name, status, response) {          \
-    if (!((status).ok() && 0 == (response).status().code())) {  \
-        KRTD_ERROR((fn_name), (status), (response).status());   \
-        return kstatus;                                         \
-    }                                                           \
+inline tensorflow::Status nrt_error_status(const std::string &fn_name,
+                                           const grpc::Status &status,
+                                           const nrt::status &nrt_status) {
+    return tensorflow::errors::Unknown(
+        "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
+        ", error message \"", status.error_message(), "\"; nrt status code ",
+        nrt_status.code(), ", details \"", nrt_status.details(), "\""
+    );
 }
 
 

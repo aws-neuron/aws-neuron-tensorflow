@@ -33,14 +33,6 @@ int LogLevelStrToInt(const char* tf_env_var_val);
   ::tensorflow::internal::LogMessage(__FILE__, __LINE__, tensorflow::INFO)
 
 
-#define INFERENTIA_OP_ERROR(CTX, ...) {                                     \
-  ::tensorflow::Status _s = tensorflow::errors::Unknown(__VA_ARGS__);       \
-  LOG(ERROR) << "NeuronOp kernel Error at "                             \
-             << __FILE__ << ":" << __LINE__ << " : " << _s;   \
-  CTX->SetStatus(_s);                                                       \
-  return;                                                                   \
-}
-
 #define KAENA_LOG_IS_ON(lvl)                                                \
     ((lvl) <= tensorflow::kaena::logging::LogLevelStrToInt(                 \
         std::getenv("ENABLE_KAENA_DBG_LOGGING")))

@@ -32,17 +32,11 @@ tensorflow::Status SharedMemory::initialize(
         const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     name_ = gen_shm_name();
     int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG);
-    if (shm_fd < 0) {
-        KAENA_SYS_ERROR_STATUS("shm_open", errno);
-    }
+    SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
     shm_open_done_ = true;
-    if (ftruncate(shm_fd, size_) < 0) {
-        KAENA_SYS_ERROR_STATUS("ftruncate", errno);
-    }
+    SYS_FAIL_RETURN(ftruncate(shm_fd, size_) < 0, "ftruncate");
     ptr_ = ::mmap(0, size_, PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    if (nullptr == ptr_) {
-        KAENA_SYS_ERROR_STATUS("mmap", errno);
-    }
+    SYS_FAIL_RETURN(nullptr == ptr_, "mmap");
     grpc::Status status;
     grpc::ClientContext context;
     nrt::shm_map_request shm_map_request;
@@ -50,9 +44,7 @@ tensorflow::Status SharedMemory::initialize(
     shm_map_request.set_mmap_prot(PROT_READ | PROT_WRITE);
     nrt::shm_map_response shm_map_response;
     status = stub->shm_map(&context, shm_map_request, &shm_map_response);
-    if (!(status.ok() && 0 == shm_map_response.status().code())) {
-        return tensorflow::errors::Unavailable("shared memory API is not available");
-    }
+    NRT_CHECK_RETURN("shm_map", status, shm_map_response);
     krtd_shm_map_done_ = true;
     return tensorflow::Status::OK();
 }
@@ -66,20 +58,21 @@ void SharedMemory::clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         grpc::ClientContext context;
         nrt::shm_unmap_response shm_unmap_response;
         status = stub->shm_unmap(&context, shm_unmap_request, &shm_unmap_response);
+        NRT_CHECK_LOG("shm_unmap", status, shm_unmap_response);
         if (status.ok() && 0 == shm_unmap_response.status().code()) {
             krtd_shm_map_done_ = false;
         }
     }
     if (nullptr != ptr_) {
         int ret = munmap(ptr_, size_);
-        KAENA_SYS_CHECK("munmap", errno);
+        SYS_FAIL_LOG(ret < 0, "munmap");
         if (ret >= 0) {
             ptr_ = nullptr;
         }
     }
     if (shm_open_done_) {
         int ret = shm_unlink(name_.c_str());
-        KAENA_SYS_CHECK("shm_unlink", errno);
+        SYS_FAIL_LOG(ret < 0, "shm_unlink");
         if (ret >= 0) {
             shm_open_done_ = false;
         }
@@ -104,7 +97,7 @@ void SharedMemoryAllocator::DeallocateRaw(void *ptr) {
 tensorflow::Status NeuronDeviceManager::initialize() {
     // append /opt/aws/neuron/bin to PATH
     std::string env_path = env_get("PATH", "");
-    setenv("PATH", (env_path + ":/opt/aws/kaena/bin:/opt/aws/neuron/bin").c_str(), 1);
+    setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
 
     // get krtd stub
     std::string krtd_server = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
@@ -115,11 +108,12 @@ tensorflow::Status NeuronDeviceManager::initialize() {
     std::shared_ptr<grpc::Channel> krt_channel = grpc::CreateCustomChannel(
         krtd_server, grpc::InsecureChannelCredentials(), ch_args);
     if (nullptr == krt_channel) {
-        KAENA_ERROR_STATUS("cannot establish grpc channel to neuron-rtd server");
+        return tensorflow::errors::Unavailable(
+            "cannot establish grpc channel to neuron-rtd server");
     }
     stub_ = nrt::nmgr_v1::NewStub(krt_channel);
     if (nullptr == stub_) {
-        KAENA_ERROR_STATUS("cannot create stub");
+        return tensorflow::errors::Unavailable("cannot create stub");
     }
 
     // get number of neuron cores from comma-separated list of integers
@@ -135,7 +129,8 @@ tensorflow::Status NeuronDeviceManager::initialize() {
         num_cores_vector.push_back(std::stoi(substr));
     }
     if (num_cores_vector.empty()) {
-        KAENA_ERROR_STATUS("NEURON_DEVICE_SIZES=", neuron_device_sizes, " is ill-formatted");
+        return tensorflow::errors::InvalidArgument(
+            "NEURON_DEVICE_SIZES=", neuron_device_sizes, " is ill-formatted");
     }
 
     tensorflow::Status status;
@@ -201,9 +196,9 @@ tensorflow::Status NeuronDevice::initialize(
             message += krtd_server.substr(socket_start + unix_keyword.length());
             message += " writable?";
         }
-        KAENA_ERROR_STATUS("grpc server ", krtd_server, message);
+        return tensorflow::errors::Unavailable("grpc server ", krtd_server, message);
     }
-    KRTD_CHECK_RETURN("create_eg", status, create_eg_response);
+    NRT_CHECK_RETURN("create_eg", status, create_eg_response);
     krt_eg_id_ = create_eg_response.h_eg().id();
     create_eg_done_ = true;
     krt_nn_id_running_ = NRT_INVALID_NN_ID;
@@ -220,7 +215,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
             stop_request.mutable_h_nn()->set_id(nn_id);
             nrt::stop_response stop_response;
             status = stub->stop(&context, stop_request, &stop_response);
-            KRTD_CHECK("stop", status, stop_response);
+            NRT_CHECK_LOG("stop", status, stop_response);
             nn_set_current_running(NRT_INVALID_NN_ID);
         }
 
@@ -230,7 +225,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         unload_request.mutable_h_nn()->set_id(nn_id);
         nrt::unload_response unload_response;
         status = stub->unload(&context, unload_request, &unload_response);
-        KRTD_CHECK("unload", status, unload_response);
+        NRT_CHECK_LOG("unload", status, unload_response);
     }
     krt_h_nn_ids_.clear();
     if (create_eg_done_) {
@@ -240,7 +235,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         destroy_eg_request.mutable_h_eg()->set_id(krt_eg_id_);
         nrt::destroy_eg_response destroy_eg_response;
         status = stub->destroy_eg(&context, destroy_eg_request, &destroy_eg_response);
-        KRTD_CHECK("destroy_eg", status, destroy_eg_response);
+        NRT_CHECK_LOG("destroy_eg", status, destroy_eg_response);
         create_eg_done_ = false;
     }
 }

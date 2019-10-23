@@ -24,8 +24,8 @@ namespace kaena {
 
 class NeuronOp : public OpKernel {
 public:
-    explicit NeuronOp(OpKernelConstruction *context);
-    void Compute(OpKernelContext *context) override;
+    explicit NeuronOp(OpKernelConstruction *ctx);
+    void Compute(OpKernelContext *ctx) override;
     ~NeuronOp() override;
 
 private:
