@@ -126,6 +126,34 @@ def test_conv2d_nchw():
             np.testing.assert_allclose(result_tonga_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
 
 
+def test_batchmatmulv2():
+    np.random.seed(_RANDOM_SEED)
+    input0_np = np.random.uniform(-1, 1, size=[1, 4, 2, 4]).astype(np.float16)
+    input1_np = np.random.uniform(-1, 1, size=[1, 4, 4, 5]).astype(np.float16)
+    feed_dict = {'input0:0': input0_np, 'input1:0': input1_np}
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [None, 4, 2, 4], name='input0')
+        input1 = tf.placeholder(tf.float16, [None, 4, 4, 5], name='input1')
+        batchmatmul0 = tf.matmul(input0, input1, name='batchmatmul0')
+        result_ref = sess.run('batchmatmul0:0', feed_dict)
+        infer_graph_ok = tf.neuron.graph_util.inference_graph_from_session(
+            sess, input_tensors=[input0, input1], output_tensors=[batchmatmul0],
+            shape_feed_dict={input0: [1, 4, 2, 4], input1: [1, 4, 4, 5]})
+    _assert_compiler_success(infer_graph_ok)
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [None, 4, 2, 4], name='input0')
+        input1 = tf.placeholder(tf.float16, [None, 4, 5], name='input1')
+        batchmatmul0 = tf.matmul(input0, input1, name='batchmatmul0')
+        infer_graph_not_ok = tf.neuron.graph_util.inference_graph_from_session(
+            sess, input_tensors=[input0, input1], output_tensors=[batchmatmul0],
+            shape_feed_dict={input0: [1, 4, 2, 4], input1: [1, 4, 5]}, compiler_timeout=0.1)
+        assert infer_graph_not_ok.get_operations()[-1].type == 'BatchMatMulV2'
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+        with tf.Session(graph=infer_graph_ok) as sess:
+            result_neuron = sess.run('batchmatmul0:0', feed_dict)
+            np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
+
+
 def test_inference_graph_from_session_mid():
     np.random.seed(_RANDOM_SEED)
     with tf.Session(graph=tf.Graph()) as sess:

@@ -222,22 +222,8 @@ def inference_graph_from_session(
                         large_constants[node.name] = val_name, copy.deepcopy(value)
                         node.attr['value'].tensor.ClearField(val_name)
 
-    # normalize operators
-    graph = _graph_def_to_graph(graph_def)
-    for node in graph_def.node:
-        if node.op == 'StopGradient':
-            node.op = 'Identity'
-        elif node.op == 'FusedBatchNormV3':
-            op = graph.get_operation_by_name(node.name)
-            if all(not ts.consumers() for ts in op.outputs[3:]):
-                node.op = 'FusedBatchNorm'
-                node.attr.pop('U')
-                if '_output_shapes' in node.attr:
-                    node.attr['_output_shapes'].list.shape.pop()
-        elif node.op == 'AddV2':
-            node.op = 'Add'
-
     # remove identity ops inserted by convert_variables_to_constants
+    graph = _graph_def_to_graph(graph_def)
     control_op_names = [op.name for op in graph.get_operations() if op._control_outputs]
     protected_op_names.update(control_op_names)
     graph_def = tf_graph_util.remove_training_nodes(
@@ -264,6 +250,9 @@ def inference_graph_from_session(
     else:
         shaped_graph = graph
 
+    # normalize operators
+    graph_def = normalize_operators(graph_def, shaped_graph)
+
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
         graph_def, input_names, output_names, op_whitelist=op_whitelist,
@@ -275,6 +264,7 @@ def inference_graph_from_session(
     subgraph_shapes = _init_subgraph_shapes(shaped_graph, part_graph)
 
     # perform an inference to find tensor shapes as a last resort
+    # todo: change to hard_shape_inference == True
     if feed_dict is not None:
         subgraph_shapes = shape_inference_with_inputs(sess, graph, feed_dict, subgraph_shapes)
 
@@ -319,6 +309,30 @@ def inference_graph_from_session(
             shape = shaped_graph.get_tensor_by_name(name).shape
             compiled_graph.get_tensor_by_name(name).set_shape(shape)
     return compiled_graph
+
+
+def normalize_operators(graph_def, shaped_graph=None):
+    graph = _graph_def_to_graph(graph_def)
+    if shaped_graph is None:
+        shaped_graph = graph
+    for node in graph_def.node:
+        if node.op == 'StopGradient':
+            node.op = 'Identity'
+        elif node.op == 'FusedBatchNormV3':
+            op = graph.get_operation_by_name(node.name)
+            if all(not ts.consumers() for ts in op.outputs[3:]):
+                node.op = 'FusedBatchNorm'
+                node.attr.pop('U')
+                if '_output_shapes' in node.attr:
+                    node.attr['_output_shapes'].list.shape.pop()
+        elif node.op == 'AddV2':
+            node.op = 'Add'
+        elif node.op == 'BatchMatMulV2':  # only change to BatchMatMul if no broadcast
+            shaped_op = shaped_graph.get_operation_by_name(node.name)
+            shape0, shape1 = shaped_op.inputs[0].shape, shaped_op.inputs[1].shape
+            if shape0.rank == shape1.rank and shape0[:-2] == shape1[:-2]:
+                node.op = 'BatchMatMul'
+    return graph_def
 
 
 def most_popular_namescope(all_node_names):
@@ -626,8 +640,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     if output_tensors is None:
         output_tensors = {ts for op in _output_ops(graph) for ts in op.outputs}
     if op_whitelist is None:
-        # todo: remove infa-cc
-        neuron_cc = spawn.find_executable('neuron-cc') or spawn.find_executable('infa-cc')
+        neuron_cc = spawn.find_executable('neuron-cc')
         command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
         op_whitelist = set(subprocess.check_output(command).decode().split('\n')[:-1])
         op_whitelist.discard('Placeholder')
@@ -788,8 +801,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     Compiler = collections.namedtuple('Compiler', 'command logfile workdir_path')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
-    # todo: remove infa-cc
-    neuron_cc = spawn.find_executable('neuron-cc') or spawn.find_executable('infa-cc')
+    neuron_cc = spawn.find_executable('neuron-cc')
     for node in _gd_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue

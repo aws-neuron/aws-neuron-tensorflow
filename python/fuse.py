@@ -16,20 +16,24 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.eager.context import executing_eagerly
-from tensorflow.python.neuron.python.graph_util import most_popular_namescope
+from tensorflow.python.neuron.python.graph_util import normalize_operators, most_popular_namescope
+
+
+_neuron_cc_input_name = 'graph_def.pb'
+_neuron_executable_name = 'graph_def.neff'
 
 
 @tf_export('neuron.fuse')
-def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=300,
+def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None,
          verbose=0, workdir=None):
     if func is None:
-        return partial(
-            fuse, compiler_args=compiler_args, name=name, greedy=greedy, timeout=timeout,
-            verbose=verbose, workdir=workdir)
+        return partial(fuse, compiler_args=compiler_args, name=name, greedy=greedy,
+                       timeout=timeout, verbose=verbose, workdir=workdir)
     @wraps(func)
     def wrapper(*args, **kwargs):
         # need to import here; otherwise bazel sees @tf_export in gen_neuron_op
         from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
+
         eager = executing_eagerly()
         if eager:
             is_greedy = True
@@ -60,14 +64,13 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=300,
         outputs_mgr = TensorManager()
         outputs_mgr.track(func_outputs)
         outputs = outputs_mgr.tensors()
-        graph_def = sess.graph.as_graph_def(add_shapes=True)
-        with open(os.path.join(tempdir.name, 'graph_def.pb'), 'wb') as f:
+        graph_def = normalize_operators(sess.graph.as_graph_def(add_shapes=True))
+        with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
             serialized_graph_def = graph_def.SerializeToString()
             f.write(serialized_graph_def)
-        # todo: remove infa-cc
-        neuron_cc = spawn.find_executable('neuron-cc') or spawn.find_executable('infa-cc')
-        command = [neuron_cc, 'compile', 'graph_def.pb', '--framework', 'TENSORFLOW',
-                   '--output', 'kelp.tgz.kelp', '--io-config', _io_config(placeholders, outputs)]
+        neuron_cc = spawn.find_executable('neuron-cc')
+        command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
+                   '--output', _neuron_executable_name, '--io-config', _io_config(placeholders, outputs)]
         if compiler_args is not None:
             command.extend(compiler_args)
         if workdir is None:
@@ -137,7 +140,7 @@ def _get_executable(compiler, timeout, op_name):
     if compiler.proc.returncode != 0:
         raise RuntimeError(
             'Failed to compile op {} with command "{}"'.format(op_name, compiler.command))
-    return open(os.path.join(compiler.workdir, 'kelp.tgz.kelp'), 'rb').read()
+    return open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb').read()
 
 
 def kaena_wait_all(sess):
