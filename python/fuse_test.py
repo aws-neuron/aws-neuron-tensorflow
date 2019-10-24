@@ -29,7 +29,7 @@ def network_cpu(input0, input1, kernel0, kernel1):
 
 
 @fuse
-def network_tonga(input0, input1, kernel0, kernel1):
+def network_neuron(input0, input1, kernel0, kernel1):
     return network_body(input0, input1, kernel0, kernel1)
 
 
@@ -52,10 +52,10 @@ def test_fuse_simple():
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
             input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
-            relu0, sigmoid0 = network_tonga(input0, input1, kernel0, kernel1)
-            result_tonga = sess.run([relu0, sigmoid0], feed_dict)
-        for res_tonga, res_ref in zip(result_tonga, result_ref):
-            np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            relu0, sigmoid0 = network_neuron(input0, input1, kernel0, kernel1)
+            result_neuron = sess.run([relu0, sigmoid0], feed_dict)
+        for res_neuron, res_ref in zip(result_neuron, result_ref):
+            np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 @pytest.mark.xfail(run=False, reason='Running this test together with others requires 2 neuron cores')
@@ -76,6 +76,6 @@ def actualtest_fuse_eager_execution():
     result_ref = network_cpu(input0, input1, kernel0, kernel1)
 
     if 'NEURON_RTD_ADDRESS' in os.environ:
-        result_tonga = network_tonga(input0, input1, kernel0, kernel1)
-        for res_tonga, res_ref in zip(result_tonga, result_ref):
-            np.testing.assert_allclose(res_tonga.numpy(), res_ref.numpy(), rtol=1e-2, atol=1e-3)
+        result_neuron = network_neuron(input0, input1, kernel0, kernel1)
+        for res_neuron, res_ref in zip(result_neuron, result_ref):
+            np.testing.assert_allclose(res_neuron.numpy(), res_ref.numpy(), rtol=1e-2, atol=1e-3)

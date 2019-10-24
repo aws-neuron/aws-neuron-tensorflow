@@ -1017,13 +1017,20 @@ def nchw_to_nhwc(graph_def):
     with graph.as_default():
         for op in graph.get_operations():
             if op.type == 'Conv2D' and op.get_attr('data_format') == b'NCHW':
-                # todo: add explicit_paddings support after 1.14
+                perm_to_nhwc = [0, 2, 3, 1]
                 dilations = op.get_attr('dilations')
+                if isinstance(dilations, list) and len(dilations) == 4:
+                    dilations = [dilations[idx] for idx in perm_to_nhwc]
                 padding = op.get_attr('padding')
                 strides = op.get_attr('strides')
+                if isinstance(strides, list) and len(strides) == 4:
+                    strides = [strides[idx] for idx in perm_to_nhwc]
+                if padding == b'EXPLICIT':
+                    explicit = op.get_attr('explicit_paddings')
+                    padding = [explicit[2*idx:2*idx+2] for idx in perm_to_nhwc]
                 input_nchw, filters = op.inputs[0:2]
                 with ops.name_scope(op.name):
-                    input_nhwc = array_ops.transpose(input_nchw, [0, 2, 3, 1])
+                    input_nhwc = array_ops.transpose(input_nchw, perm_to_nhwc)
                     conv2d_nhwc = nn_ops.conv2d(input_nhwc, filters, strides=strides,
                                                 padding=padding, dilations=dilations)
                     conv2d_nchw = array_ops.transpose(conv2d_nhwc, [0, 3, 1, 2])

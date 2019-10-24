@@ -43,8 +43,7 @@ if __name__ == '__main__':
     """
     Commandline tools to compile a saved model into a Neuron optimized saved model.
     Internally it calls tf.neuron.saved_model.compile()
-    Note: $AWS_TONGA_SRC/kapps/tensorflow/neuron/python/saved_model/ should be in the $PATH, else this file should be
-        placed in some location which is on the PATH.
+    Note: This file should be placed in some location which is on the PATH.
     Args:
         model_dir: The path of the original `SavedModel`.
         export_dir: The path to which the neuron-optimized `SavedModel` will be stored.

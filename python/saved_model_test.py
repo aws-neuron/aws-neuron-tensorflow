@@ -63,7 +63,7 @@ def test_simple_save():
 def test_convert_to_inference_model():
     np.random.seed(_RANDOM_SEED)
     model_dir = './original_saved_model0'
-    new_model_dir = './kaena_saved_model0'
+    new_model_dir = './neuron_saved_model0'
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
@@ -82,24 +82,24 @@ def test_convert_to_inference_model():
         tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
     tfn.saved_model.compile(model_dir, new_model_dir)
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-    pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
-    assert len(pred_tonga.graph.get_operations()) == 5
-    assert pred_tonga.graph.get_operations()[2].type == 'NeuronOp'
+    pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
+    assert len(pred_neuron.graph.get_operations()) == 5
+    assert pred_neuron.graph.get_operations()[2].type == 'NeuronOp'
     if 'NEURON_RTD_ADDRESS' in os.environ:
         model_feed_dict = {
             'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
         }
         result_ref = pred_ref(model_feed_dict)
-        result_tonga = pred_tonga(model_feed_dict)
+        result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
-            np.testing.assert_allclose(result_tonga[name], result_ref[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
 
 def test_convert_to_inference_model_with_feed_dict():
     np.random.seed(_RANDOM_SEED)
     model_dir = './original_saved_model1'
-    new_model_dir = './kaena_saved_model1'
+    new_model_dir = './neuron_saved_model1'
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
@@ -122,19 +122,19 @@ def test_convert_to_inference_model_with_feed_dict():
     }
     tf.neuron.saved_model.compile(model_dir, new_model_dir, model_feed_dict=model_feed_dict)
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-    pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
-    assert len(pred_tonga.graph.get_operations()) == 5
-    assert pred_tonga.graph.get_operations()[2].type == 'NeuronOp'
+    pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
+    assert len(pred_neuron.graph.get_operations()) == 5
+    assert pred_neuron.graph.get_operations()[2].type == 'NeuronOp'
     if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
-        result_tonga = pred_tonga(model_feed_dict)
+        result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
-            np.testing.assert_allclose(result_tonga[name], result_ref[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
 def test_convert_to_inference_model_regress_api():
     np.random.seed(_RANDOM_SEED)
     model_dir = './original_saved_model_regress'
-    new_model_dir = './kaena_saved_model_regress'
+    new_model_dir = './neuron_saved_model_regress'
     tags = [tf.saved_model.tag_constants.SERVING]
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -168,18 +168,18 @@ def test_convert_to_inference_model_regress_api():
     tf.neuron.saved_model.compile(model_dir, new_model_dir, model_feed_dict=model_feed_dict)
 
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-    pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
-    _assert_compiler_success(pred_tonga.graph)
+    pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
+    _assert_compiler_success(pred_neuron.graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
-        result_tonga = pred_tonga(model_feed_dict)
+        result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
-            np.testing.assert_allclose(result_tonga[name], result_ref[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
 def test_convert_to_inference_model_classify_api():
     np.random.seed(_RANDOM_SEED)
     model_dir = './original_saved_model_classify'
-    new_model_dir = './kaena_saved_model_classify'
+    new_model_dir = './neuron_saved_model_classify'
     tags = [tf.saved_model.tag_constants.SERVING]
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -217,22 +217,22 @@ def test_convert_to_inference_model_classify_api():
     tf.neuron.saved_model.compile(model_dir, new_model_dir, model_feed_dict=model_feed_dict)
 
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-    pred_tonga = tf.contrib.predictor.from_saved_model(new_model_dir)
-    _assert_compiler_success(pred_tonga.graph)
+    pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
+    _assert_compiler_success(pred_neuron.graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref = pred_ref(model_feed_dict)
-        result_tonga = pred_tonga(model_feed_dict)
+        result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
-            np.testing.assert_allclose(result_tonga[name], result_ref[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
 
-def test_saved_model_cli_convert_kaena():
+def test_saved_model_cli_convert_neuron():
     np.random.seed(_RANDOM_SEED)
     model_dir = './original_saved_model2'
-    new_model_dir_b1 = './saved_model_cli_convert_kaena_b1'
-    new_model_dir_b2 = './saved_model_cli_convert_kaena_b2'
-    new_model_dir_b3 = './saved_model_cli_convert_kaena_b3'
-    new_model_dir_b4 = './saved_model_cli_convert_kaena_b4'
+    new_model_dir_b1 = './saved_model_cli_convert_neuron_b1'
+    new_model_dir_b2 = './saved_model_cli_convert_neuron_b2'
+    new_model_dir_b3 = './saved_model_cli_convert_neuron_b3'
+    new_model_dir_b4 = './saved_model_cli_convert_neuron_b4'
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
@@ -279,7 +279,7 @@ def test_saved_model_cli_convert_kaena():
         'x0': np.random.uniform(-1, 1, size=[4, 2, 2, 3]).astype(np.float16),
         'x1': np.random.uniform(-1, 1, size=[4, 2, 2, 3]).astype(np.float16),
     }
-    model_feed_dict_npz = 'saved_model_cli_convert_kaena_b4_model_feed_dict.npz'
+    model_feed_dict_npz = 'saved_model_cli_convert_neuron_b4_model_feed_dict.npz'
     np.savez(model_feed_dict_npz, **model_feed_dict_b4)
     proc = subprocess.run([
         'saved_model_cli', 'convert', '--tag_set', 'serve',
@@ -287,29 +287,29 @@ def test_saved_model_cli_convert_kaena():
         '--inputs', 'x0={0}[x0];x1={0}[x1]'.format(model_feed_dict_npz)])
     assert proc.returncode == 0
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-    pred_tonga_b1 = tf.contrib.predictor.from_saved_model(new_model_dir_b1)
-    pred_tonga_b2 = tf.contrib.predictor.from_saved_model(new_model_dir_b2)
-    pred_tonga_b3 = tf.contrib.predictor.from_saved_model(new_model_dir_b3)
-    pred_tonga_b4 = tf.contrib.predictor.from_saved_model(new_model_dir_b4)
-    assert len(pred_tonga_b1.graph.get_operations()) == 5
-    assert pred_tonga_b1.graph.get_operations()[2].type == 'NeuronOp'
-    assert len(pred_tonga_b2.graph.get_operations()) == 5
-    assert pred_tonga_b2.graph.get_operations()[2].type == 'NeuronOp'
-    assert len(pred_tonga_b3.graph.get_operations()) == 5
-    assert pred_tonga_b3.graph.get_operations()[2].type == 'NeuronOp'
-    assert len(pred_tonga_b4.graph.get_operations()) == 5
-    assert pred_tonga_b4.graph.get_operations()[2].type == 'NeuronOp'
+    pred_neuron_b1 = tf.contrib.predictor.from_saved_model(new_model_dir_b1)
+    pred_neuron_b2 = tf.contrib.predictor.from_saved_model(new_model_dir_b2)
+    pred_neuron_b3 = tf.contrib.predictor.from_saved_model(new_model_dir_b3)
+    pred_neuron_b4 = tf.contrib.predictor.from_saved_model(new_model_dir_b4)
+    assert len(pred_neuron_b1.graph.get_operations()) == 5
+    assert pred_neuron_b1.graph.get_operations()[2].type == 'NeuronOp'
+    assert len(pred_neuron_b2.graph.get_operations()) == 5
+    assert pred_neuron_b2.graph.get_operations()[2].type == 'NeuronOp'
+    assert len(pred_neuron_b3.graph.get_operations()) == 5
+    assert pred_neuron_b3.graph.get_operations()[2].type == 'NeuronOp'
+    assert len(pred_neuron_b4.graph.get_operations()) == 5
+    assert pred_neuron_b4.graph.get_operations()[2].type == 'NeuronOp'
     if 'NEURON_RTD_ADDRESS' in os.environ:
         result_ref_b1 = pred_ref(model_feed_dict_b1)
         result_ref_b2 = pred_ref(model_feed_dict_b2)
         result_ref_b3 = pred_ref(model_feed_dict_b3)
         result_ref_b4 = pred_ref(model_feed_dict_b4)
-        result_tonga_b1 = pred_tonga_b1(model_feed_dict_b1)
-        result_tonga_b2 = pred_tonga_b2(model_feed_dict_b2)
-        result_tonga_b3 = pred_tonga_b3(model_feed_dict_b3)
-        result_tonga_b4 = pred_tonga_b4(model_feed_dict_b4)
-        for name in result_tonga_b1.keys():
-            np.testing.assert_allclose(result_tonga_b1[name], result_ref_b1[name], rtol=1e-2, atol=1e-3)
-            np.testing.assert_allclose(result_tonga_b2[name], result_ref_b2[name], rtol=1e-2, atol=1e-3)
-            np.testing.assert_allclose(result_tonga_b3[name], result_ref_b3[name], rtol=1e-2, atol=1e-3)
-            np.testing.assert_allclose(result_tonga_b4[name], result_ref_b4[name], rtol=1e-2, atol=1e-3)
+        result_neuron_b1 = pred_neuron_b1(model_feed_dict_b1)
+        result_neuron_b2 = pred_neuron_b2(model_feed_dict_b2)
+        result_neuron_b3 = pred_neuron_b3(model_feed_dict_b3)
+        result_neuron_b4 = pred_neuron_b4(model_feed_dict_b4)
+        for name in result_neuron_b1.keys():
+            np.testing.assert_allclose(result_neuron_b1[name], result_ref_b1[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron_b2[name], result_ref_b2[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron_b3[name], result_ref_b3[name], rtol=1e-2, atol=1e-3)
+            np.testing.assert_allclose(result_neuron_b4[name], result_ref_b4[name], rtol=1e-2, atol=1e-3)

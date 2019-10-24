@@ -52,15 +52,15 @@ def test_inference_graph_from_session():
     _assert_compiler_success(infer_graph1)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph0) as sess:
-            result_tonga0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
-            assert len(result_tonga0) == len(result_ref0)
-            for res_tonga, res_ref in zip(result_tonga0, result_ref0):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
+            assert len(result_neuron0) == len(result_ref0)
+            for res_neuron, res_ref in zip(result_neuron0, result_ref0):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
         with tf.Session(graph=infer_graph1) as sess:
-            result_tonga1 = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
-            assert len(result_tonga1) == len(result_ref1)
-            for res_tonga, res_ref in zip(result_tonga1, result_ref1):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron1 = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
+            assert len(result_neuron1) == len(result_ref1)
+            for res_neuron, res_ref in zip(result_neuron1, result_ref1):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_variable():
@@ -90,10 +90,10 @@ def test_inference_graph_from_session_variable():
     _assert_compiler_success(infer_graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
-            assert len(result_tonga) == len(result_ref)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
+            assert len(result_neuron) == len(result_ref)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_conv2d_nchw():
@@ -119,11 +119,37 @@ def test_conv2d_nchw():
         result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph0) as sess:
-            result_tonga_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
-            np.testing.assert_allclose(result_tonga_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
+            result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
+            np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
         with tf.Session(graph=infer_graph1) as sess:
-            result_tonga_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
-            np.testing.assert_allclose(result_tonga_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
+            result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
+            np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
+
+
+def test_conv2d_nchw_explicit_paddings():
+    np.random.seed(_RANDOM_SEED)
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [1, 3, 2, 2], name='input0')
+        kernel0 = np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16)
+        conv2d0 = tf.nn.conv2d(input0, kernel0, strides=[1, 1, 1, 1],
+                               padding=[[0, 0], [0, 0], [1, 1], [1, 1]],
+                               data_format='NCHW', name='conv2d0')
+        relu0 = tf.nn.relu(conv2d0, name='relu0')
+        input0_nchw = np.random.uniform(-1, 1, size=input0.shape.as_list()).astype(np.float16)
+        infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+            sess, input_tensors=[input0], output_tensors=[relu0])
+    with tf.Session(graph=tf.Graph()) as sess_ref:
+        input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
+        conv2d0 = tf.nn.conv2d(input0, kernel0, strides=[1, 1, 1, 1],
+                               padding=[[0, 0], [1, 1], [1, 1], [0, 0]],
+                               data_format='NHWC', name='conv2d0')
+        relu0 = tf.nn.relu(conv2d0, name='relu0')
+        result_ref_nhwc = sess_ref.run('relu0:0', {'input0:0': input0_nchw.transpose([0, 2, 3, 1])})
+        result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+        with tf.Session(graph=infer_graph0) as sess:
+            result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
+            np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
 
 
 def test_batchmatmulv2():
@@ -191,10 +217,10 @@ def test_inference_graph_from_session_mid():
     assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(result_names, feed_dict)
-            assert len(result_tonga) == len(result_ref)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run(result_names, feed_dict)
+            assert len(result_neuron) == len(result_ref)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_mid_dynamic_batchsize():
@@ -240,10 +266,10 @@ def test_inference_graph_from_session_mid_dynamic_batchsize():
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
             for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
-                result_tonga = sess.run(result_names, feed_dict)
-                assert len(result_tonga) == len(result_ref)
-                for res_tonga, res_ref in zip(result_tonga, result_ref):
-                    np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+                result_neuron = sess.run(result_names, feed_dict)
+                assert len(result_neuron) == len(result_ref)
+                for res_neuron, res_ref in zip(result_neuron, result_ref):
+                    np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_mid_timeout():
@@ -281,10 +307,10 @@ def test_inference_graph_from_session_mid_timeout():
         infer_graph.get_tensor_by_name(name)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(result_names, feed_dict)
-            assert len(result_tonga) == len(result_ref)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run(result_names, feed_dict)
+            assert len(result_neuron) == len(result_ref)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_mid_large_constants():
@@ -325,10 +351,10 @@ def test_inference_graph_from_session_mid_large_constants():
     assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 1
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(result_names, feed_dict)
-            assert len(result_tonga) == len(result_ref)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run(result_names, feed_dict)
+            assert len(result_neuron) == len(result_ref)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_scalar():
@@ -384,10 +410,10 @@ def test_inference_graph_from_session_input_identity():
     assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 1
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(result_names, feed_dict)
-            assert len(result_tonga) == len(result_ref)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run(result_names, feed_dict)
+            assert len(result_neuron) == len(result_ref)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_while_loop():
@@ -417,8 +443,8 @@ def test_inference_graph_from_session_while_loop():
     _assert_compiler_success(infer_graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(output0.name, feed_dict=feed_dict)
-            np.testing.assert_allclose(result_tonga, result_tf, rtol=1e-2, atol=1e-4)
+            result_neuron = sess.run(output0.name, feed_dict=feed_dict)
+            np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-4)
 
 
 def test_inference_graph_from_session_while_parloop():
@@ -444,9 +470,9 @@ def test_inference_graph_from_session_while_parloop():
     _assert_compiler_success(infer_graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga_list = [sess.run(output0.name, feed_dict) for _ in range(2)]
-        for result_tonga, result_tf in zip(result_tonga_list, result_tf_list):
-            np.testing.assert_allclose(result_tonga, result_tf, rtol=1e-2, atol=1e-5)
+            result_neuron_list = [sess.run(output0.name, feed_dict) for _ in range(2)]
+        for result_neuron, result_tf in zip(result_neuron_list, result_tf_list):
+            np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-5)
 
 
 def test_inference_graph_from_session_neuron_op_different_name():
@@ -603,10 +629,10 @@ def test_inference_graph_from_session_neuron_op_different_name():
         infer_graph.get_tensor_by_name(name)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            result_tonga = sess.run(result_names, feed_dict)
-            assert len(result_tonga) == len(result_ref)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run(result_names, feed_dict)
+            assert len(result_neuron) == len(result_ref)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_shape_inference():
@@ -863,9 +889,9 @@ def test_whitelist_partition_branch_merge():
         compiled_graph_def = compile_subgraphs(partitioned_graph_def, workdir='./workdir')
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(compiled_graph_def, name='')
-            result_tonga = sess.run([relu0.name, add0.name], feed_dict)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-2)
+            result_neuron = sess.run([relu0.name, add0.name], feed_dict)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
 def test_whitelist_partition_no_fuse():
@@ -901,9 +927,9 @@ def test_whitelist_partition_no_fuse():
             partitioned_graph_def, workdir='./workdir')
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(compiled_graph_def, name='')
-            result_tonga = sess.run([relu0.name, relu1.name, relu2.name], feed_dict)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run([relu0.name, relu1.name, relu2.name], feed_dict)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_whitelist_partition_no_fuse_force_fuse():
@@ -939,9 +965,9 @@ def test_whitelist_partition_no_fuse_force_fuse():
             partitioned_graph_def, workdir='./workdir')
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(compiled_graph_def, name='')
-            result_tonga = sess.run([relu0.name, relu1.name, relu2.name], feed_dict)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            result_neuron = sess.run([relu0.name, relu1.name, relu2.name], feed_dict)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_compile_subgraphs():
@@ -1052,11 +1078,11 @@ def test_compile_subgraphs():
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(compiled_graph_def, name='')
-            output_tonga = [tensor.name for tensor in sg2]
-            output_tonga.extend(tensor.name for tensor in sg3)
-            result_tonga = sess.run(output_tonga, feed_dict_all)
-            for res_tonga, res_ref in zip(result_tonga, result_ref):
-                np.testing.assert_allclose(res_tonga, res_ref, rtol=1e-2, atol=1e-3)
+            output_neuron = [tensor.name for tensor in sg2]
+            output_neuron.extend(tensor.name for tensor in sg3)
+            result_neuron = sess.run(output_neuron, feed_dict_all)
+            for res_neuron, res_ref in zip(result_neuron, result_ref):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def _assert_neuron_op(infer_graph):

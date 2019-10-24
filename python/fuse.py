@@ -113,10 +113,10 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
             )
         if not is_greedy:
             iop = output_tensors[0].op
-            iop.kaena_workspace = tempdir  # keep tempdir object alive
-            iop.kaena_wait = partial(kaena_wait, op=iop, compiler=compiler, timeout=timeout)
-            if not hasattr(session.BaseSession._do_run, 'kaena_decorated'):
-                session.BaseSession._do_run = kaena_decorate_run(session.BaseSession._do_run)
+            iop.neuron_workspace = tempdir  # keep tempdir object alive
+            iop.neuron_wait = partial(neuron_wait, op=iop, compiler=compiler, timeout=timeout)
+            if not hasattr(session.BaseSession._do_run, 'neuron_decorated'):
+                session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
         inner_to_outer = {}
         for inner, outer in zip(outputs, output_tensors):
             outer.set_shape(inner.shape)
@@ -126,11 +126,11 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
     return wrapper
 
 
-def kaena_wait(op, compiler, timeout):
+def neuron_wait(op, compiler, timeout):
     executable = _get_executable(compiler, timeout, op.name)
     op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
-    op.kaena_wait = None
-    op.kaena_workspace = None
+    op.neuron_wait = None
+    op.neuron_workspace = None
 
 
 def _get_executable(compiler, timeout, op_name):
@@ -143,20 +143,20 @@ def _get_executable(compiler, timeout, op_name):
     return open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb').read()
 
 
-def kaena_wait_all(sess):
+def neuron_wait_all(sess):
     for op in sess.graph.get_operations():
-        if op.type == 'NeuronOp' and hasattr(op, 'kaena_wait') and callable(op.kaena_wait):
-            op.kaena_wait()
+        if op.type == 'NeuronOp' and hasattr(op, 'neuron_wait') and callable(op.neuron_wait):
+            op.neuron_wait()
 
 
-def kaena_decorate_run(func):
+def neuron_decorate_run(func):
     @wraps(func)
     def wrapper(sess, *args, **kwargs):
-        if not hasattr(sess, 'kaena_wait_all_executed'):
-            kaena_wait_all(sess)
-        sess.kaena_wait_all_executed = None
+        if not hasattr(sess, 'neuron_wait_all_executed'):
+            neuron_wait_all(sess)
+        sess.neuron_wait_all_executed = None
         return func(sess, *args, **kwargs)
-    wrapper.kaena_decorated = True
+    wrapper.neuron_decorated = True
     return wrapper
 
 
