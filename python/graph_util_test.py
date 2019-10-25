@@ -269,9 +269,40 @@ def test_multithread_load_infer():
                 elapsed = time.time() - start
                 latency_list.append(elapsed)
             for infer_only_latency in  latency_list[1:]:
-                assert latency_list[0] > infer_only_latency + 0.2
+                assert latency_list[0] > infer_only_latency + 0.01
         for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
             np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+
+
+def test_shape_inference_with_inputs_while_loop():
+    np.random.seed(_RANDOM_SEED)
+    kernel0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
+    maximum_iterations = 5
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, shape=[None, None], name='input0')
+
+        def body(input0):
+            kernel0 = tf.constant(kernel0_np, name='kernel0')
+            matmul0 = tf.matmul(input0, kernel0, transpose_a=True, name='matmul0')
+            output0 = tf.nn.relu(matmul0, name='output0')
+            return output0
+
+        output0 = tf.while_loop(lambda x: True, body, [input0], maximum_iterations=maximum_iterations)
+        input0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
+        feed_dict = {input0.name: input0_np}
+        result_np = input0_np
+        for _ in range(maximum_iterations):
+            result_np = np.matmul(result_np.T, kernel0_np)
+            result_np = np.maximum(result_np, 0.0)
+        result_tf = sess.run(output0, feed_dict)
+        np.testing.assert_allclose(result_np, result_tf, rtol=1e-2, atol=1e-4)
+        infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+            sess, compiler_workdir='./workdir', output_tensors={output0}, feed_dict=feed_dict)
+    _assert_compiler_success(infer_graph)
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+        with tf.Session(graph=infer_graph) as sess:
+            result_neuron = sess.run(output0.name, feed_dict=feed_dict)
+            np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-4)
 
 
 def test_inference_graph_from_session_mid():

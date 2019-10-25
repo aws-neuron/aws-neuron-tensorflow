@@ -15,6 +15,7 @@ import subprocess
 import copy
 import collections
 from distutils import spawn
+import reprlib
 import numpy
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.platform import tf_logging as logging
@@ -302,6 +303,20 @@ def inference_graph_from_session(
     for node in compiled_graph_def.node:
         node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
 
+    # statistics on number of operations
+    num_original_ops = len(sess.graph.get_operations())
+    num_tfn_opt_ops = len(shaped_graph.get_operations())
+    num_ops_on_neuron = sum(
+        len(_get_subgraph_def(node).node) - len(node.attr['input_names'].list.s)
+        for node in _gd_neuron_nodes(compiled_graph_def)
+    )
+    verbosity = logging.get_verbosity()
+    logging.set_verbosity(logging.INFO)
+    logging.info('Number of operations in TensorFlow session: {}'.format(num_original_ops))
+    logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_tfn_opt_ops))
+    logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
+    logging.set_verbosity(verbosity)
+
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
     if not dynamic_batch_size:
@@ -447,77 +462,82 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
         for ts in op.outputs:
             ts._handle_data = getattr(ts, '_handle_data', None)
 
+    # need to loop number of cycles
+    num_cycles = max(1, len([op for op in shaped_graph.get_operations()
+                             if op.type in {'NextIteration', 'RefNextIteration'}]))
+
     # try to infer shapes through call_cpp_shape_fn and executing ops
     tensor_array_size_map = {}
-    for op in shaped_graph.get_operations():
-        if op.type == 'Shape' and op.inputs[0].shape.is_fully_defined():
-            evaluated_map[op.outputs[0].name] = numpy.array(
-                op.inputs[0].shape.as_list()).astype(op.outputs[0].dtype.as_numpy_dtype)
-        elif op.type == 'StridedSlice' and _is_evaluable(op, evaluated_map):
-            input_np, begin_arr, end_arr, strides_arr = [
-                evaluated_map[ts.name] for ts in op.inputs]
-            ndim = len(begin_arr)
-            begin_mask_list = _get_mask(op, 'begin_mask', ndim)
-            end_mask_list = _get_mask(op, 'end_mask', ndim)
-            ellipsis_mask_list = _get_mask(op, 'ellipsis_mask', ndim)
-            new_axis_mask_list = _get_mask(op, 'new_axis_mask', ndim)
-            shrink_axis_mask_list = _get_mask(op, 'shrink_axis_mask', ndim)
-            slice_list = []
-            for (begin, end, strides, begin_mask, end_mask, ellipsis_mask, new_axis_mask,
-                    shrink_axis_mask) in zip(
-                        begin_arr, end_arr, strides_arr, begin_mask_list, end_mask_list,
-                        ellipsis_mask_list, new_axis_mask_list, shrink_axis_mask_list):
-                if ellipsis_mask:
-                    slice_list.append(Ellipsis)
-                elif new_axis_mask:
-                    slice_list.append(numpy.newaxis)
-                elif shrink_axis_mask:
-                    slice_list.append(begin)
-                else:
-                    if begin_mask:
-                        begin = None
-                    if end_mask:
-                        end = None
-                    slice_list.append(slice(begin, end, strides))
-            output_np = input_np[tuple(slice_list)]
-            evaluated_map[op.outputs[0].name] = output_np
-        elif op.type == 'TensorArrayV3' and op.inputs[0].name in evaluated_map:
-            tensor_array_size_map[op.name] = evaluated_map[op.inputs[0].name]
-        elif op.type == 'TensorArraySizeV3' and op.inputs[0].op.name in tensor_array_size_map:
-            evaluated_map[op.outputs[0].name] = tensor_array_size_map[op.inputs[0].op.name]
-        elif op.type == 'Range' and _is_evaluable(op, evaluated_map):
-            start, limit, delta = [evaluated_map[ts.name] for ts in op.inputs]
-            output_np = numpy.arange(start, limit, delta).astype(op.outputs[0].dtype.as_numpy_dtype)
-            evaluated_map[op.outputs[0].name] = output_np
-        elif op.type == 'Pack' and _is_evaluable(op, evaluated_map):
-            inputs_np = [evaluated_map[ts.name] for ts in op.inputs]
-            output_np = numpy.stack(inputs_np).astype(op.outputs[0].dtype.as_numpy_dtype)
-            evaluated_map[op.outputs[0].name] = output_np
-        elif op.type == 'Mul' and _is_evaluable(op, evaluated_map):
-            input0_np, input1_np = [evaluated_map[ts.name] for ts in op.inputs]
-            output_np = numpy.asarray(input0_np * input1_np).astype(op.outputs[0].dtype.as_numpy_dtype)
-            evaluated_map[op.outputs[0].name] = output_np
-        elif (op.type == 'Reshape' and op.inputs[1].name in evaluated_map
-                and op.inputs[1].op.type != 'Const'):
-            shape_np = evaluated_map[op.inputs[1].name]
-            with shaped_graph.as_default():
-                new_shape = constant_op.constant_v1(shape_np, name=op.inputs[1].op.name)
-                new_shape._handle_data = None
-                op._update_input(1, new_shape)
-            with graph.as_default():  # need to guarantee all op names match in both graphs
-                new_shape = constant_op.constant_v1(shape_np, name=new_shape.op.name)
-                oop = graph.get_operation_by_name(op.name)
-                oop._update_input(1, new_shape)
-        _infer_shape(op)
-        if op.type == 'TensorArrayGatherV3' and op.inputs[1].name in evaluated_map:
-            output_shape = [evaluated_map[op.inputs[1].name].size]
-            output_shape.extend(TensorShape(op.get_attr('element_shape')).as_list())
-            op.outputs[0].set_shape(output_shape)
-        elif op.type == 'Fill' and _is_evaluable(op, evaluated_map):
-            dims_np, value_np = [evaluated_map[ts.name] for ts in op.inputs]
-            output_np = numpy.full(dims_np, value_np).astype(op.outputs[0].dtype.as_numpy_dtype)
-            evaluated_map[op.outputs[0].name] = output_np
-            op.outputs[0].set_shape(dims_np)
+    for _ in range(num_cycles):
+        for op in shaped_graph.get_operations():
+            if op.type == 'Shape' and op.inputs[0].shape.is_fully_defined():
+                evaluated_map[op.outputs[0].name] = numpy.array(
+                    op.inputs[0].shape.as_list()).astype(op.outputs[0].dtype.as_numpy_dtype)
+            elif op.type == 'StridedSlice' and _is_evaluable(op, evaluated_map):
+                input_np, begin_arr, end_arr, strides_arr = [evaluated_map[ts.name]
+                                                             for ts in op.inputs]
+                ndim = len(begin_arr)
+                begin_mask_list = _get_mask(op, 'begin_mask', ndim)
+                end_mask_list = _get_mask(op, 'end_mask', ndim)
+                ellipsis_mask_list = _get_mask(op, 'ellipsis_mask', ndim)
+                new_axis_mask_list = _get_mask(op, 'new_axis_mask', ndim)
+                shrink_axis_mask_list = _get_mask(op, 'shrink_axis_mask', ndim)
+                slice_list = []
+                for (begin, end, strides, begin_mask, end_mask, ellipsis_mask, new_axis_mask,
+                        shrink_axis_mask) in zip(
+                            begin_arr, end_arr, strides_arr, begin_mask_list, end_mask_list,
+                            ellipsis_mask_list, new_axis_mask_list, shrink_axis_mask_list):
+                    if ellipsis_mask:
+                        slice_list.append(Ellipsis)
+                    elif new_axis_mask:
+                        slice_list.append(numpy.newaxis)
+                    elif shrink_axis_mask:
+                        slice_list.append(begin)
+                    else:
+                        if begin_mask:
+                            begin = None
+                        if end_mask:
+                            end = None
+                        slice_list.append(slice(begin, end, strides))
+                output_np = input_np[tuple(slice_list)]
+                evaluated_map[op.outputs[0].name] = output_np
+            elif op.type == 'TensorArrayV3' and op.inputs[0].name in evaluated_map:
+                tensor_array_size_map[op.name] = evaluated_map[op.inputs[0].name]
+            elif op.type == 'TensorArraySizeV3' and op.inputs[0].op.name in tensor_array_size_map:
+                evaluated_map[op.outputs[0].name] = tensor_array_size_map[op.inputs[0].op.name]
+            elif op.type == 'Range' and _is_evaluable(op, evaluated_map):
+                start, limit, delta = [evaluated_map[ts.name] for ts in op.inputs]
+                output_np = numpy.arange(start, limit, delta).astype(op.outputs[0].dtype.as_numpy_dtype)
+                evaluated_map[op.outputs[0].name] = output_np
+            elif op.type == 'Pack' and _is_evaluable(op, evaluated_map):
+                inputs_np = [evaluated_map[ts.name] for ts in op.inputs]
+                output_np = numpy.stack(inputs_np).astype(op.outputs[0].dtype.as_numpy_dtype)
+                evaluated_map[op.outputs[0].name] = output_np
+            elif op.type == 'Mul' and _is_evaluable(op, evaluated_map):
+                input0_np, input1_np = [evaluated_map[ts.name] for ts in op.inputs]
+                output_np = numpy.asarray(input0_np * input1_np).astype(op.outputs[0].dtype.as_numpy_dtype)
+                evaluated_map[op.outputs[0].name] = output_np
+            elif (op.type == 'Reshape' and op.inputs[1].name in evaluated_map
+                    and op.inputs[1].op.type != 'Const'):
+                shape_np = evaluated_map[op.inputs[1].name]
+                with shaped_graph.as_default():
+                    new_shape = constant_op.constant_v1(shape_np, name=op.inputs[1].op.name)
+                    new_shape._handle_data = None
+                    op._update_input(1, new_shape)
+                with graph.as_default():  # need to guarantee all op names match in both graphs
+                    new_shape = constant_op.constant_v1(shape_np, name=new_shape.op.name)
+                    oop = graph.get_operation_by_name(op.name)
+                    oop._update_input(1, new_shape)
+            _infer_shape(op)
+            if op.type == 'TensorArrayGatherV3' and op.inputs[1].name in evaluated_map:
+                output_shape = [evaluated_map[op.inputs[1].name].size]
+                output_shape.extend(TensorShape(op.get_attr('element_shape')).as_list())
+                op.outputs[0].set_shape(output_shape)
+            elif op.type == 'Fill' and _is_evaluable(op, evaluated_map):
+                dims_np, value_np = [evaluated_map[ts.name] for ts in op.inputs]
+                output_np = numpy.full(dims_np, value_np).astype(op.outputs[0].dtype.as_numpy_dtype)
+                evaluated_map[op.outputs[0].name] = output_np
+                op.outputs[0].set_shape(dims_np)
     return shaped_graph
 
 
@@ -561,27 +581,29 @@ def shape_inference_with_inputs(sess, graph, feed_dict, subgraph_shapes):
             filled by `TensorShapeProto`s inferred from the original graph.
     """
     need_shape = _need_shape_tensors(subgraph_shapes, graph)
-    if need_shape:
-        logging.warning('running inference to find shapes for {}'.format(need_shape))
+    need_shape = [sess.graph.get_tensor_by_name(ts.name) for ts in need_shape]
+    need_shape_infer = []
+    for tensor in need_shape:
+        if sess.graph.is_fetchable(tensor.op):
+            need_shape_infer.append(tensor)
+        else:
+            logging.warning('cannot infer shape for tensor {}; it is recommended '
+                            'to provide its shape in shape_feed_dict'.format(tensor))
+    if need_shape_infer:
+        tensors_repr = reprlib.Repr()
+        tensors_repr.maxlist = 8
+        tensors_repr.maxother = 80
+        ts_repr_str = tensors_repr.repr(need_shape_infer)
+        logging.warning('running inference to find shape for {} ({} tensors)'
+                        .format(ts_repr_str, len(need_shape_infer)))
         feed_dict = {getattr(key, 'name', key): val for key, val in feed_dict.items()}
-        need_shape_name = [ts.name for ts in need_shape]
-        try:
-            need_shape_np = sess.run(need_shape_name, feed_dict)
-        except:
-            need_shape_np = []
-            for ts_name in need_shape_name:
-                try:
-                    need_shape_np.append(sess.run(ts_name, feed_dict))
-                except:
-                    need_shape_np.append(None)
-        for tensor, value in zip(need_shape, need_shape_np):
+        need_shape_infer_np = sess.run(need_shape_infer, feed_dict)
+        for tensor, value in zip(need_shape_infer, need_shape_infer_np):
+            tensor = graph.get_tensor_by_name(tensor.name)
             if hasattr(value, 'shape'):
                 tensor.set_shape(value.shape)
             elif numpy.isscalar(value):
                 tensor.set_shape(tuple())
-            else:
-                logging.warning('cannot infer shape for tensor {}; it is recommended '
-                                'to provide its shape in shape_feed_dict'.format(tensor.name))
     return _new_subgraph_shapes(subgraph_shapes, graph)
 
 
@@ -807,7 +829,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             continue
         io_config_json = _io_config(node, _get_subgraph(node), subgraph_shapes)
         if io_config_json is None:
-            logging.warning('Not compiling subgraph {}: --io-config error'.format(node.name))
+            logging.warning('Not fusing subgraph {}: --io-config error'.format(node.name))
             continue
         subgraph_def = _get_subgraph_def(node)
         if large_constants is not None:
