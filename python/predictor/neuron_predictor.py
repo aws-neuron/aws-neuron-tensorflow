@@ -4,7 +4,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.client import session
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.framework import importer
-from tensorflow.python.saved_model import saved_model
+from tensorflow.python.saved_model import tf_saved_model
 from tensorflow.python.saved_model import loader
 from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.tools import saved_model_utils
@@ -92,7 +92,7 @@ class NeuronPredictor(object):
   def export_saved_model(self, export_dir):
     # load inference graph into a session and export as a SavedModel
     with session.Session(graph=self._graph) as sess:
-        builder = saved_model.builder.SavedModelBuilder(export_dir)
+        builder = tf_saved_model.builder.SavedModelBuilder(export_dir)
         builder.add_meta_graph_and_variables(sess,
                                              self._tags,
                                              signature_def_map=self._signature_def_map,
@@ -168,9 +168,9 @@ class NeuronPredictor(object):
 
     self._internal_sess = session.Session(config=config, graph=self._graph)
 
-    saved_model = model_dir is not None and os.path.isdir(model_dir)
+    is_saved_model = model_dir is not None and os.path.isdir(model_dir)
 
-    if saved_model:
+    if is_saved_model:
       loader.load(self._internal_sess, tags, model_dir)
     elif model_dir is not None: # for frozen model
       with gfile.FastGFile(model_dir, 'rb') as f:
@@ -187,16 +187,16 @@ class NeuronPredictor(object):
                            for k, v in output_names.items()}
 
     # save signature def map for export
-    if saved_model:
+    if is_saved_model:
         metagraph_def = saved_model_utils.get_meta_graph_def(model_dir, ','.join(tags))
         self._signature_def_map = metagraph_def.signature_def
     # construct default signature def map for export
     else:
-        inputs = {k: saved_model.build_tensor_info(v) for k, v in self._feed_tensors.items()}
-        outputs = {k: saved_model.build_tensor_info(v) for k, v in self._fetch_tensors.items()}
+        inputs = {k: tf_saved_model.build_tensor_info(v) for k, v in self._feed_tensors.items()}
+        outputs = {k: tf_saved_model.build_tensor_info(v) for k, v in self._fetch_tensors.items()}
         self._signature_def_map = {
-            saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
-                saved_model.signature_def_utils.build_signature_def(
+            tf_saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
+                tf_saved_model.signature_def_utils.build_signature_def(
                    inputs, outputs
                 )
             }
