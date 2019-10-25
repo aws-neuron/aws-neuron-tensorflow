@@ -7,6 +7,7 @@
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
+#include "tensorflow/core/platform/mutex.h"
 #include "nerr.pb.h"
 #include "nmgr_service.pb.h"
 #include "nmgr_service.grpc.pb.h"
@@ -92,7 +93,7 @@ public:
         const std::string &krtd_server);
     void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     uint32_t get_krt_eg_id() { return krt_eg_id_; };
-    std::mutex *get_mutex_infer() { return &mutex_infer_; };
+    tensorflow::mutex *get_mutex_infer() { return &mutex_infer_; };
     size_t get_num_executable() { return krt_h_nn_ids_.size(); };
     void register_executable(uint32_t nn_id) { krt_h_nn_ids_.insert(nn_id); };
     void deregister_executable(uint32_t nn_id) { krt_h_nn_ids_.erase(nn_id); };
@@ -104,7 +105,7 @@ public:
 private:
     bool create_eg_done_ = false;
     uint32_t krt_eg_id_;
-    std::mutex mutex_infer_;
+    tensorflow::mutex mutex_infer_;
     uint32_t krt_nn_id_running_;
     std::unordered_map<void*, SharedMemory*> ptr2shm_;
     std::set<uint32_t> krt_h_nn_ids_;

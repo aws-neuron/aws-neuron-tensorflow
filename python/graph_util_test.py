@@ -7,6 +7,7 @@ from __future__ import print_function
 
 import os
 import copy
+from contextlib import contextmanager
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
@@ -178,6 +179,63 @@ def test_batchmatmulv2():
         with tf.Session(graph=infer_graph_ok) as sess:
             result_neuron = sess.run('batchmatmul0:0', feed_dict)
             np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
+
+
+def test_shared_memory_infer():
+    np.random.seed(_RANDOM_SEED)
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
+        input1 = tf.placeholder(tf.int32, name='input1')
+        input2 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input2')
+        input3 = tf.placeholder(tf.bool, name='input3')
+        identity_n0 = tf.identity_n([input0, input1, input2, input3], name='identity_n0')
+        identity_n10, _, identity_n12, _ = tf.identity_n(identity_n0, name='identity_n1')
+        conv2d0 = tf.nn.conv2d(identity_n10, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+        conv2d2 = tf.nn.conv2d(identity_n12, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d2')
+        add0 = tf.add(conv2d0, conv2d2, name='add0')
+        relu0 = tf.nn.relu(add0, name='relu0')
+        sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+        conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        relu1 = tf.nn.relu(conv2d2, name='relu1')
+        feed_dict = {
+            'identity_n1:0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+            'identity_n1:2': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+        }
+        result_names = ['relu0:0', 'relu1:0']
+        result_ref = sess.run(result_names, feed_dict)
+        infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+            sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+            feed_dict=feed_dict, output_tensors=result_names,
+            compiler_workdir='./workdir')
+    for name in feed_dict.keys():
+        infer_graph.get_tensor_by_name(name)
+    for name in result_names:
+        infer_graph.get_tensor_by_name(name)
+    _assert_compiler_success(infer_graph)
+    assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+
+        @contextmanager
+        def set_neuron_rtd_shm_map():
+            neuron_rtd_shm_map_set = False
+            if 'NEURON_RTD_SHM_MAP' not in os.environ:
+                os.environ['NEURON_RTD_SHM_MAP'] = 'yes'
+                neuron_rtd_shm_map_set = True
+            try:
+                yield
+            finally:
+                if neuron_rtd_shm_map_set:
+                    os.environ.pop('NEURON_RTD_SHM_MAP')
+
+        with set_neuron_rtd_shm_map():
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run(result_names, feed_dict)
+                assert len(result_neuron) == len(result_ref)
+                for res_neuron, res_ref in zip(result_neuron, result_ref):
+                    np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_mid():

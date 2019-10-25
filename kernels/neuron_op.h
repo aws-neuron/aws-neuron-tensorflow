@@ -29,17 +29,14 @@ public:
     ~NeuronOp() override;
 
 private:
-    tensorflow::Status initialize(const std::string &executable,
-                                  const std::vector<DataType> &output_dtypes,
-                                  const std::vector<TensorShape> &output_shapes);
-    tensorflow::Status prepare_shared_memory(
-        const std::vector<DataType> &output_dtypes,
-        const std::vector<TensorShape> &output_shapes);
+    tensorflow::Status initialize(const std::string &executable);
+    tensorflow::Status prepare_shared_memory();
     tensorflow::Status start_model();
     void profile_dump_info(const std::string &graph_def, const std::string &executable);
     tensorflow::Status profile_start_session();
     void profile_stop_session();
-    tensorflow::Status infer(const std::vector<const Tensor*> &input_tensors,
+    tensorflow::Status infer(std::vector<Tensor*> *output_tensors,
+                             const std::vector<const Tensor*> &input_tensors,
                              FALTimestamps *timestamps);
     tensorflow::Status infer_post(uint64_t *infer_post_cookie,
                                   const std::vector<const Tensor*> &input_tensors);
@@ -62,6 +59,8 @@ private:
     std::vector<TensorShape> input_shapes_;
     std::vector<size_t> input_tensor_sizes_;
     std::vector<std::string> output_names_;
+    std::vector<DataType> output_dtypes_;
+    std::vector<TensorShape> output_shapes_;
     std::vector<Tensor> output_tensors_;
     uint32_t infer_timeout_;
     uint32_t infer_queue_length_;
