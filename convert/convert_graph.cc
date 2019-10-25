@@ -245,7 +245,7 @@ static void GetOutputInforamtion(const tensorflow::Graph& graph,
                                  std::vector<tensorflow::DataType>& outT) {
   for (unsigned int ii = 0; ii < output_names.size(); ii++) {
     VLOG(2) << subgraph_node_ids.size() << " Looking for " << output_names[ii]
-             << "\n";
+            << "\n";
     for (int node_id : subgraph_node_ids) {
       tensorflow::Node* node = graph.FindNodeId(node_id);
       string name = output_names[ii];

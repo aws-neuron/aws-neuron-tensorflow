@@ -458,7 +458,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
         {   // lock EG; we assume this op instance is not loaded into more than one EG
             // and so we just use this EG's lock
-            tensorflow::mutex_lock lock(*neuron_device_->get_mutex_infer());
+            tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
             std::vector<uint64_t> infer_post_cookie_vec;
             tensorflow::Status status = start_model();
             if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
@@ -523,7 +523,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
         {   // lock EG; we assume this op instance is not loaded into more than one EG
             // and so we just use this EG's lock
-            tensorflow::mutex_lock lock(*neuron_device_->get_mutex_infer());
+            tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
             tensorflow::Status status = start_model();
             if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
             profile_start_session();
@@ -618,13 +618,13 @@ tensorflow::Status NeuronOp::profile_start_session() {
         profile_session_filename_ = filename_stream.str();
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile start-session -s " << profile_session_filename_
-                   << " -k " << krtd_server_ << " " << krt_nn_id_;
+                   << " -a " << krtd_server_ << " " << krt_nn_id_;
         VLOG(1) << "Starting profiling session by " << cmd_stream.str();
         std::ostringstream krt_nn_id_stream;
         krt_nn_id_stream << krt_nn_id_;
         tensorflow::Status status = subprocess_run(
             "neuron-profile", "neuron-profile", "start-session", "-s",
-            profile_session_filename_.c_str(), "-k", krtd_server_.c_str(),
+            profile_session_filename_.c_str(), "-a", krtd_server_.c_str(),
             krt_nn_id_stream.str().c_str());
         if (!status.ok()) {
             profile_session_filename_ = "";

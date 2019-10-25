@@ -93,7 +93,6 @@ public:
         const std::string &krtd_server);
     void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     uint32_t get_krt_eg_id() { return krt_eg_id_; };
-    tensorflow::mutex *get_mutex_infer() { return &mutex_infer_; };
     size_t get_num_executable() { return krt_h_nn_ids_.size(); };
     void register_executable(uint32_t nn_id) { krt_h_nn_ids_.insert(nn_id); };
     void deregister_executable(uint32_t nn_id) { krt_h_nn_ids_.erase(nn_id); };
@@ -102,10 +101,10 @@ public:
     bool nn_is_running(uint32_t krt_nn_id);
     void nn_set_current_running(uint32_t krt_nn_id);
     uint32_t nn_get_current_running();
+    tensorflow::mutex mutex_infer_;
 private:
     bool create_eg_done_ = false;
     uint32_t krt_eg_id_;
-    tensorflow::mutex mutex_infer_;
     uint32_t krt_nn_id_running_;
     std::unordered_map<void*, SharedMemory*> ptr2shm_;
     std::set<uint32_t> krt_h_nn_ids_;
@@ -133,18 +132,18 @@ private:
 
 class FALTimestamps {
 public:
-    void mark_enter() { enter = now(); };
-    void mark_above_krtd_infer() { above_krtd_infer.push_back(now()); };
-    void mark_below_krtd_infer() { below_krtd_infer.push_back(now()); };
-    void mark_exit() { exit = now(); };
+    void mark_enter() { enter_ = now(); };
+    void mark_above_krtd_infer() { above_krtd_infer_ = now(); };
+    void mark_below_krtd_infer() { below_krtd_infer_ = now(); };
+    void mark_exit() { exit_ = now(); };
     std::string timing_string();
 private:
-    uint64 enter = 0;
-    std::vector<uint64> above_krtd_infer;
-    std::vector<uint64> below_krtd_infer;
-    uint64 exit = 0;
+    uint64 enter_ = 0;
+    uint64 above_krtd_infer_ = 0;
+    uint64 below_krtd_infer_ = 0;
+    uint64 exit_ = 0;
 
-    std::string time_unit = " us";
+    std::string time_unit_ = " us";
     uint64 now() { return Env::Default()->NowMicros(); };
 };
 

@@ -264,30 +264,17 @@ static std::string uint64_to_string(uint64 number) {
 
 std::string FALTimestamps::timing_string() {
     std::string result("NeuronOp enter timestamp: ");
-    result += uint64_to_string(enter);
-    result += time_unit;
-    if (above_krtd_infer.size() > 0) {
-        result += ", preprocessing time ";
-        result += uint64_to_string(above_krtd_infer[0] - enter);
-        result += time_unit;
-        size_t num_infer = std::min(above_krtd_infer.size(), below_krtd_infer.size());
-        for (size_t idx = 0; idx < num_infer; ++idx) {
-            if (idx > 1) {
-                result += ", inter-processing time ";
-                result += uint64_to_string(
-                    above_krtd_infer[idx] - below_krtd_infer[idx - 1]);
-                result += time_unit;
-            }
-            result += ", neuron-rtd infer time ";
-            result += uint64_to_string(below_krtd_infer[idx] - above_krtd_infer[idx]);
-            result += time_unit;
-        }
-        if (num_infer - 1 < below_krtd_infer.size()) {
-            result += ", postprocessing time ";
-            result += uint64_to_string(exit - below_krtd_infer[num_infer - 1]);
-            result += time_unit;
-        }
-    }
+    result += uint64_to_string(enter_);
+    result += time_unit_;
+    result += ", preprocessing time ";
+    result += uint64_to_string(above_krtd_infer_ - enter_);
+    result += time_unit_;
+    result += ", neuron-rtd infer time ";
+    result += uint64_to_string(below_krtd_infer_ - above_krtd_infer_);
+    result += time_unit_;
+    result += ", postprocessing time ";
+    result += uint64_to_string(exit_ - below_krtd_infer_);
+    result += time_unit_;
     return result;
 }
 
