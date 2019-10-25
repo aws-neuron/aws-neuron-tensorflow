@@ -143,9 +143,7 @@ tensorflow::Status NeuronOp::initialize(
     krt_nn_id_ = load_response.h_nn().id();
     krt_load_done_ = true;
     neuron_device_->register_executable(krt_nn_id_);
-#ifndef NDEBUG
-    LOG(INFO) << "load: number of executables: " << neuron_device_->get_num_executable();
-#endif
+    VLOG(1) << "load: number of executables: " << neuron_device_->get_num_executable();
 
     // check argument sizes
     if (input_names_.size() != input_dtypes_.size()
@@ -197,10 +195,8 @@ tensorflow::Status NeuronOp::prepare_shared_memory(
         if (!tf_status.ok()) {
             return tf_status;
         }
-#ifndef NDEBUG
-        LOG(INFO) << "input shared memory " << input_shms_.back().name()
-                  << " ready at address " << input_shms_.back().ptr();
-#endif
+        VLOG(1) << "input shared memory " << input_shms_.back().name()
+                << " ready at address " << input_shms_.back().ptr();
     }
     for (size_t idx = 0; idx < output_dtypes.size(); ++idx) {
         Tensor temp_tensor(output_dtypes[idx], output_shapes[idx]);
@@ -210,10 +206,8 @@ tensorflow::Status NeuronOp::prepare_shared_memory(
         if (!tf_status.ok()) {
             return tf_status;
         }
-#ifndef NDEBUG
-        LOG(INFO) << "output shared memory " << output_shms_.back().name()
-                  << " ready at address " << output_shms_.back().ptr();
-#endif
+        VLOG(1) << "output shared memory " << output_shms_.back().name()
+                << " ready at address " << output_shms_.back().ptr();
     }
     for (auto &out_shm : output_shms_) {
         neuron_device_->get_ptr2shm()->emplace(out_shm.ptr(), &out_shm);
@@ -227,7 +221,7 @@ tensorflow::Status NeuronOp::prepare_shared_memory(
 
 NeuronOp::~NeuronOp() {
     if (nullptr == neuron_device_) {
-        LOG(ERROR) << "neuron_device_ not available; not tearing down";
+        VLOG(1) << "neuron_device_ not available; not tearing down";
         return;
     }
     grpc::Status status;
@@ -253,9 +247,7 @@ NeuronOp::~NeuronOp() {
         NRT_CHECK_LOG("unload", status, unload_response);
     }
     neuron_device_->deregister_executable(krt_nn_id_);
-#ifndef NDEBUG
-    LOG(INFO) << "unload: number of executables: " << neuron_device_->get_num_executable();
-#endif
+    VLOG(1) << "unload: number of executables: " << neuron_device_->get_num_executable();
 
     // unmap all shared memories
     for (auto &shm : input_shms_) {
@@ -518,6 +510,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
             timestamps.mark_below_krtd_infer();
         }
+        timestamps.mark_exit();
+        VLOG(1) << timestamps.timing_string();
     } else {
         profile_start_session();
         status = infer(input_tensors, &timestamps);
@@ -527,14 +521,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 ctx->set_output(idx, output_tensors_[idx]);
             }
         }
+        if (!status.ok()) {
+            INFERENTIA_OP_ERROR(ctx, status);
+        }
+        timestamps.mark_exit();
+        VLOG(1) << timestamps.timing_string();
     }
-    if (!status.ok()) {
-        INFERENTIA_OP_ERROR(ctx, status);
-    }
-    timestamps.mark_exit();
-#ifndef NDEBUG
-    LOG(INFO) << timestamps.timing_string();
-#endif
 }
 
 
@@ -615,9 +607,7 @@ tensorflow::Status NeuronOp::profile_start_session() {
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile start-session -s " << profile_session_filename_
                    << " -k " << krtd_server_ << " " << krt_nn_id_;
-#ifndef NDEBUG
-        LOG(INFO) << "Starting profiling session by " << cmd_stream.str();
-#endif
+        VLOG(1) << "Starting profiling session by " << cmd_stream.str();
         std::ostringstream krt_nn_id_stream;
         krt_nn_id_stream << krt_nn_id_;
         tensorflow::Status status = subprocess_run(
@@ -640,9 +630,7 @@ void NeuronOp::profile_stop_session() {
     if (profile_enabled_ && "" != profile_session_filename_) {
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile stop-session -s " << profile_session_filename_;
-#ifndef NDEBUG
-        LOG(INFO) << "Stopping profiling session by " << cmd_stream.str();
-#endif
+        VLOG(1) << "Stopping profiling session by " << cmd_stream.str();
         tensorflow::Status status = subprocess_run(
             "neuron-profile", "neuron-profile", "stop-session", "-s",
             profile_session_filename_.c_str());
