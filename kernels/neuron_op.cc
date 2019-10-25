@@ -42,20 +42,17 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
     OP_REQUIRES_OK(ctx, ctx->GetAttr("executable", &executable));
     if ("" != executable) {
         op_name_ = ctx->def().name();
-        std::vector<std::string> input_names;
-        OP_REQUIRES_OK(ctx, ctx->GetAttr("input_names", &input_names));
+        OP_REQUIRES_OK(ctx, ctx->GetAttr("input_names", &input_names_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("input_dtypes", &input_dtypes_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("input_shapes", &input_shapes_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("input_batch_axis", &input_batch_axis_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("output_batch_axis", &output_batch_axis_));
-        std::vector<std::string> output_names;
-        OP_REQUIRES_OK(ctx, ctx->GetAttr("output_names", &output_names));
+        OP_REQUIRES_OK(ctx, ctx->GetAttr("output_names", &output_names_));
         std::vector<DataType> output_dtypes;
         OP_REQUIRES_OK(ctx, ctx->GetAttr("output_dtypes", &output_dtypes));
         std::vector<TensorShape> output_shapes;
         OP_REQUIRES_OK(ctx, ctx->GetAttr("output_shapes", &output_shapes));
-        OP_REQUIRES_OK(ctx, initialize(executable, input_names,
-                                       output_names, output_dtypes, output_shapes));
+        OP_REQUIRES_OK(ctx, initialize(executable, output_dtypes, output_shapes));
     }
     if (profile_enabled_) {
         std::string graph_def;
@@ -67,8 +64,6 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
 
 tensorflow::Status NeuronOp::initialize(
         const std::string &executable,
-        const std::vector<std::string> &input_names,
-        const std::vector<std::string> &output_names,
         const std::vector<DataType> &output_dtypes,
         const std::vector<TensorShape> &output_shapes) {
     krtd_server_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
@@ -119,8 +114,15 @@ tensorflow::Status NeuronOp::initialize(
     writer->Write(load_request);
 
     // todo: read these info from neff
+    bool dynamic_batch_size = false;
+    for (auto batch_axis : input_batch_axis_) {
+        if (-1 != batch_axis) {
+            dynamic_batch_size = true;
+            break;
+        }
+    }
     infer_timeout_ = 10;
-    infer_queue_length_ = 4;
+    infer_queue_length_ = dynamic_batch_size ? 4 : 1;
     nrt::model_params *model_params = load_request.mutable_model_params();
     model_params->mutable_timeout()->set_data(infer_timeout_);
     model_params->mutable_ninfer()->set_data(infer_queue_length_);
@@ -146,17 +148,17 @@ tensorflow::Status NeuronOp::initialize(
 #endif
 
     // check argument sizes
-    if (input_names.size() != input_dtypes_.size()
-            || input_names.size() != input_shapes_.size()) {
+    if (input_names_.size() != input_dtypes_.size()
+            || input_names_.size() != input_shapes_.size()) {
         return tensorflow::errors::FailedPrecondition(
-            "incorrect number of inputs: input_names size ", input_names.size(),
+            "incorrect number of inputs: input_names size ", input_names_.size(),
             ", input_dtypes size ", input_dtypes_.size(),
             ", input_shapes size ", input_shapes_.size());
     }
-    if (output_names.size() != output_dtypes.size()
-            || output_names.size() != output_shapes.size()) {
+    if (output_names_.size() != output_dtypes.size()
+            || output_names_.size() != output_shapes.size()) {
         return tensorflow::errors::FailedPrecondition(
-            "incorrect number of outputs: output_names size ", output_names.size(),
+            "incorrect number of outputs: output_names size ", output_names_.size(),
             ", output_dtypes size ", output_dtypes.size(),
             ", output_shapes size ", output_shapes.size());
     }
@@ -165,12 +167,6 @@ tensorflow::Status NeuronOp::initialize(
         input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
     }
 
-    for (auto &name : input_names) {
-        input_names_.push_back(name);
-    }
-    for (auto &name : output_names) {
-        output_names_.push_back(name);
-    }
     // prepare output tensors
     if (0 == krtd_server_.find("unix:")
             && prepare_shared_memory(output_dtypes, output_shapes).ok()) {

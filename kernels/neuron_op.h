@@ -30,8 +30,6 @@ public:
 
 private:
     tensorflow::Status initialize(const std::string &executable,
-                                  const std::vector<std::string> &input_names,
-                                  const std::vector<std::string> &output_names,
                                   const std::vector<DataType> &output_dtypes,
                                   const std::vector<TensorShape> &output_shapes);
     tensorflow::Status prepare_shared_memory(
