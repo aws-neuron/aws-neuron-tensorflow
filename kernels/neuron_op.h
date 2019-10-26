@@ -40,7 +40,8 @@ private:
                              FALTimestamps *timestamps);
     tensorflow::Status infer_post(uint64_t *infer_post_cookie,
                                   const std::vector<const Tensor*> &input_tensors);
-    tensorflow::Status infer_wait(uint64_t infer_post_cookie);
+    tensorflow::Status infer_wait(std::vector<Tensor*> *output_tensors,
+                                  uint64_t infer_post_cookie);
     tensorflow::mutex load_mutex_;
     std::string executable_ = "";
     std::string op_name_;

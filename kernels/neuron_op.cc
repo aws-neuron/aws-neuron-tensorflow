@@ -180,11 +180,6 @@ tensorflow::Status NeuronOp::initialize(const std::string &executable) {
             use_shared_memory_ = false;
         }
     }
-    if (!use_shared_memory_) {
-        for (size_t idx = 0; idx < output_dtypes_.size(); ++idx) {
-            output_tensors_.emplace_back(output_dtypes_[idx], output_shapes_[idx]);
-        }
-    }
     ready_ = true;
     return tensorflow::Status::OK();
 }
@@ -399,10 +394,10 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
             is_batch_input_tensors.push_back(is_batch_tensor);
         }
-        for (auto idx = 0; idx < output_tensors_.size(); ++idx) {
+        for (auto idx = 0; idx < output_names_.size(); ++idx) {
             bool is_batch_tensor = false;
             if (0 == output_batch_axis_[idx]) {
-                TensorShape k_shape(output_tensors_[idx].shape());
+                TensorShape k_shape(output_shapes_[idx]);
                 if (k_shape.dims() < 1) {
                     INFERENTIA_OP_ERROR(
                         ctx, "no batch-dimension found on output tensor ",
@@ -419,7 +414,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             is_batch_output_tensors.push_back(is_batch_tensor);
         }
     }
-    if (ctx->num_outputs() != output_tensors_.size()) {
+    if (ctx->num_outputs() != output_names_.size()) {
         INFERENTIA_OP_ERROR(ctx, "incorrect number of output tensors");
     }
 
@@ -428,13 +423,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         std::vector<Tensor*> batch_output_tensors;
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             Tensor *batch_out_tensor = nullptr;
+            TensorShape shape(output_shapes_[idx]);
             if (is_batch_output_tensors[idx]) {
-                TensorShape shape(output_tensors_[idx].shape());
                 shape.set_dim(0, batch_size);
-                ctx->allocate_output(idx, shape, &batch_out_tensor);
-            } else {
-                ctx->set_output(idx, output_tensors_[idx]);
             }
+            ctx->allocate_output(idx, shape, &batch_out_tensor);
             batch_output_tensors.push_back(batch_out_tensor);
         }
 
@@ -497,17 +490,32 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         INFERENTIA_OP_ERROR(ctx, status);
                     }
                 }
+                std::vector<Tensor> temp_output_tensors;
+                for (auto idx = 0; idx < output_dtypes_.size(); ++idx) {
+                    if (is_batch_output_tensors[idx]) {
+                        temp_output_tensors.emplace_back(output_dtypes_[idx],
+                                                         output_shapes_[idx]);
+                    } else {
+                        temp_output_tensors.emplace_back();
+                    }
+                }
+                std::vector<Tensor*> output_tensors;
+                for (auto idx = 0; idx < temp_output_tensors.size(); ++idx) {
+                    Tensor *out_tensor = is_batch_output_tensors[idx] ?
+                        &temp_output_tensors[idx] : batch_output_tensors[idx];
+                    output_tensors.push_back(out_tensor);
+                }
                 for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
                     int64_t dim0_start = batch_idx * k_batch_size;
                     int64_t dim0_limit = batch_idx * k_batch_size + k_batch_size;
                     uint64_t infer_post_cookie = infer_post_cookie_vec[batch_idx];
-                    status = infer_wait(infer_post_cookie);
+                    status = infer_wait(&output_tensors, infer_post_cookie);
                     if (!status.ok()) {
                         INFERENTIA_OP_ERROR(ctx, status);
                     }
                     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                         if (is_batch_output_tensors[idx]) {
-                            StringPiece kaena_data = output_tensors_[idx].tensor_data();
+                            StringPiece kaena_data = temp_output_tensors[idx].tensor_data();
                             Tensor slice = batch_output_tensors[idx]->Slice(
                                 dim0_start, std::min(dim0_limit, batch_size));
                             status = tensor_memcpy(&slice, kaena_data,
@@ -801,7 +809,8 @@ tensorflow::Status NeuronOp::infer_post(
 }
 
 
-tensorflow::Status NeuronOp::infer_wait(uint64_t infer_post_cookie) {
+tensorflow::Status NeuronOp::infer_wait(std::vector<Tensor*> *output_tensors,
+                                        uint64_t infer_post_cookie) {
     if (!ready_) {
         return tensorflow::errors::FailedPrecondition("not ready for inference");
     }
@@ -830,7 +839,7 @@ tensorflow::Status NeuronOp::infer_wait(uint64_t infer_post_cookie) {
     }
     for (size_t idx = 0; idx < output_names_.size(); ++idx) {
         StringPiece out_tensor_raw = raw_output_tensors[idx];
-        Tensor *out_tensor = &output_tensors_[idx];
+        Tensor *out_tensor = output_tensors->at(idx);
         tensorflow::Status tf_status = tensor_memcpy(out_tensor, out_tensor_raw);
         if (!tf_status.ok()) {
             return tensorflow::errors::Internal(
