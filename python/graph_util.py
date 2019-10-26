@@ -24,7 +24,7 @@ from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import importer
-from tensorflow.python.framework import graph_util as tf_graph_util
+from tensorflow.python.framework import graph_util_impl as tf_graph_util
 from tensorflow.python.framework import errors
 from tensorflow.python.framework.common_shapes import call_cpp_shape_fn
 from tensorflow.python.framework.tensor_shape import TensorShape, dimension_value
@@ -203,8 +203,11 @@ def inference_graph_from_session(
                             evaluated_map[tensor_name] = const_np
 
     # convert all variables to constants
-    graph_def = tf_graph_util.convert_variables_to_constants(
+    extract_sub_graph = tf_graph_util.extract_sub_graph
+    tf_graph_util.extract_sub_graph = tf_graph_util.extract_sub_graph.__wrapped__
+    graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
         sess, graph_def, list(protected_op_names))
+    tf_graph_util.extract_sub_graph = extract_sub_graph
 
     # strip out large constants
     large_constants = {}
@@ -227,7 +230,7 @@ def inference_graph_from_session(
     graph = _graph_def_to_graph(graph_def)
     control_op_names = [op.name for op in graph.get_operations() if op._control_outputs]
     protected_op_names.update(control_op_names)
-    graph_def = tf_graph_util.remove_training_nodes(
+    graph_def = tf_graph_util.remove_training_nodes.__wrapped__(
         graph_def, protected_nodes=protected_op_names)
 
     # setup op exclusions
