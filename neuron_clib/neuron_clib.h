@@ -120,6 +120,7 @@ public:
     bool is_empty();
     void clear();
     ~NeuronDeviceManager() { clear(); };
+    tensorflow::mutex global_mutex_;
 private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int MAX_NUM_CORES = 64;

@@ -79,10 +79,13 @@ tensorflow::Status NeuronOp::initialize(const std::string &executable) {
         return tensorflow::errors::Unavailable("cannot create stub");
     }
 
-    if (!global_neuron_device_manager.ready()) {
-        tensorflow::Status status = global_neuron_device_manager.initialize();
-        if (!status.ok()) {
-            return status;
+    {
+        tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
+        if (!global_neuron_device_manager.ready()) {
+            tensorflow::Status status = global_neuron_device_manager.initialize();
+            if (!status.ok()) {
+                return status;
+            }
         }
     }
     if (!global_neuron_device_manager.ready()) {
