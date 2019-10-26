@@ -37,10 +37,10 @@ NeuronDeviceManager global_neuron_device_manager;
 
 
 NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
+    VLOG(1) << "calling NeuronOp constructor";
     // read executable
-    std::string executable;
-    OP_REQUIRES_OK(ctx, ctx->GetAttr("executable", &executable));
-    if ("" != executable) {
+    OP_REQUIRES_OK(ctx, ctx->GetAttr("executable", &executable_));
+    if ("" != executable_) {
         op_name_ = ctx->def().name();
         OP_REQUIRES_OK(ctx, ctx->GetAttr("input_names", &input_names_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("input_dtypes", &input_dtypes_));
@@ -50,13 +50,15 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
         OP_REQUIRES_OK(ctx, ctx->GetAttr("output_names", &output_names_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("output_dtypes", &output_dtypes_));
         OP_REQUIRES_OK(ctx, ctx->GetAttr("output_shapes", &output_shapes_));
-        OP_REQUIRES_OK(ctx, initialize(executable));
     }
+    profile_dir_ = env_get("NEURON_PROFILE");
+    profile_enabled_ = "" != profile_dir_;
     if (profile_enabled_) {
         std::string graph_def;
         OP_REQUIRES_OK(ctx, ctx->GetAttr("graph_def", &graph_def));
-        profile_dump_info(graph_def, executable);
+        profile_dump_info(graph_def, executable_);
     }
+    VLOG(1) << "NeuronOp constructor done";
 }
 
 
@@ -180,8 +182,6 @@ tensorflow::Status NeuronOp::initialize(const std::string &executable) {
             output_tensors_.emplace_back(output_dtypes_[idx], output_shapes_[idx]);
         }
     }
-    profile_dir_ = env_get("NEURON_PROFILE");
-    profile_enabled_ = "" != profile_dir_;
     ready_ = true;
     return tensorflow::Status::OK();
 }
@@ -220,6 +220,7 @@ tensorflow::Status NeuronOp::prepare_shared_memory() {
 
 
 NeuronOp::~NeuronOp() {
+    VLOG(1) << "calling NeuronOp destructor";
     if (nullptr == neuron_device_) {
         VLOG(1) << "neuron_device_ not available; not tearing down";
         return;
@@ -262,6 +263,7 @@ NeuronOp::~NeuronOp() {
     if (global_neuron_device_manager.is_empty()) {
         global_neuron_device_manager.clear();
     }
+    VLOG(1) << "NeuronOp destructor done";
 }
 
 
@@ -332,6 +334,15 @@ static tensorflow::Status tensor_memset(Tensor *tensor, int ch) {
 void NeuronOp::Compute(OpKernelContext *ctx) {
     FALTimestamps timestamps;
     timestamps.mark_enter();
+
+    {
+        tensorflow::mutex_lock lock(load_mutex_);
+        if (!ready_) {
+            tensorflow::Status status = initialize(executable_);
+            if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
+            executable_ = "";
+        }
+    }
 
     std::vector<const Tensor*> input_tensors;
     for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {

@@ -240,11 +240,11 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
 }
 
 bool NeuronDevice::some_nn_is_running() {
-    return krt_nn_id_running_ != 0;
+    return krt_nn_id_running_ != NRT_INVALID_NN_ID;
 }
 
 bool NeuronDevice::nn_is_running(uint32_t krt_nn_id) {
-    return krt_nn_id_running_ == krt_nn_id;
+    return krt_nn_id_running_ == krt_nn_id && NRT_INVALID_NN_ID != krt_nn_id_running_;
 }
 
 uint32_t NeuronDevice::nn_get_current_running() {

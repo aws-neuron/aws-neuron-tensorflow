@@ -7,7 +7,9 @@ from __future__ import print_function
 
 import os
 import copy
+import time
 from contextlib import contextmanager
+from concurrent.futures import ThreadPoolExecutor
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
@@ -236,6 +238,40 @@ def test_shared_memory_infer():
                 assert len(result_neuron) == len(result_ref)
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+
+
+def test_multithread_load_infer():
+    np.random.seed(_RANDOM_SEED)
+    max_workers = 16
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
+        input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
+        conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+        conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        add0 = tf.add(conv2d0, conv2d1, name='add0')
+        relu0 = tf.nn.relu(add0, name='relu0')
+        feed_dict_list = [{key: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)
+                           for key in ['input0:0', 'input1:0']} for _ in range(max_workers)]
+        result_ref_list = [sess.run('relu0:0', feed_dict) for feed_dict in feed_dict_list]
+        infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+            sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+    _assert_compiler_success(infer_graph)
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+        with tf.Session(graph=infer_graph) as sess:
+            latency_list = []
+            for _ in range(3):
+                start = time.time()
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_list = [executor.submit(sess.run, 'relu0:0', feed_dict) for feed_dict in feed_dict_list]
+                    result_neuron_list = [future.result() for future in future_list]
+                elapsed = time.time() - start
+                latency_list.append(elapsed)
+            for infer_only_latency in  latency_list[1:]:
+                assert latency_list[0] > infer_only_latency + 0.2
+        for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
+            np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_inference_graph_from_session_mid():
