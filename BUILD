@@ -12,11 +12,13 @@ load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 cc_library(
     name = "all_ops",
     deps = [":neuron_op_op_lib"],
+    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "all_kernels",
     deps = [":neuron_op_kernel"],
+    visibility = ["//visibility:public"],
 )
 
 tf_py_wrap_cc(
