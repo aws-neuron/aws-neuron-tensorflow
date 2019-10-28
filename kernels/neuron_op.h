@@ -29,10 +29,10 @@ public:
     ~NeuronOp() override;
 
 private:
-    tensorflow::Status initialize(const std::string &executable);
+    tensorflow::Status initialize();
     tensorflow::Status prepare_shared_memory();
     tensorflow::Status start_model();
-    void profile_dump_info(const std::string &graph_def, const std::string &executable);
+    void profile_dump_info();
     tensorflow::Status profile_start_session();
     void profile_stop_session();
     tensorflow::Status infer(std::vector<Tensor*> *output_tensors,
@@ -43,8 +43,6 @@ private:
     tensorflow::Status infer_wait(std::vector<Tensor*> *output_tensors,
                                   uint64_t infer_post_cookie);
     tensorflow::mutex load_mutex_;
-    std::string executable_ = "";
-    std::string op_name_;
     NeuronDevice *neuron_device_ = nullptr;
     std::string krtd_server_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
@@ -55,15 +53,7 @@ private:
     std::vector<SharedMemory> input_shms_;
     std::vector<SharedMemory> output_shms_;
     std::vector<SharedMemoryAllocator> output_shm_allocs_;
-    std::vector<int> input_batch_axis_;
-    std::vector<int> output_batch_axis_;
-    std::vector<std::string> input_names_;
-    std::vector<DataType> input_dtypes_;
-    std::vector<TensorShape> input_shapes_;
     std::vector<size_t> input_tensor_sizes_;
-    std::vector<std::string> output_names_;
-    std::vector<DataType> output_dtypes_;
-    std::vector<TensorShape> output_shapes_;
     std::vector<Tensor> output_tensors_;
     uint32_t infer_timeout_;
     uint32_t infer_queue_length_;

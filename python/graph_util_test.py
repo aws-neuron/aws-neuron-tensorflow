@@ -479,7 +479,7 @@ def test_inference_graph_from_session_mid_large_constants():
             result_neuron = sess.run(result_names, feed_dict)
             assert len(result_neuron) == len(result_ref)
             for res_neuron, res_ref in zip(result_neuron, result_ref):
-                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
 def test_inference_graph_from_session_scalar():
