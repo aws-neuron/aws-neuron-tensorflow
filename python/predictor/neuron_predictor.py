@@ -4,7 +4,7 @@ from tensorflow.python.framework import ops
 from tensorflow.python.client import session
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.framework import importer
-from tensorflow.python.saved_model import tf_saved_model
+from tensorflow.python.saved_model import saved_model as tf_saved_model
 from tensorflow.python.saved_model import loader
 from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.tools import saved_model_utils
