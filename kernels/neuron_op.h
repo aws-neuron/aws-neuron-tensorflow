@@ -29,19 +29,19 @@ public:
     ~NeuronOp() override;
 
 private:
-    tensorflow::Status initialize();
-    tensorflow::Status prepare_shared_memory();
-    tensorflow::Status start_model();
+    Status initialize();
+    Status prepare_shared_memory();
+    Status start_model();
     void profile_dump_info();
-    tensorflow::Status profile_start_session();
+    void profile_start_session();
     void profile_stop_session();
-    tensorflow::Status infer(std::vector<Tensor*> *output_tensors,
-                             const std::vector<const Tensor*> &input_tensors,
-                             FALTimestamps *timestamps);
-    tensorflow::Status infer_post(uint64_t *infer_post_cookie,
-                                  const std::vector<const Tensor*> &input_tensors);
-    tensorflow::Status infer_wait(std::vector<Tensor*> *output_tensors,
-                                  uint64_t infer_post_cookie);
+    Status infer(std::vector<Tensor*> *output_tensors,
+                 const std::vector<const Tensor*> &input_tensors,
+                 FALTimestamps *timestamps);
+    Status infer_post(uint64_t *infer_post_cookie,
+                      const std::vector<const Tensor*> &input_tensors);
+    Status infer_wait(std::vector<Tensor*> *output_tensors,
+                      uint64_t infer_post_cookie);
     tensorflow::mutex load_mutex_;
     NeuronDevice *neuron_device_ = nullptr;
     std::string krtd_server_;

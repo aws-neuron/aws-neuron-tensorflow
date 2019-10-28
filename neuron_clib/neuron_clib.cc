@@ -107,12 +107,12 @@ tensorflow::Status NeuronDeviceManager::initialize() {
     std::shared_ptr<grpc::Channel> krt_channel = grpc::CreateCustomChannel(
         krtd_server, grpc::InsecureChannelCredentials(), ch_args);
     if (nullptr == krt_channel) {
-        return tensorflow::errors::Unavailable(
+        return errors::Unavailable(
             "cannot establish grpc channel to neuron-rtd server");
     }
     stub_ = nrt::nmgr_v1::NewStub(krt_channel);
     if (nullptr == stub_) {
-        return tensorflow::errors::Unavailable("cannot create stub");
+        return errors::Unavailable("cannot create stub");
     }
 
     // get number of neuron cores from comma-separated list of integers
@@ -128,17 +128,14 @@ tensorflow::Status NeuronDeviceManager::initialize() {
         num_cores_vector.push_back(std::stoi(substr));
     }
     if (num_cores_vector.empty()) {
-        return tensorflow::errors::InvalidArgument(
+        return errors::InvalidArgument(
             "NEURON_DEVICE_SIZES=", neuron_device_sizes, " is ill-formatted");
     }
 
     tensorflow::Status status;
     for (size_t idx = 0; idx < num_cores_vector.size(); ++idx) {
         int num_cores = num_cores_vector[idx];
-        status = device_array_[idx].initialize(stub_, num_cores, krtd_server);
-        if (!status.ok()) {
-            return status;
-        }
+        TF_RETURN_IF_ERROR(device_array_[idx].initialize(stub_, num_cores, krtd_server));
         ++num_devices_;
     }
     ready_ = true;
@@ -195,7 +192,7 @@ tensorflow::Status NeuronDevice::initialize(
             message += krtd_server.substr(socket_start + unix_keyword.length());
             message += " writable?";
         }
-        return tensorflow::errors::Unavailable("grpc server ", krtd_server, message);
+        return errors::Unavailable("grpc server ", krtd_server, message);
     }
     NRT_CHECK_RETURN("create_eg", status, create_eg_response);
     krt_eg_id_ = create_eg_response.h_eg().id();

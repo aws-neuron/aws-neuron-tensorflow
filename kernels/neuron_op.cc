@@ -21,16 +21,9 @@ namespace tensorflow {
 namespace kaena {
 
 
-#define INFERENTIA_OP_ERROR(CTX, ...) {                                 \
-    ::tensorflow::Status _s = tensorflow::errors::Unknown(__VA_ARGS__); \
-    LOG(ERROR) << "NeuronOp kernel Error: " << _s;                      \
-    CTX->SetStatus(_s);                                                 \
-    return;                                                             \
-}
-
-
 static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
+typedef const AttrValue_ListValue AttrList;
 
 
 NeuronDeviceManager global_neuron_device_manager;
@@ -39,7 +32,7 @@ NeuronDeviceManager global_neuron_device_manager;
 NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
     VLOG(1) << "calling NeuronOp constructor";
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
-                tensorflow::errors::InvalidArgument("neff is invalid"));
+                errors::InvalidArgument("neff is invalid"));
     profile_dir_ = env_get("NEURON_PROFILE");
     profile_enabled_ = "" != profile_dir_;
     if (profile_enabled_) {
@@ -49,7 +42,7 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
 }
 
 
-tensorflow::Status NeuronOp::initialize() {
+Status NeuronOp::initialize() {
     krtd_server_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
     grpc::ChannelArguments ch_args;
@@ -58,25 +51,22 @@ tensorflow::Status NeuronOp::initialize() {
     std::shared_ptr<grpc::Channel> krtd_channel = grpc::CreateCustomChannel(
         krtd_server_, grpc::InsecureChannelCredentials(), ch_args);
     if (nullptr == krtd_channel) {
-        return tensorflow::errors::Unavailable(
+        return errors::Unavailable(
             "cannot establish grpc channel to neuron-rtd server");
     }
     stub_ = nrt::nmgr_v1::NewStub(krtd_channel);
     if (nullptr == stub_) {
-        return tensorflow::errors::Unavailable("cannot create stub");
+        return errors::Unavailable("cannot create stub");
     }
 
     {
         tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
         if (!global_neuron_device_manager.ready()) {
-            tensorflow::Status status = global_neuron_device_manager.initialize();
-            if (!status.ok()) {
-                return status;
-            }
+            TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize());
         }
     }
     if (!global_neuron_device_manager.ready()) {
-        return tensorflow::errors::FailedPrecondition(
+        return errors::FailedPrecondition(
             "global_neuron_device_manager initialization failure");
     }
 
@@ -102,7 +92,7 @@ tensorflow::Status NeuronOp::initialize() {
 
     // todo: read these info from neff
     bool dynamic_batch_size = false;
-    const AttrValue_ListValue &input_batch_axis = def().attr().at("input_batch_axis").list();
+    AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
     for (size_t idx = 0; idx < input_batch_axis.i_size(); ++idx) {
         if (-1 != input_batch_axis.i(idx)) {
             dynamic_batch_size = true;
@@ -134,22 +124,22 @@ tensorflow::Status NeuronOp::initialize() {
     VLOG(1) << "load: number of executables: " << neuron_device_->get_num_executable();
 
     // check argument sizes
-    const AttrValue_ListValue &input_names = def().attr().at("input_names").list();
-    const AttrValue_ListValue &input_dtypes = def().attr().at("input_dtypes").list();
-    const AttrValue_ListValue &input_shapes = def().attr().at("input_shapes").list();
-    const AttrValue_ListValue &output_names = def().attr().at("output_names").list();
-    const AttrValue_ListValue &output_dtypes = def().attr().at("output_dtypes").list();
-    const AttrValue_ListValue &output_shapes = def().attr().at("output_shapes").list();
+    AttrList &input_names = def().attr().at("input_names").list();
+    AttrList &input_dtypes = def().attr().at("input_dtypes").list();
+    AttrList &input_shapes = def().attr().at("input_shapes").list();
+    AttrList &output_names = def().attr().at("output_names").list();
+    AttrList &output_dtypes = def().attr().at("output_dtypes").list();
+    AttrList &output_shapes = def().attr().at("output_shapes").list();
     if (input_names.s_size() != input_dtypes.type_size()
             || input_names.s_size() != input_shapes.shape_size()) {
-        return tensorflow::errors::FailedPrecondition(
+        return errors::FailedPrecondition(
             "incorrect number of inputs: input_names size ", input_names.s_size(),
             ", input_dtypes size ", input_dtypes.type_size(),
             ", input_shapes size ", input_shapes.shape_size());
     }
     if (output_names.s_size() != output_dtypes.type_size()
             || output_names.s_size() != output_shapes.shape_size()) {
-        return tensorflow::errors::FailedPrecondition(
+        return errors::FailedPrecondition(
             "incorrect number of outputs: output_names size ", output_names.s_size(),
             ", output_dtypes size ", output_dtypes.type_size(),
             ", output_shapes size ", output_shapes.shape_size());
@@ -175,31 +165,25 @@ tensorflow::Status NeuronOp::initialize() {
         }
     }
     ready_ = true;
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
-tensorflow::Status NeuronOp::prepare_shared_memory() {
+Status NeuronOp::prepare_shared_memory() {
     for (size_t idx = 0; idx < input_tensor_sizes_.size(); ++idx) {
         size_t shm_size = input_tensor_sizes_[idx];
         input_shms_.emplace_back(shm_size);
-        tensorflow::Status tf_status = input_shms_.back().initialize(stub_);
-        if (!tf_status.ok()) {
-            return tf_status;
-        }
+        TF_RETURN_IF_ERROR(input_shms_.back().initialize(stub_));
         VLOG(1) << "input shared memory " << input_shms_.back().name()
                 << " ready at address " << input_shms_.back().ptr();
     }
-    const AttrValue_ListValue &output_dtypes = def().attr().at("output_dtypes").list();
-    const AttrValue_ListValue &output_shapes = def().attr().at("output_shapes").list();
+    AttrList &output_dtypes = def().attr().at("output_dtypes").list();
+    AttrList &output_shapes = def().attr().at("output_shapes").list();
     for (size_t idx = 0; idx < output_dtypes.type_size(); ++idx) {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
         size_t shm_size = temp_tensor.tensor_data().size();
         output_shms_.emplace_back(shm_size);
-        tensorflow::Status tf_status = output_shms_.back().initialize(stub_);
-        if (!tf_status.ok()) {
-            return tf_status;
-        }
+        TF_RETURN_IF_ERROR(output_shms_.back().initialize(stub_));
         VLOG(1) << "output shared memory " << output_shms_.back().name()
                 << " ready at address " << output_shms_.back().ptr();
     }
@@ -209,7 +193,7 @@ tensorflow::Status NeuronOp::prepare_shared_memory() {
     for (auto &out_shm : output_shms_) {
         output_shm_allocs_.emplace_back(&out_shm);
     }
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
@@ -261,11 +245,10 @@ NeuronOp::~NeuronOp() {
 }
 
 
-static tensorflow::Status tensor_memcpy(Tensor *tensor, StringPiece &source,
-                                        int64 memcpy_size=-1) {
+static Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size=-1) {
     if (memcpy_size < 0 ? source.size() != tensor->tensor_data().size()
                         : memcpy_size > tensor->tensor_data().size()) {
-        return tensorflow::errors::OutOfRange(
+        return errors::OutOfRange(
             "unexpected tensor size in tensor_memcpy, source size: ",
             source.size(), ", target size: ", tensor->tensor_data().size());
     }
@@ -292,13 +275,13 @@ static tensorflow::Status tensor_memcpy(Tensor *tensor, StringPiece &source,
         CASE_MEMCPY_TENSOR(DT_QUINT16,  tensorflow::quint16);
         CASE_MEMCPY_TENSOR(DT_QINT32,   tensorflow::qint32);
     default:
-        return tensorflow::errors::InvalidArgument("tensor->dtype() is unsupported");
+        return errors::InvalidArgument("tensor->dtype() is unsupported");
     }
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
-static tensorflow::Status tensor_memset(Tensor *tensor, int ch) {
+static Status tensor_memset(Tensor *tensor, int ch) {
     #define CASE_MEMSET_TENSOR(TF_DataType, TTYPE) {            \
         case (TF_DataType):                                     \
             std::memset(tensor->unaligned_flat<TTYPE>().data(), \
@@ -319,9 +302,9 @@ static tensorflow::Status tensor_memset(Tensor *tensor, int ch) {
         CASE_MEMSET_TENSOR(DT_QUINT16,  tensorflow::quint16);
         CASE_MEMSET_TENSOR(DT_QINT32,   tensorflow::qint32);
     default:
-        return tensorflow::errors::InvalidArgument("tensor->dtype() is unsupported");
+        return errors::InvalidArgument("tensor->dtype() is unsupported");
     }
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
@@ -329,95 +312,89 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     FALTimestamps timestamps;
     timestamps.mark_enter();
 
-    {  // todo: do not lock if ready
+    if (!ready_) {
         tensorflow::mutex_lock lock(load_mutex_);
         if (!ready_) {
-            tensorflow::Status status = initialize();
-            if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
+            OP_REQUIRES_OK(ctx, initialize());
         }
     }
 
-    const AttrValue_ListValue &input_names = def().attr().at("input_names").list();
-    const AttrValue_ListValue &output_shapes = def().attr().at("output_shapes").list();
+    AttrList &input_names = def().attr().at("input_names").list();
+    AttrList &output_shapes = def().attr().at("output_shapes").list();
     std::vector<const Tensor*> input_tensors;
     for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
         input_tensors.push_back(&ctx->input(idx));
     }
-    if (input_tensors.size() != input_names.s_size()) {
-        INFERENTIA_OP_ERROR(ctx, "incorrect number of input tensors");
-    }
+    OP_REQUIRES(ctx, input_tensors.size() == input_names.s_size(),
+                errors::InvalidArgument("incorrect number of input tensors"));
 
     int64_t batch_size = UNINIT_BATCH_SIZE;
     int64_t k_batch_size = UNINIT_BATCH_SIZE;
     std::vector<bool> is_batch_input_tensors;
     std::vector<bool> is_batch_output_tensors;
-    const AttrValue_ListValue &output_names = def().attr().at("output_names").list();
-    const AttrValue_ListValue &input_batch_axis = def().attr().at("input_batch_axis").list();
-    const AttrValue_ListValue &output_batch_axis = def().attr().at("output_batch_axis").list();
+    AttrList &output_names = def().attr().at("output_names").list();
+    AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
+    AttrList &output_batch_axis = def().attr().at("output_batch_axis").list();
     if (input_names.s_size() == input_batch_axis.i_size() &&
             output_names.s_size() == output_batch_axis.i_size()) {
-        const AttrValue_ListValue &input_shapes = def().attr().at("input_shapes").list();
+        AttrList &input_shapes = def().attr().at("input_shapes").list();
         for (auto idx = 0; idx < input_tensors.size(); ++idx) {
             bool is_batch_tensor = false;
             const Tensor *tptr = input_tensors[idx];
             TensorShape shape(tptr->shape());
             TensorShape k_shape(input_shapes.shape(idx));
             if (0 == input_batch_axis.i(idx)) {
-                if (shape.dims() < 1) {
-                    INFERENTIA_OP_ERROR(
-                        ctx, "no batch-dimension found on input tensor ",
-                        input_names.s(idx), " with shape ", shape.DebugString());
-                }
+                OP_REQUIRES(ctx, shape.dims() > 0,
+                            errors::InvalidArgument(
+                                "no batch-dimension found on input tensor ",
+                                input_names.s(idx), " with shape ", shape.DebugString()));
                 if (UNINIT_BATCH_SIZE == batch_size) {
                     batch_size = shape.dim_size(0);
                     k_batch_size = k_shape.dim_size(0);
-                    if (batch_size < 1) {
-                        INFERENTIA_OP_ERROR(
-                            ctx,
-                            "incorrect internal batch size inferred from input tensor ",
-                            input_names.s(idx), " with shape ", shape.DebugString());
-                    }
-                } else if (batch_size != shape.dim_size(0)) {
-                    INFERENTIA_OP_ERROR(
-                        ctx, "incorrect batch size found on input tensor ",
-                        input_names.s(idx), ", tensor shape ", shape.DebugString(),
-                        ", internal batch size ", batch_size);
+                    OP_REQUIRES(ctx, batch_size > 0,
+                                errors::Internal(
+                                    "incorrect internal batch size inferred from input tensor ",
+                                    input_names.s(idx), " with shape ", shape.DebugString()));
+                } else {
+                    OP_REQUIRES(ctx, batch_size == shape.dim_size(0),
+                                errors::InvalidArgument(
+                                    "incorrect batch size found on input tensor ",
+                                    input_names.s(idx), ", tensor shape ", shape.DebugString(),
+                                    ", internal batch size ", batch_size));
                 }
                 shape.RemoveDim(0);
                 k_shape.RemoveDim(0);
                 is_batch_tensor = batch_size != k_batch_size;
             }
-            if (shape != k_shape) {
-                INFERENTIA_OP_ERROR(
-                    ctx, "incorrect shape found on input tensor ", input_names.s(idx),
-                    ", inference time shape ", tptr->shape().DebugString(),
-                    ", expected shape ", input_shapes.shape(idx).DebugString());
-            }
+            OP_REQUIRES(ctx, shape == k_shape,
+                        errors::InvalidArgument(
+                            "incorrect shape found on input tensor ", input_names.s(idx),
+                            ", inference time shape ", tptr->shape().DebugString(),
+                            ", expected shape ", input_shapes.shape(idx).DebugString()));
             is_batch_input_tensors.push_back(is_batch_tensor);
         }
         for (auto idx = 0; idx < output_names.s_size(); ++idx) {
             bool is_batch_tensor = false;
             if (0 == output_batch_axis.i(idx)) {
                 TensorShape k_shape(output_shapes.shape(idx));
-                if (k_shape.dims() < 1) {
-                    INFERENTIA_OP_ERROR(
-                        ctx, "no batch-dimension found on output tensor ",
-                        output_names.s(idx), " with kaena shape ", k_shape.DebugString());
-                }
-                if (k_batch_size != k_shape.dim_size(0)) {
-                    INFERENTIA_OP_ERROR(
-                        ctx, "incorrect batch size found on output tensor ",
-                        output_names.s(idx), ", kaena tensor shape ", k_shape.DebugString(),
-                        ", kaena batch size ", k_batch_size);
-                }
+                OP_REQUIRES(ctx, k_shape.dims() > 0,
+                            errors::InvalidArgument(
+                                "no batch-dimension found on output tensor ",
+                                output_names.s(idx), " with kaena shape ",
+                                k_shape.DebugString()));
+                OP_REQUIRES(ctx, k_batch_size == k_shape.dim_size(0),
+                            errors::InvalidArgument(
+                                "incorrect batch size found on output tensor ",
+                                output_names.s(idx), ", kaena tensor shape ",
+                                k_shape.DebugString(), ", kaena batch size ",
+                                k_batch_size));
                 is_batch_tensor = batch_size != k_shape.dim_size(0);
             }
             is_batch_output_tensors.push_back(is_batch_tensor);
         }
     }
-    if (ctx->num_outputs() != output_names.s_size()) {
-        INFERENTIA_OP_ERROR(ctx, "incorrect number of output tensors");
-    }
+    OP_REQUIRES(ctx, ctx->num_outputs() == output_names.s_size(),
+                errors::InvalidArgument("incorrect number of output tensors"));
 
     if (batch_size > 0) {
         int64_t pad_batch_size = ((batch_size - 1) / k_batch_size + 1) * k_batch_size;
@@ -428,7 +405,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             if (is_batch_output_tensors[idx]) {
                 shape.set_dim(0, batch_size);
             }
-            ctx->allocate_output(idx, shape, &batch_out_tensor);
+            Status status = ctx->allocate_output(idx, shape, &batch_out_tensor);
+            OP_REQUIRES_OK(ctx, status);
             batch_output_tensors.push_back(batch_out_tensor);
         }
 
@@ -446,13 +424,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         Tensor pad_end_slice(input_tensors[idx]->dtype(), ps_shape);
                         Tensor zero_slice = pad_end_slice.Slice(
                             k_batch_size - (pad_batch_size - batch_size), k_batch_size);
-                        tensorflow::Status status = tensor_memset(&zero_slice, 0);
-                        if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
+                        Status status = tensor_memset(&zero_slice, 0);
+                        OP_REQUIRES_OK(ctx, status);
                         Tensor end_slice = input_tensors[idx]->Slice(
                             dim0_start, batch_size);
                         StringPiece t_data = end_slice.tensor_data();
                         status = tensor_memcpy(&pad_end_slice, t_data, t_data.size());
-                        if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
+                        OP_REQUIRES_OK(ctx, status);
                         batches_kaena_input_tensors.back().emplace_back(pad_end_slice);
                     } else {
                         batches_kaena_input_tensors.back().emplace_back(
@@ -464,69 +442,60 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
         }
 
-        {   // lock EG; we assume this op instance is not loaded into more than one EG
-            // and so we just use this EG's lock
+        {   // lock EG; we assume this op instance is not loaded into more than
+            // one EG and so we just use this EG's lock
             tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
-            std::vector<uint64_t> infer_post_cookie_vec;
-            tensorflow::Status status = start_model();
-            if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
+            std::vector<uint64_t> cookie_vec;
+            Status status = start_model();
+            OP_REQUIRES_OK(ctx, status);
             timestamps.mark_above_krtd_infer();
             int64_t start = 0;
             int64_t end = std::min(start + infer_queue_length_, num_batches);
             while (start < num_batches) {
                 for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
-                    std::vector<const Tensor*> kaena_input_tensors;
+                    std::vector<const Tensor*> sliced_inputs;
                     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
                         if (is_batch_input_tensors[idx]) {
-                            kaena_input_tensors.push_back(
+                            sliced_inputs.push_back(
                                 &batches_kaena_input_tensors[batch_idx][idx]);
                         } else {
-                            kaena_input_tensors.push_back(input_tensors[idx]);
+                            sliced_inputs.push_back(input_tensors[idx]);
                         }
                     }
-                    uint64_t infer_post_cookie;
-                    status = infer_post(&infer_post_cookie, kaena_input_tensors);
-                    infer_post_cookie_vec.push_back(infer_post_cookie);
-                    if (!status.ok()) {
-                        INFERENTIA_OP_ERROR(ctx, status);
-                    }
+                    uint64_t cookie;
+                    OP_REQUIRES_OK(ctx, infer_post(&cookie, sliced_inputs));
+                    cookie_vec.push_back(cookie);
                 }
-                // todo: allocate temp_output_tensors from ctx
-                const AttrValue_ListValue &output_dtypes = def().attr().at("output_dtypes").list();
-                const AttrValue_ListValue &output_shapes = def().attr().at("output_shapes").list();
-                std::vector<Tensor> temp_output_tensors;
+                AttrList &output_dtypes = def().attr().at("output_dtypes").list();
+                AttrList &output_shapes = def().attr().at("output_shapes").list();
+                std::vector<Tensor> temp_outputs;
                 for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+                    temp_outputs.emplace_back();
                     if (is_batch_output_tensors[idx]) {
-                        temp_output_tensors.emplace_back(output_dtypes.type(idx),
-                                                         output_shapes.shape(idx));
-                    } else {
-                        temp_output_tensors.emplace_back();
+                        status = ctx->allocate_temp(output_dtypes.type(idx),
+                                                    output_shapes.shape(idx),
+                                                    &temp_outputs[idx]);
+                        OP_REQUIRES_OK(ctx, status);
                     }
                 }
                 std::vector<Tensor*> output_tensors;
-                for (auto idx = 0; idx < temp_output_tensors.size(); ++idx) {
+                for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
                     Tensor *out_tensor = is_batch_output_tensors[idx] ?
-                        &temp_output_tensors[idx] : batch_output_tensors[idx];
+                        &temp_outputs[idx] : batch_output_tensors[idx];
                     output_tensors.push_back(out_tensor);
                 }
                 for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
                     int64_t dim0_start = batch_idx * k_batch_size;
                     int64_t dim0_limit = batch_idx * k_batch_size + k_batch_size;
-                    uint64_t infer_post_cookie = infer_post_cookie_vec[batch_idx];
-                    status = infer_wait(&output_tensors, infer_post_cookie);
-                    if (!status.ok()) {
-                        INFERENTIA_OP_ERROR(ctx, status);
-                    }
+                    status = infer_wait(&output_tensors, cookie_vec[batch_idx]);
+                    OP_REQUIRES_OK(ctx, status);
                     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                         if (is_batch_output_tensors[idx]) {
-                            StringPiece kaena_data = temp_output_tensors[idx].tensor_data();
+                            StringPiece k_data = temp_outputs[idx].tensor_data();
                             Tensor slice = batch_output_tensors[idx]->Slice(
                                 dim0_start, std::min(dim0_limit, batch_size));
-                            status = tensor_memcpy(&slice, kaena_data,
-                                                   slice.tensor_data().size());
-                            if (!status.ok()) {
-                                INFERENTIA_OP_ERROR(ctx, status);
-                            }
+                            OP_REQUIRES_OK(ctx, tensor_memcpy(
+                                &slice, k_data, slice.tensor_data().size()));
                         }
                     }
                 }
@@ -544,25 +513,23 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         if (!use_shared_memory_) {
             for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                 output_tensors.emplace_back();
-                ctx->allocate_output(idx, output_shapes.shape(idx), &output_tensors[idx]);
+                OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
+                                                         &output_tensors[idx]));
             }
         }
-        {   // lock EG; we assume this op instance is not loaded into more than one EG
-            // and so we just use this EG's lock
+        {   // lock EG; we assume this op instance is not loaded into more than
+            // one EG and so we just use this EG's lock
             tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
-            tensorflow::Status status = start_model();
-            if (!status.ok()) INFERENTIA_OP_ERROR(ctx, status);
+            OP_REQUIRES_OK(ctx, start_model());
             profile_start_session();
-            status = infer(&output_tensors, input_tensors, &timestamps);
+            Status status = infer(&output_tensors, input_tensors, &timestamps);
             profile_stop_session();
             if (status.ok() && use_shared_memory_) {
                 for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                     ctx->set_output(idx, output_tensors_[idx]);
                 }
             }
-            if (!status.ok()) {
-                INFERENTIA_OP_ERROR(ctx, status);
-            }
+            OP_REQUIRES_OK(ctx, status);
         }  // unlock EG
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
@@ -570,7 +537,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 }
 
 
-tensorflow::Status NeuronOp::start_model() {
+Status NeuronOp::start_model() {
     grpc::Status status;
     if (!neuron_device_->nn_is_running(krt_nn_id_) && neuron_device_->some_nn_is_running()) {
         // if krt_nn_id_ is not running, stop the current running model
@@ -592,12 +559,12 @@ tensorflow::Status NeuronOp::start_model() {
         NRT_CHECK_RETURN("start", status, start_response);
         neuron_device_->nn_set_current_running(krt_nn_id_);
     }
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
 template<typename... Args>
-tensorflow::Status subprocess_run(Args... args) {
+Status subprocess_run(Args... args) {
     pid_t fork_pid;
     SYS_FAIL_RETURN((fork_pid = fork()) < 0, "fork");
     if (0 == fork_pid) {
@@ -608,10 +575,10 @@ tensorflow::Status subprocess_run(Args... args) {
         int status;
         SYS_FAIL_RETURN(waitpid(fork_pid, &status, 0) < 0, "waitpid");
         if (!(WIFEXITED(status) && 0 == WEXITSTATUS(status))) {
-            return tensorflow::errors::Internal("child process did not exit gracefully");
+            return errors::Internal("child process did not exit gracefully");
         }
     }
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
@@ -635,7 +602,7 @@ void NeuronOp::profile_dump_info() {
 }
 
 
-tensorflow::Status NeuronOp::profile_start_session() {
+void NeuronOp::profile_start_session() {
     if (profile_enabled_) {
         std::string new_op_name = mangle_op_name(def().name());
         std::ostringstream filename_stream;
@@ -648,7 +615,7 @@ tensorflow::Status NeuronOp::profile_start_session() {
         VLOG(1) << "Starting profiling session by " << cmd_stream.str();
         std::ostringstream krt_nn_id_stream;
         krt_nn_id_stream << krt_nn_id_;
-        tensorflow::Status status = subprocess_run(
+        Status status = subprocess_run(
             "neuron-profile", "neuron-profile", "start-session", "-s",
             profile_session_filename_.c_str(), "-a", krtd_server_.c_str(),
             krt_nn_id_stream.str().c_str());
@@ -656,11 +623,10 @@ tensorflow::Status NeuronOp::profile_start_session() {
             profile_session_filename_ = "";
             LOG(WARNING) << "neuron-profile start-session failed. "
                          << "Did you install aws-neuron-tools-core?";
-            return status;
+            return;
         }
         profile_session_id_++;
     }
-    return tensorflow::Status::OK();
 }
 
 
@@ -669,7 +635,7 @@ void NeuronOp::profile_stop_session() {
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile stop-session -s " << profile_session_filename_;
         VLOG(1) << "Stopping profiling session by " << cmd_stream.str();
-        tensorflow::Status status = subprocess_run(
+        Status status = subprocess_run(
             "neuron-profile", "neuron-profile", "stop-session", "-s",
             profile_session_filename_.c_str());
         if (!status.ok()) {
@@ -680,18 +646,18 @@ void NeuronOp::profile_stop_session() {
 }
 
 
-tensorflow::Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
-                                   const std::vector<const Tensor*> &input_tensors,
-                                   FALTimestamps *timestamps) {
+Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
+                       const std::vector<const Tensor*> &input_tensors,
+                       FALTimestamps *timestamps) {
     if (!ready_) {
-        return tensorflow::errors::FailedPrecondition("not ready for inference");
+        return errors::FailedPrecondition("not ready for inference");
     }
 
     // set input tensors
-    const AttrValue_ListValue &input_names = def().attr().at("input_names").list();
-    const AttrValue_ListValue &output_names = def().attr().at("output_names").list();
+    AttrList &input_names = def().attr().at("input_names").list();
+    AttrList &output_names = def().attr().at("output_names").list();
     if (input_tensors.size() != input_names.s_size()) {
-        return tensorflow::errors::Internal(
+        return errors::Internal(
             "incorrect number of input tensors, input_tensors size ",
             input_tensors.size(), ", input_names size", input_names.s_size());
     }
@@ -701,7 +667,7 @@ tensorflow::Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (tensor_data.size() != input_tensor_sizes_[idx]) {
-            return tensorflow::errors::Internal(
+            return errors::Internal(
                 "incorrect input tensor size ", tensor_data.size(), " found on ",
                 input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
         }
@@ -746,7 +712,7 @@ tensorflow::Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
 
     // output tensors are already in place if using shared memory
     if (use_shared_memory_) {
-        return tensorflow::Status::OK();
+        return Status::OK();
     }
 
     // set output tensors
@@ -757,105 +723,100 @@ tensorflow::Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
     }
     for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
         if (map_name_raw.find(output_names.s(idx)) == map_name_raw.end()) {
-            return tensorflow::errors::Internal(
-                "tensor name", output_names.s(idx), " not found in infer_response.ofmap()");
+            return errors::Internal(
+                "tensor name", output_names.s(idx),
+                " not found in infer_response.ofmap()");
         }
         raw_output_tensors.push_back(map_name_raw[output_names.s(idx)]);
     }
     for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
         StringPiece out_tensor_raw = raw_output_tensors[idx];
         Tensor *out_tensor = output_tensors->at(idx);
-        tensorflow::Status tf_status = tensor_memcpy(out_tensor, out_tensor_raw);
-        if (!tf_status.ok()) {
-            return tensorflow::errors::Internal(
-                "tensor_memcpy failure on tensor name: ", output_names.s(idx),
-                " with error message ", tf_status.error_message());
-        }
+        TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
+                                        "tensor_memcpy failure on tensor name: ",
+                                        output_names.s(idx));
     }
 
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 
-tensorflow::Status NeuronOp::infer_post(
-        uint64_t *infer_post_cookie, const std::vector<const Tensor*> &input_tensors) {
+Status NeuronOp::infer_post(uint64_t *infer_post_cookie,
+                            const std::vector<const Tensor*> &input_tensors) {
     if (!ready_) {
-        return tensorflow::errors::FailedPrecondition("not ready for inference");
+        return errors::FailedPrecondition("not ready for inference");
     }
 
     // set input tensors
-    const AttrValue_ListValue &input_names = def().attr().at("input_names").list();
+    AttrList &input_names = def().attr().at("input_names").list();
     if (input_tensors.size() != input_names.s_size()) {
-        return tensorflow::errors::Internal(
+        return errors::Internal(
             "incorrect number of input tensors, input_tensors size ",
             input_tensors.size(), ", input_names size", input_names.s_size());
     }
 
-    nrt::infer_request infer_request;
+    nrt::infer_request request;
     for (size_t idx = 0; idx < input_names.s_size(); ++idx) {
-        nrt::infer_io *infer_io = infer_request.add_ifmap();
+        nrt::infer_io *infer_io = request.add_ifmap();
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (tensor_data.size() != input_tensor_sizes_[idx]) {
-            return tensorflow::errors::Internal(
+            return errors::Internal(
                 "incorrect input tensor size ", tensor_data.size(), " found on ",
                 input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
         }
         void *data = (void*)tensor_data.data();
         infer_io->set_buf(data, tensor_data.size());
     }
-    infer_request.mutable_h_nn()->set_id(krt_nn_id_);
+    request.mutable_h_nn()->set_id(krt_nn_id_);
 
     // infer
     grpc::ClientContext context;
-    nrt::infer_post_response infer_post_response;
-    grpc::Status status = stub_->infer_post(&context, infer_request, &infer_post_response);
-    NRT_CHECK_RETURN("infer_post", status, infer_post_response);
-    *infer_post_cookie = infer_post_response.cookie();
-    return tensorflow::Status::OK();
+    nrt::infer_post_response response;
+    grpc::Status status = stub_->infer_post(&context, request, &response);
+    NRT_CHECK_RETURN("infer_post", status, response);
+    *infer_post_cookie = response.cookie();
+    return Status::OK();
 }
 
 
-tensorflow::Status NeuronOp::infer_wait(std::vector<Tensor*> *output_tensors,
+Status NeuronOp::infer_wait(std::vector<Tensor*> *output_tensors,
                                         uint64_t infer_post_cookie) {
     if (!ready_) {
-        return tensorflow::errors::FailedPrecondition("not ready for inference");
+        return errors::FailedPrecondition("not ready for inference");
     }
 
-    nrt::infer_wait_request infer_wait_request;
-    infer_wait_request.set_cookie(infer_post_cookie);
+    nrt::infer_wait_request request;
+    request.set_cookie(infer_post_cookie);
 
     // infer_wait
     grpc::ClientContext context;
-    nrt::infer_response infer_response;
-    grpc::Status status = stub_->infer_wait(&context, infer_wait_request, &infer_response);
-    NRT_CHECK_RETURN("infer_wait", status, infer_response);
+    nrt::infer_response response;
+    grpc::Status status = stub_->infer_wait(&context, request, &response);
+    NRT_CHECK_RETURN("infer_wait", status, response);
 
     // set output tensors
     std::vector<StringPiece> raw_output_tensors;
     std::unordered_map<std::string, StringPiece> map_name_raw;
-    for (const auto &infer_io : infer_response.ofmap()) {
+    for (const auto &infer_io : response.ofmap()) {
         map_name_raw.emplace(infer_io.name(), infer_io.buf());
     }
-    const AttrValue_ListValue &output_names = def().attr().at("output_names").list();
+    AttrList &output_names = def().attr().at("output_names").list();
     for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
         if (map_name_raw.find(output_names.s(idx)) == map_name_raw.end()) {
-            return tensorflow::errors::Internal(
-                "tensor name", output_names.s(idx), " not found in infer_response.ofmap()");
+            return errors::Internal("tensor name", output_names.s(idx),
+                                    " not found in infer_response.ofmap()");
         }
         raw_output_tensors.push_back(map_name_raw[output_names.s(idx)]);
     }
     for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
         StringPiece out_tensor_raw = raw_output_tensors[idx];
         Tensor *out_tensor = output_tensors->at(idx);
-        tensorflow::Status tf_status = tensor_memcpy(out_tensor, out_tensor_raw);
-        if (!tf_status.ok()) {
-            return tensorflow::errors::Internal(
-                "tensor_memcpy failure on tensor name: ", output_names.s(idx),
-                " with error message ", tf_status.error_message());
-        }
+        TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
+                                        "tensor_memcpy failure on tensor name: ",
+                                        output_names.s(idx));
     }
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 

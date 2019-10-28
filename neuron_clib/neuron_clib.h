@@ -32,11 +32,10 @@ namespace kaena {
     }                                                                   \
 }
 
-#define SYS_FAIL_RETURN(failure_expr, fn_name) {        \
-    if (failure_expr) {                                 \
-        return tensorflow::errors::Unknown(             \
-            (fn_name), " failed with errno ", errno);   \
-    }                                                   \
+#define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
+    if (failure_expr) {                                                     \
+        return errors::Unknown((fn_name), " failed with errno ", errno);    \
+    }                                                                       \
 }
 
 #define SYS_FAIL_LOG(failure_expr, fn_name) {                       \
@@ -48,7 +47,7 @@ namespace kaena {
 inline tensorflow::Status nrt_error_status(const std::string &fn_name,
                                            const grpc::Status &status,
                                            const nrt::status &nrt_status) {
-    return tensorflow::errors::Unknown(
+    return errors::Unknown(
         "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
         ", error message \"", status.error_message(), "\"; nrt status code ",
         nrt_status.code(), ", details \"", nrt_status.details(), "\""
