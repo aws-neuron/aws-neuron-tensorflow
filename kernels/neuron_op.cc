@@ -626,7 +626,7 @@ void NeuronOp::profile_start_session() {
         std::string new_op_name = mangle_op_name(def().name());
         std::ostringstream filename_stream;
         filename_stream << profile_dir_ << "/" << new_op_name << "-"
-                        << nn_id_ << "-" << profile_session_id_ << ".ipd";
+                        << nn_id_ << "-" << profile_session_id_ << ".ntff";
         profile_session_filename_ = filename_stream.str();
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile start-session -s " << profile_session_filename_
