@@ -44,10 +44,10 @@ private:
                       uint64_t infer_post_cookie);
     tensorflow::mutex load_mutex_;
     NeuronDevice *neuron_device_ = nullptr;
-    std::string krtd_server_;
+    std::string nrtd_address_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
-    uint32_t krt_nn_id_ = NRT_INVALID_NN_ID;
-    bool krt_load_done_ = false;
+    uint32_t nn_id_ = NRT_INVALID_NN_ID;
+    bool load_done_ = false;
     bool use_shared_memory_ = false;
     bool ready_ = false;
     std::vector<SharedMemory> input_shms_;
@@ -55,8 +55,7 @@ private:
     std::vector<SharedMemoryAllocator> output_shm_allocs_;
     std::vector<size_t> input_tensor_sizes_;
     std::vector<Tensor> output_tensors_;
-    uint32_t infer_timeout_;
-    uint32_t infer_queue_length_;
+    uint32_t max_num_infers_;
     int profile_session_id_ = 0;
     bool profile_enabled_ = false;
     std::string profile_dir_ = "";

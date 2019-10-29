@@ -43,18 +43,17 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
 
 
 Status NeuronOp::initialize() {
-    krtd_server_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
-
     grpc::ChannelArguments ch_args;
     ch_args.SetMaxReceiveMessageSize(-1);
     ch_args.SetMaxSendMessageSize(-1);
-    std::shared_ptr<grpc::Channel> krtd_channel = grpc::CreateCustomChannel(
-        krtd_server_, grpc::InsecureChannelCredentials(), ch_args);
-    if (nullptr == krtd_channel) {
+    nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
+    std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
+        nrtd_address_, grpc::InsecureChannelCredentials(), ch_args);
+    if (nullptr == channel) {
         return errors::Unavailable(
             "cannot establish grpc channel to neuron-rtd server");
     }
-    stub_ = nrt::nmgr_v1::NewStub(krtd_channel);
+    stub_ = nrt::nmgr_v1::NewStub(channel);
     if (nullptr == stub_) {
         return errors::Unavailable("cannot create stub");
     }
@@ -81,8 +80,8 @@ Status NeuronOp::initialize() {
         stub_->load(&context, &load_response));
     nrt::load_request load_request;
 
-    // krt_eg_id
-    load_request.mutable_h_eg()->set_id(neuron_device_->get_krt_eg_id());
+    // eg_id
+    load_request.mutable_h_eg()->set_id(neuron_device_->eg_id());
     writer->Write(load_request);
 
     // neff_size
@@ -90,7 +89,17 @@ Status NeuronOp::initialize() {
     load_request.set_neff_size(exec_total_size);
     writer->Write(load_request);
 
+    // model_params
     // todo: read these info from neff
+    uint32_t uint32_timeout = 10;
+    std::string infer_timeout_str = env_get("NEURON_INFER_TIMEOUT_SEC", "10");
+    int int_timeout = stoi_no_throw(infer_timeout_str);
+    if (int_timeout < 0) {
+        LOG(WARNING) << "NEURON_INFER_TIMEOUT_SEC=" << infer_timeout_str
+                     << " is invalid; using default value 10 seconds.";
+    } else {
+        uint32_timeout = (uint32_t)int_timeout;
+    }
     bool dynamic_batch_size = false;
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
     for (size_t idx = 0; idx < input_batch_axis.i_size(); ++idx) {
@@ -99,11 +108,21 @@ Status NeuronOp::initialize() {
             break;
         }
     }
-    infer_timeout_ = 10;
-    infer_queue_length_ = dynamic_batch_size ? 4 : 1;
+    max_num_infers_ = dynamic_batch_size ? neuron_device_->num_cores() : 1;
+    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
+    if ("" != ninfer_str) {
+        int int_ninfer = stoi_no_throw(ninfer_str);
+        if (int_ninfer < 1 || int_ninfer > 64) {
+            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
+                         << " is invalid; using default value "
+                         << max_num_infers_  << ".";
+        } else {
+            max_num_infers_ = (uint32_t)int_ninfer;
+        }
+    }
     nrt::model_params *model_params = load_request.mutable_model_params();
-    model_params->mutable_timeout()->set_data(infer_timeout_);
-    model_params->mutable_ninfer()->set_data(infer_queue_length_);
+    model_params->mutable_timeout()->set_data(uint32_timeout);
+    model_params->mutable_ninfer()->set_data(max_num_infers_);
     writer->Write(load_request);
 
     // neff file content
@@ -118,10 +137,10 @@ Status NeuronOp::initialize() {
     writer->WritesDone();
     status = writer->Finish();
     NRT_CHECK_RETURN("load", status, load_response);
-    krt_nn_id_ = load_response.h_nn().id();
-    krt_load_done_ = true;
-    neuron_device_->register_executable(krt_nn_id_);
-    VLOG(1) << "load: number of executables: " << neuron_device_->get_num_executable();
+    nn_id_ = load_response.h_nn().id();
+    load_done_ = true;
+    neuron_device_->register_executable(nn_id_);
+    VLOG(1) << "load: number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
     AttrList &input_names = def().attr().at("input_names").list();
@@ -152,7 +171,7 @@ Status NeuronOp::initialize() {
     // preallocate output tensors (not used by the default infer call)
     std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
     if ("" != nrt_shm_map) {
-        if (0 == krtd_server_.find("unix:") && prepare_shared_memory().ok()) {
+        if (0 == nrtd_address_.find("unix:") && prepare_shared_memory().ok()) {
             use_shared_memory_ = true;
             for (size_t idx = 0; idx < output_dtypes.type_size(); ++idx) {
                 output_tensors_.emplace_back(
@@ -206,27 +225,27 @@ NeuronOp::~NeuronOp() {
     grpc::Status status;
 
     // stop
-    if (neuron_device_->nn_is_running(krt_nn_id_)) {
+    if (neuron_device_->running(nn_id_)) {
         grpc::ClientContext context;
         nrt::stop_request stop_request;
-        stop_request.mutable_h_nn()->set_id(krt_nn_id_);
+        stop_request.mutable_h_nn()->set_id(nn_id_);
         nrt::stop_response stop_response;
         status = stub_->stop(&context, stop_request, &stop_response);
         NRT_CHECK_LOG("stop", status, stop_response);
-        neuron_device_->nn_set_current_running(NRT_INVALID_NN_ID);
+        neuron_device_->set_running(NRT_INVALID_NN_ID);
     }
 
     // unload
-    if (krt_load_done_) {
+    if (load_done_) {
         grpc::ClientContext context;
         nrt::unload_request unload_request;
-        unload_request.mutable_h_nn()->set_id(krt_nn_id_);
+        unload_request.mutable_h_nn()->set_id(nn_id_);
         nrt::unload_response unload_response;
         status = stub_->unload(&context, unload_request, &unload_response);
         NRT_CHECK_LOG("unload", status, unload_response);
     }
-    neuron_device_->deregister_executable(krt_nn_id_);
-    VLOG(1) << "unload: number of executables: " << neuron_device_->get_num_executable();
+    neuron_device_->deregister_executable(nn_id_);
+    VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
 
     // unmap all shared memories
     for (auto &shm : input_shms_) {
@@ -448,9 +467,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             std::vector<uint64_t> cookie_vec;
             Status status = start_model();
             OP_REQUIRES_OK(ctx, status);
-            timestamps.mark_above_krtd_infer();
+            timestamps.mark_above_nrtd_infer();
             int64_t start = 0;
-            int64_t end = std::min(start + infer_queue_length_, num_batches);
+            int64_t end = std::min(start + max_num_infers_, num_batches);
             while (start < num_batches) {
                 for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
                     std::vector<const Tensor*> sliced_inputs;
@@ -501,10 +520,10 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 }
 
                 // shift window
-                start += infer_queue_length_;
-                end = std::min(start + infer_queue_length_, num_batches);
+                start += max_num_infers_;
+                end = std::min(start + max_num_infers_, num_batches);
             }
-            timestamps.mark_below_krtd_infer();
+            timestamps.mark_below_nrtd_infer();
         }  // unlock EG
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
@@ -539,25 +558,25 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
 Status NeuronOp::start_model() {
     grpc::Status status;
-    if (!neuron_device_->nn_is_running(krt_nn_id_) && neuron_device_->some_nn_is_running()) {
-        // if krt_nn_id_ is not running, stop the current running model
+    if (!neuron_device_->running(nn_id_) && neuron_device_->is_busy()) {
+        // if nn_id_ is not running, stop the current running model
         grpc::ClientContext context;
         nrt::stop_request stop_request;
         stop_request.mutable_h_nn()->set_id(neuron_device_->nn_get_current_running());
         nrt::stop_response stop_response;
         status = stub_->stop(&context, stop_request, &stop_response);
         NRT_CHECK_RETURN("stop", status, stop_response);
-        neuron_device_->nn_set_current_running(NRT_INVALID_NN_ID);
+        neuron_device_->set_running(NRT_INVALID_NN_ID);
     }
-    if (!neuron_device_->some_nn_is_running()) {
-        // if no model is running, start krt_nn_id_
+    if (!neuron_device_->is_busy()) {
+        // if no model is running, start nn_id_
         grpc::ClientContext context;
         nrt::start_request start_request;
-        start_request.mutable_h_nn()->set_id(krt_nn_id_);
+        start_request.mutable_h_nn()->set_id(nn_id_);
         nrt::start_response start_response;
         status = stub_->start(&context, start_request, &start_response);
         NRT_CHECK_RETURN("start", status, start_response);
-        neuron_device_->nn_set_current_running(krt_nn_id_);
+        neuron_device_->set_running(nn_id_);
     }
     return Status::OK();
 }
@@ -607,18 +626,18 @@ void NeuronOp::profile_start_session() {
         std::string new_op_name = mangle_op_name(def().name());
         std::ostringstream filename_stream;
         filename_stream << profile_dir_ << "/" << new_op_name << "-"
-                        << krt_nn_id_ << "-" << profile_session_id_ << ".ipd";
+                        << nn_id_ << "-" << profile_session_id_ << ".ipd";
         profile_session_filename_ = filename_stream.str();
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile start-session -s " << profile_session_filename_
-                   << " -a " << krtd_server_ << " " << krt_nn_id_;
+                   << " -a " << nrtd_address_ << " " << nn_id_;
         VLOG(1) << "Starting profiling session by " << cmd_stream.str();
-        std::ostringstream krt_nn_id_stream;
-        krt_nn_id_stream << krt_nn_id_;
+        std::ostringstream nn_id_stream;
+        nn_id_stream << nn_id_;
         Status status = subprocess_run(
             "neuron-profile", "neuron-profile", "start-session", "-s",
-            profile_session_filename_.c_str(), "-a", krtd_server_.c_str(),
-            krt_nn_id_stream.str().c_str());
+            profile_session_filename_.c_str(), "-a", nrtd_address_.c_str(),
+            nn_id_stream.str().c_str());
         if (!status.ok()) {
             profile_session_filename_ = "";
             LOG(WARNING) << "neuron-profile start-session failed. "
@@ -693,14 +712,14 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
             infer_io->mutable_buf_shm()->set_path(output_shms_[idx].name());
         }
     }
-    infer_request.mutable_h_nn()->set_id(krt_nn_id_);
+    infer_request.mutable_h_nn()->set_id(nn_id_);
 
     // infer
     grpc::ClientContext context;
     nrt::infer_response infer_response;
-    timestamps->mark_above_krtd_infer();
+    timestamps->mark_above_nrtd_infer();
     grpc::Status status = stub_->infer(&context, infer_request, &infer_response);
-    timestamps->mark_below_krtd_infer();
+    timestamps->mark_below_nrtd_infer();
     if (status.ok()) {
         int code = infer_response.status().code();
         // ignore inf/nan errors
@@ -768,7 +787,7 @@ Status NeuronOp::infer_post(uint64_t *infer_post_cookie,
         void *data = (void*)tensor_data.data();
         infer_io->set_buf(data, tensor_data.size());
     }
-    request.mutable_h_nn()->set_id(krt_nn_id_);
+    request.mutable_h_nn()->set_id(nn_id_);
 
     // infer
     grpc::ClientContext context;

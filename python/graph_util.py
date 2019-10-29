@@ -847,6 +847,8 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         command = [neuron_cc, 'compile', input_path, '--framework', 'TENSORFLOW',
                    '--output', os.path.join(workdir_path, _neuron_executable_name)]
         command.extend(['--io-config', io_config_json])
+        if args_dict is not None:
+            command.extend(args_dict.get(node.name, []))
         logfile = None if workdir is None else os.path.join(workdir_path, 'log-fe.txt')
         subgraph_compilers[node.name] = Compiler(command, logfile, workdir_path)
     if max_num_compilers is None:

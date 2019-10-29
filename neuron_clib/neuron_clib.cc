@@ -27,8 +27,7 @@ static std::string gen_shm_name() {
 }
 
 
-tensorflow::Status SharedMemory::initialize(
-        const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
+Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     name_ = gen_shm_name();
     int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG);
     SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
@@ -44,22 +43,22 @@ tensorflow::Status SharedMemory::initialize(
     nrt::shm_map_response shm_map_response;
     status = stub->shm_map(&context, shm_map_request, &shm_map_response);
     NRT_CHECK_RETURN("shm_map", status, shm_map_response);
-    krtd_shm_map_done_ = true;
-    return tensorflow::Status::OK();
+    shm_map_done_ = true;
+    return Status::OK();
 }
 
 void SharedMemory::clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
-    if (krtd_shm_map_done_) {
-        nrt::shm_unmap_request shm_unmap_request;
-        shm_unmap_request.set_path(name_);
-        shm_unmap_request.set_mmap_prot(PROT_READ | PROT_WRITE);
+    if (shm_map_done_) {
+        nrt::shm_unmap_request request;
+        request.set_path(name_);
+        request.set_mmap_prot(PROT_READ | PROT_WRITE);
         grpc::Status status;
         grpc::ClientContext context;
-        nrt::shm_unmap_response shm_unmap_response;
-        status = stub->shm_unmap(&context, shm_unmap_request, &shm_unmap_response);
-        NRT_CHECK_LOG("shm_unmap", status, shm_unmap_response);
-        if (status.ok() && 0 == shm_unmap_response.status().code()) {
-            krtd_shm_map_done_ = false;
+        nrt::shm_unmap_response response;
+        status = stub->shm_unmap(&context, request, &response);
+        NRT_CHECK_LOG("shm_unmap", status, response);
+        if (status.ok() && 0 == response.status().code()) {
+            shm_map_done_ = false;
         }
     }
     if (nullptr != ptr_) {
@@ -93,53 +92,60 @@ void SharedMemoryAllocator::DeallocateRaw(void *ptr) {
 }
 
 
-tensorflow::Status NeuronDeviceManager::initialize() {
+Status NeuronDeviceManager::initialize() {
     // append /opt/aws/neuron/bin to PATH
     std::string env_path = env_get("PATH", "");
     setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
 
-    // get krtd stub
-    std::string krtd_server = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
+    // stub
+    std::string nrtd_address = env_get("NEURON_RTD_ADDRESS",
+                                       "unix:/run/neuron.sock");
 
     grpc::ChannelArguments ch_args;
     ch_args.SetMaxReceiveMessageSize(-1);
     ch_args.SetMaxSendMessageSize(-1);
-    std::shared_ptr<grpc::Channel> krt_channel = grpc::CreateCustomChannel(
-        krtd_server, grpc::InsecureChannelCredentials(), ch_args);
-    if (nullptr == krt_channel) {
+    std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
+        nrtd_address, grpc::InsecureChannelCredentials(), ch_args);
+    if (nullptr == channel) {
         return errors::Unavailable(
             "cannot establish grpc channel to neuron-rtd server");
     }
-    stub_ = nrt::nmgr_v1::NewStub(krt_channel);
+    stub_ = nrt::nmgr_v1::NewStub(channel);
     if (nullptr == stub_) {
         return errors::Unavailable("cannot create stub");
     }
 
     // get number of neuron cores from comma-separated list of integers
-    std::vector<int> num_cores_vector;
+    std::vector<uint32_t> num_cores_vector;
     std::string neuron_device_sizes = env_get("NEURON_DEVICE_SIZES", "1");
     std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
+    Status error = errors::InvalidArgument(
+        "NEURON_DEVICE_SIZES=", neuron_device_sizes, " is ill-formatted");
     while (neuron_device_sizes_stream.good()) {
         std::string substr;
         std::getline(neuron_device_sizes_stream, substr, ',');
         if (substr.empty()) {
             continue;
         }
-        num_cores_vector.push_back(std::stoi(substr));
+        int int_num_cores = stoi_no_throw(substr);
+        if (int_num_cores < 0 || int_num_cores > 64) {
+            return error;
+        }
+        num_cores_vector.push_back((uint32_t)int_num_cores);
     }
     if (num_cores_vector.empty()) {
-        return errors::InvalidArgument(
-            "NEURON_DEVICE_SIZES=", neuron_device_sizes, " is ill-formatted");
+        return error;
     }
 
-    tensorflow::Status status;
+    Status status;
     for (size_t idx = 0; idx < num_cores_vector.size(); ++idx) {
-        int num_cores = num_cores_vector[idx];
-        TF_RETURN_IF_ERROR(device_array_[idx].initialize(stub_, num_cores, krtd_server));
+        uint32_t num_cores = num_cores_vector[idx];
+        TF_RETURN_IF_ERROR(
+            device_array_[idx].initialize(stub_, num_cores, nrtd_address));
         ++num_devices_;
     }
     ready_ = true;
-    return tensorflow::Status::OK();
+    return Status::OK();
 }
 
 bool NeuronDeviceManager::is_empty() {
@@ -148,7 +154,7 @@ bool NeuronDeviceManager::is_empty() {
     }
     bool empty = true;
     for (size_t idx = 0; idx < num_devices_; ++idx) {
-        if (0 != device_array_[idx].get_num_executable()) {
+        if (0 != device_array_[idx].num_executable()) {
             empty = false;
         }
     }
@@ -174,45 +180,46 @@ NeuronDevice *NeuronDeviceManager::get_device() {
 }
 
 
-tensorflow::Status NeuronDevice::initialize(
-        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int size,
-        const std::string &krtd_server) {
+Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
+                                uint32_t num_cores,
+                                const std::string &nrtd_address) {
     grpc::Status status;
     grpc::ClientContext context;
     nrt::create_eg_request create_eg_request;
-    create_eg_request.set_nc_count(size);
+    create_eg_request.set_nc_count(num_cores);
     nrt::create_eg_response create_eg_response;
     status = stub->create_eg(&context, create_eg_request, &create_eg_response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
         std::string message(" is unavailable. Is neuron-rtd running?");
-        std::string unix_keyword("unix:");
-        size_t socket_start = krtd_server.find(unix_keyword);
-        if (0 == socket_start) {
+        std::string unix_prefix("unix:");
+        size_t start = nrtd_address.find(unix_prefix);
+        if (0 == start) {
             message += " Is socket ";
-            message += krtd_server.substr(socket_start + unix_keyword.length());
+            message += nrtd_address.substr(start + unix_prefix.length());
             message += " writable?";
         }
-        return errors::Unavailable("grpc server ", krtd_server, message);
+        return errors::Unavailable("grpc server ", nrtd_address, message);
     }
     NRT_CHECK_RETURN("create_eg", status, create_eg_response);
-    krt_eg_id_ = create_eg_response.h_eg().id();
+    num_cores_ = num_cores;
+    eg_id_ = create_eg_response.h_eg().id();
     create_eg_done_ = true;
-    krt_nn_id_running_ = NRT_INVALID_NN_ID;
-    return tensorflow::Status::OK();
+    running_nn_id_ = NRT_INVALID_NN_ID;
+    return Status::OK();
 }
 
 void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     grpc::Status status;
-    for (uint32_t nn_id : krt_h_nn_ids_) {
+    for (uint32_t nn_id : nn_id_set_) {
         // stop
-        if (nn_is_running(nn_id)) {
+        if (running(nn_id)) {
             grpc::ClientContext context;
             nrt::stop_request stop_request;
             stop_request.mutable_h_nn()->set_id(nn_id);
             nrt::stop_response stop_response;
             status = stub->stop(&context, stop_request, &stop_response);
             NRT_CHECK_LOG("stop", status, stop_response);
-            nn_set_current_running(NRT_INVALID_NN_ID);
+            set_running(NRT_INVALID_NN_ID);
         }
 
         // unload
@@ -223,33 +230,33 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         status = stub->unload(&context, unload_request, &unload_response);
         NRT_CHECK_LOG("unload", status, unload_response);
     }
-    krt_h_nn_ids_.clear();
+    nn_id_set_.clear();
     if (create_eg_done_) {
         // destroy_eg
         grpc::ClientContext context;
-        nrt::destroy_eg_request destroy_eg_request;
-        destroy_eg_request.mutable_h_eg()->set_id(krt_eg_id_);
-        nrt::destroy_eg_response destroy_eg_response;
-        status = stub->destroy_eg(&context, destroy_eg_request, &destroy_eg_response);
-        NRT_CHECK_LOG("destroy_eg", status, destroy_eg_response);
+        nrt::destroy_eg_request request;
+        request.mutable_h_eg()->set_id(eg_id_);
+        nrt::destroy_eg_response response;
+        status = stub->destroy_eg(&context, request, &response);
+        NRT_CHECK_LOG("destroy_eg", status, response);
         create_eg_done_ = false;
     }
 }
 
-bool NeuronDevice::some_nn_is_running() {
-    return krt_nn_id_running_ != NRT_INVALID_NN_ID;
+bool NeuronDevice::is_busy() {
+    return running_nn_id_ != NRT_INVALID_NN_ID;
 }
 
-bool NeuronDevice::nn_is_running(uint32_t krt_nn_id) {
-    return krt_nn_id_running_ == krt_nn_id && NRT_INVALID_NN_ID != krt_nn_id_running_;
+bool NeuronDevice::running(uint32_t nn_id) {
+    return running_nn_id_ == nn_id && NRT_INVALID_NN_ID != running_nn_id_;
 }
 
 uint32_t NeuronDevice::nn_get_current_running() {
-    return krt_nn_id_running_;
+    return running_nn_id_;
 }
 
-void NeuronDevice::nn_set_current_running(uint32_t krt_nn_id) {
-    krt_nn_id_running_ = krt_nn_id;
+void NeuronDevice::set_running(uint32_t nn_id) {
+    running_nn_id_ = nn_id;
 }
 
 
@@ -264,13 +271,13 @@ std::string FALTimestamps::timing_string() {
     result += uint64_to_string(enter_);
     result += time_unit_;
     result += ", preprocessing time ";
-    result += uint64_to_string(above_krtd_infer_ - enter_);
+    result += uint64_to_string(above_nrtd_infer_ - enter_);
     result += time_unit_;
     result += ", neuron-rtd infer time ";
-    result += uint64_to_string(below_krtd_infer_ - above_krtd_infer_);
+    result += uint64_to_string(below_nrtd_infer_ - above_nrtd_infer_);
     result += time_unit_;
     result += ", postprocessing time ";
-    result += uint64_to_string(exit_ - below_krtd_infer_);
+    result += uint64_to_string(exit_ - below_nrtd_infer_);
     result += time_unit_;
     return result;
 }
@@ -279,6 +286,16 @@ std::string FALTimestamps::timing_string() {
 std::string env_get(const char *env_var, const char *default_env_var) {
     char *str = std::getenv(env_var);
     return str ? str : default_env_var;
+}
+
+int stoi_no_throw(const std::string &str) {
+    try {
+        return std::stoi(str);
+    } catch (std::invalid_argument e) {
+        return -1;
+    } catch (std::out_of_range e) {
+        return -1;
+    }
 }
 
 

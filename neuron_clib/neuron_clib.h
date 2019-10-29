@@ -44,10 +44,10 @@ namespace kaena {
     }                                                               \
 }
 
-inline tensorflow::Status nrt_error_status(const std::string &fn_name,
-                                           const grpc::Status &status,
-                                           const nrt::status &nrt_status) {
-    return errors::Unknown(
+inline Status nrt_error_status(const std::string &fn_name,
+                               const grpc::Status &status,
+                               const nrt::status &nrt_status) {
+    return errors::Internal(
         "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
         ", error message \"", status.error_message(), "\"; nrt status code ",
         nrt_status.code(), ", details \"", nrt_status.details(), "\""
@@ -58,14 +58,14 @@ inline tensorflow::Status nrt_error_status(const std::string &fn_name,
 class SharedMemory {
 public:
     SharedMemory(size_t size) : size_(size) {}
-    tensorflow::Status initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
+    Status initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     const std::string name() { return name_; }
     const size_t size() { return size_; }
     void *ptr() { return ptr_; }
     void clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
 private:
     bool shm_open_done_ = false;
-    bool krtd_shm_map_done_ = false;
+    bool shm_map_done_ = false;
     void *ptr_ = nullptr;
     std::string name_ = "";
     const size_t size_ = 0;
@@ -87,33 +87,34 @@ private:
 class NeuronDevice {
 public:
     NeuronDevice() {};
-    tensorflow::Status initialize(
-        std::unique_ptr<nrt::nmgr_v1::Stub> &stub, int size,
-        const std::string &krtd_server);
+    Status initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
+                      uint32_t num_cores, const std::string &nrtd_address);
     void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
-    uint32_t get_krt_eg_id() { return krt_eg_id_; };
-    size_t get_num_executable() { return krt_h_nn_ids_.size(); };
-    void register_executable(uint32_t nn_id) { krt_h_nn_ids_.insert(nn_id); };
-    void deregister_executable(uint32_t nn_id) { krt_h_nn_ids_.erase(nn_id); };
+    uint32_t eg_id() { return eg_id_; };
+    size_t num_executable() { return nn_id_set_.size(); };
+    uint32_t num_cores() { return num_cores_; };
+    void register_executable(uint32_t nn_id) { nn_id_set_.insert(nn_id); };
+    void deregister_executable(uint32_t nn_id) { nn_id_set_.erase(nn_id); };
     std::unordered_map<void*, SharedMemory*> *get_ptr2shm() { return &ptr2shm_; };
-    bool some_nn_is_running();
-    bool nn_is_running(uint32_t krt_nn_id);
-    void nn_set_current_running(uint32_t krt_nn_id);
+    bool is_busy();
+    bool running(uint32_t nn_id);
+    void set_running(uint32_t nn_id);
     uint32_t nn_get_current_running();
     tensorflow::mutex mutex_infer_;
 private:
     bool create_eg_done_ = false;
-    uint32_t krt_eg_id_;
-    uint32_t krt_nn_id_running_;
+    uint32_t eg_id_;
+    uint32_t running_nn_id_;
     std::unordered_map<void*, SharedMemory*> ptr2shm_;
-    std::set<uint32_t> krt_h_nn_ids_;
+    std::set<uint32_t> nn_id_set_;
+    uint32_t num_cores_ = 0;
 };
 
 
 class NeuronDeviceManager {
 public:
     NeuronDeviceManager() {};
-    tensorflow::Status initialize();
+    Status initialize();
     bool ready() { return ready_; };
     NeuronDevice *get_device();
     bool is_empty();
@@ -133,14 +134,14 @@ private:
 class FALTimestamps {
 public:
     void mark_enter() { enter_ = now(); };
-    void mark_above_krtd_infer() { above_krtd_infer_ = now(); };
-    void mark_below_krtd_infer() { below_krtd_infer_ = now(); };
+    void mark_above_nrtd_infer() { above_nrtd_infer_ = now(); };
+    void mark_below_nrtd_infer() { below_nrtd_infer_ = now(); };
     void mark_exit() { exit_ = now(); };
     std::string timing_string();
 private:
     uint64 enter_ = 0;
-    uint64 above_krtd_infer_ = 0;
-    uint64 below_krtd_infer_ = 0;
+    uint64 above_nrtd_infer_ = 0;
+    uint64 below_nrtd_infer_ = 0;
     uint64 exit_ = 0;
 
     std::string time_unit_ = " us";
@@ -149,6 +150,7 @@ private:
 
 
 std::string env_get(const char *env_var, const char *default_env_var="");
+int stoi_no_throw(const std::string &str);
 
 
 }  // namespace kaena
