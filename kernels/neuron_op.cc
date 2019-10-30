@@ -351,6 +351,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     int64_t k_batch_size = UNINIT_BATCH_SIZE;
     std::vector<bool> is_batch_input_tensors;
     std::vector<bool> is_batch_output_tensors;
+    bool use_dynamic_batch_size = false;
     AttrList &output_names = def().attr().at("output_names").list();
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
     AttrList &output_batch_axis = def().attr().at("output_batch_axis").list();
@@ -384,6 +385,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 shape.RemoveDim(0);
                 k_shape.RemoveDim(0);
                 is_batch_tensor = batch_size != k_batch_size;
+                use_dynamic_batch_size = is_batch_tensor;
             }
             OP_REQUIRES(ctx, shape == k_shape,
                         errors::InvalidArgument(
@@ -415,7 +417,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     OP_REQUIRES(ctx, ctx->num_outputs() == output_names.s_size(),
                 errors::InvalidArgument("incorrect number of output tensors"));
 
-    if (batch_size > 0) {
+    if (use_dynamic_batch_size) {
         int64_t pad_batch_size = ((batch_size - 1) / k_batch_size + 1) * k_batch_size;
         std::vector<Tensor*> batch_output_tensors;
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
@@ -680,9 +682,9 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
             "incorrect number of input tensors, input_tensors size ",
             input_tensors.size(), ", input_names size", input_names.s_size());
     }
-    nrt::infer_request infer_request;
+    nrt::infer_request request;
     for (size_t idx = 0; idx < input_names.s_size(); ++idx) {
-        nrt::infer_io *infer_io = infer_request.add_ifmap();
+        nrt::infer_io *infer_io = request.add_ifmap();
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (tensor_data.size() != input_tensor_sizes_[idx]) {
@@ -707,27 +709,26 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
     }
     if (use_shared_memory_) {
         for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
-            nrt::infer_io *infer_io = infer_request.add_shm_ofmap();
+            nrt::infer_io *infer_io = request.add_shm_ofmap();
             infer_io->set_name(output_names.s(idx));
             infer_io->mutable_buf_shm()->set_path(output_shms_[idx].name());
         }
     }
-    infer_request.mutable_h_nn()->set_id(nn_id_);
+    request.mutable_h_nn()->set_id(nn_id_);
 
     // infer
     grpc::ClientContext context;
-    nrt::infer_response infer_response;
+    nrt::infer_response response;
     timestamps->mark_above_nrtd_infer();
-    grpc::Status status = stub_->infer(&context, infer_request, &infer_response);
+    grpc::Status status = stub_->infer(&context, request, &response);
     timestamps->mark_below_nrtd_infer();
     if (status.ok()) {
-        int code = infer_response.status().code();
         // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == code) {
-            infer_response.mutable_status()->set_code(nrt::nerr::NERR_OK);
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
+            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
-    NRT_CHECK_RETURN("infer", status, infer_response);
+    NRT_CHECK_RETURN("infer", status, response);
 
     // output tensors are already in place if using shared memory
     if (use_shared_memory_) {
@@ -737,7 +738,7 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
     // set output tensors
     std::vector<StringPiece> raw_output_tensors;
     std::unordered_map<std::string, StringPiece> map_name_raw;
-    for (const auto &infer_io : infer_response.ofmap()) {
+    for (const auto &infer_io : response.ofmap()) {
         map_name_raw.emplace(infer_io.name(), infer_io.buf());
     }
     for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
@@ -812,6 +813,12 @@ Status NeuronOp::infer_wait(std::vector<Tensor*> *output_tensors,
     grpc::ClientContext context;
     nrt::infer_response response;
     grpc::Status status = stub_->infer_wait(&context, request, &response);
+    if (status.ok()) {
+        // ignore inf/nan errors
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
+            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
+        }
+    }
     NRT_CHECK_RETURN("infer_wait", status, response);
 
     // set output tensors
