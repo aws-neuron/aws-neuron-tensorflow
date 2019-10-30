@@ -823,7 +823,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         workdir_base = os.path.abspath(workdir)
     if timeout is None:
         timeout = 1800
-    Compiler = collections.namedtuple('Compiler', 'command logfile workdir_path')
+    Compiler = collections.namedtuple('Compiler', 'command debug_logging workdir_path')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
     neuron_cc = spawn.find_executable('neuron-cc')
@@ -845,12 +845,13 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         with open(input_path, 'wb') as f:
             f.write(subgraph_def.SerializeToString())
         command = [neuron_cc, 'compile', input_path, '--framework', 'TENSORFLOW',
+                   '--pipeline', 'compile', 'SaveTemps',
                    '--output', os.path.join(workdir_path, _neuron_executable_name)]
         command.extend(['--io-config', io_config_json])
         if args_dict is not None:
             command.extend(args_dict.get(node.name, []))
-        logfile = None if workdir is None else os.path.join(workdir_path, 'log-fe.txt')
-        subgraph_compilers[node.name] = Compiler(command, logfile, workdir_path)
+        debug_logging = workdir is not None
+        subgraph_compilers[node.name] = Compiler(command, debug_logging, workdir_path)
     if max_num_compilers is None:
         num_cpu = multiprocessing.cpu_count()
         try:
@@ -905,21 +906,32 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
     compiler = subgraph_compilers[node_name]
     if compiler is None:
         return None
-    command, logfile, workdir_path = compiler
-    if logfile is None:
-        proc = subprocess.Popen(command, cwd=workdir_path)
+    command, debug_logging, workdir_path = compiler
+    logfile = os.path.join(workdir_path, 'graph_def.neuron-cc.log')
+    verbosity = logging.get_verbosity()
+    logging.set_verbosity(logging.INFO)
+    info_string = 'fusing subgraph {} with neuron-cc'.format(node_name)
+    if debug_logging:
+        info_string = '{}; log file is at {}'.format(info_string, logfile)
+    logging.info(info_string)
+    logging.set_verbosity(verbosity)
+    with open(logfile, 'w') as logfd:
+        proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
         returncode = _wait_compiler(proc, timeout)
-    else:
-        verbosity = logging.get_verbosity()
-        logging.set_verbosity(logging.INFO)
-        logging.info('fusing subgraph {} with neuron-cc; log file is at {}'.format(node_name, logfile))
-        logging.set_verbosity(verbosity)
-        with open(logfile, 'w') as logfd:
-            proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
-            returncode = _wait_compiler(proc, timeout)
     if returncode != 0:
         command = subprocess.list2cmdline(command)
         logging.warning("Failed to fuse subgraph {} with '{}'".format(node_name, command))
+        if debug_logging:
+            logging.warning("neuron-cc error message:")
+            neuron_cc_error_message = []
+            found_error = False
+            with open(logfile, 'r') as f:
+                for line in f:
+                    if '[neuron-cc]: *************************************************' in line:
+                        found_error = True
+                    if found_error and 'Artifacts stored' not in line:
+                        neuron_cc_error_message.append(line)
+            logging.warning(''.join(neuron_cc_error_message))
         return None
     return True
 
