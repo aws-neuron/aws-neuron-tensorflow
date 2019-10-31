@@ -63,15 +63,14 @@ Status NeuronOp::initialize() {
         if (!global_neuron_device_manager.ready()) {
             TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize());
         }
-    }
-    if (!global_neuron_device_manager.ready()) {
-        return errors::FailedPrecondition(
-            "global_neuron_device_manager initialization failure");
-    }
+        if (!global_neuron_device_manager.ready()) {
+            return errors::FailedPrecondition(
+                "global_neuron_device_manager initialization failure");
+        }
 
-    // create_eg
-    grpc::Status status;
-    neuron_device_ = global_neuron_device_manager.get_device();
+        // create_eg
+        neuron_device_ = global_neuron_device_manager.get_device();
+    }
 
     // load
     grpc::ClientContext context;
@@ -135,7 +134,7 @@ Status NeuronOp::initialize() {
         writer->Write(load_request);
     }
     writer->WritesDone();
-    status = writer->Finish();
+    grpc::Status status = writer->Finish();
     NRT_CHECK_RETURN("load", status, load_response);
     nn_id_ = load_response.h_nn().id();
     load_done_ = true;
@@ -217,50 +216,59 @@ Status NeuronOp::prepare_shared_memory() {
 
 
 NeuronOp::~NeuronOp() {
-    VLOG(1) << "calling NeuronOp destructor";
-    if (nullptr == neuron_device_) {
-        VLOG(1) << "neuron_device_ not available; not tearing down";
-        return;
-    }
-    grpc::Status status;
+    if (ready_) {
+        tensorflow::mutex_lock lock(load_mutex_);
+        VLOG(1) << "calling NeuronOp destructor";
+        if (nullptr == neuron_device_) {
+            VLOG(1) << "neuron_device_ not available; not tearing down";
+            return;
+        }
 
-    // stop
-    if (neuron_device_->running(nn_id_)) {
-        grpc::ClientContext context;
-        nrt::stop_request stop_request;
-        stop_request.mutable_h_nn()->set_id(nn_id_);
-        nrt::stop_response stop_response;
-        status = stub_->stop(&context, stop_request, &stop_response);
-        NRT_CHECK_LOG("stop", status, stop_response);
-        neuron_device_->set_running(NRT_INVALID_NN_ID);
-    }
+        {
+            tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+            // stop
+            if (neuron_device_->running(nn_id_)) {
+                grpc::ClientContext context;
+                nrt::stop_request request;
+                request.mutable_h_nn()->set_id(nn_id_);
+                nrt::stop_response response;
+                grpc::Status status = stub_->stop(&context, request, &response);
+                NRT_CHECK_LOG("stop", status, response);
+                neuron_device_->set_running(NRT_INVALID_NN_ID);
+            }
 
-    // unload
-    if (load_done_) {
-        grpc::ClientContext context;
-        nrt::unload_request unload_request;
-        unload_request.mutable_h_nn()->set_id(nn_id_);
-        nrt::unload_response unload_response;
-        status = stub_->unload(&context, unload_request, &unload_response);
-        NRT_CHECK_LOG("unload", status, unload_response);
-    }
-    neuron_device_->deregister_executable(nn_id_);
-    VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
+            // unload
+            if (load_done_) {
+                grpc::ClientContext context;
+                nrt::unload_request request;
+                request.mutable_h_nn()->set_id(nn_id_);
+                nrt::unload_response response;
+                grpc::Status status = stub_->unload(&context, request, &response);
+                NRT_CHECK_LOG("unload", status, response);
+            }
+            neuron_device_->deregister_executable(nn_id_);
+            VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
 
-    // unmap all shared memories
-    for (auto &shm : input_shms_) {
-        shm.clear(stub_);
-    }
-    for (auto &shm : output_shms_) {
-        neuron_device_->get_ptr2shm()->erase(shm.ptr());
-        shm.clear(stub_);
-    }
+            // unmap all shared memories
+            for (auto &shm : input_shms_) {
+                shm.clear(stub_);
+            }
+            for (auto &shm : output_shms_) {
+                neuron_device_->get_ptr2shm()->erase(shm.ptr());
+                shm.clear(stub_);
+            }
+        }
 
-    // clear global_neuron_device_manager if it's empty -- triggers only in single-eg case
-    if (global_neuron_device_manager.is_empty()) {
-        global_neuron_device_manager.clear();
+        {
+            tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
+            // clear global_neuron_device_manager if it's empty
+            if (global_neuron_device_manager.is_empty()) {
+                global_neuron_device_manager.clear();
+            }
+        }
+        VLOG(1) << "NeuronOp destructor done";
+        ready_ = false;
     }
-    VLOG(1) << "NeuronOp destructor done";
 }
 
 
