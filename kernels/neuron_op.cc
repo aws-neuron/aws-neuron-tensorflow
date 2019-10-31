@@ -79,14 +79,19 @@ Status NeuronOp::initialize() {
         stub_->load(&context, &load_response));
     nrt::load_request load_request;
 
+    #define WRITE_LOAD_REQUEST {                                                \
+        if (!writer->Write(load_request)) {                                     \
+            return errors::Internal("neuron-rtd load failure - broken stream"); \
+        }                                                                       \
+    }
     // eg_id
     load_request.mutable_h_eg()->set_id(neuron_device_->eg_id());
-    writer->Write(load_request);
+    WRITE_LOAD_REQUEST;
 
     // neff_size
     size_t exec_total_size = def().attr().at("executable").s().size();
     load_request.set_neff_size(exec_total_size);
-    writer->Write(load_request);
+    WRITE_LOAD_REQUEST;
 
     // model_params
     // todo: read these info from neff
@@ -122,7 +127,7 @@ Status NeuronOp::initialize() {
     nrt::model_params *model_params = load_request.mutable_model_params();
     model_params->mutable_timeout()->set_data(uint32_timeout);
     model_params->mutable_ninfer()->set_data(max_num_infers_);
-    writer->Write(load_request);
+    WRITE_LOAD_REQUEST;
 
     // neff file content
     StringPiece executable_view(def().attr().at("executable").s());
@@ -131,9 +136,11 @@ Status NeuronOp::initialize() {
         size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
         StringPiece file_chunk = executable_view.substr(pos, chunk_size);
         load_request.mutable_neff_chunk()->set_chunk(file_chunk.data(), chunk_size);
-        writer->Write(load_request);
+        WRITE_LOAD_REQUEST;
     }
-    writer->WritesDone();
+    if (!writer->WritesDone()) {
+        return errors::Internal("neuron-rtd load failure - broken stream");
+    }
     grpc::Status status = writer->Finish();
     NRT_CHECK_RETURN("load", status, load_response);
     nn_id_ = load_response.h_nn().id();
