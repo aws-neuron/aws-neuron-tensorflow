@@ -274,6 +274,49 @@ def test_multithread_load_infer():
             np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
+def test_neuron_device_sizes():
+    np.random.seed(_RANDOM_SEED)
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
+        input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
+        conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+        conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        add0 = tf.add(conv2d0, conv2d1, name='add0')
+        relu0 = tf.nn.relu(add0, name='relu0')
+        feed_dict = {key: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)
+                     for key in ['input0:0', 'input1:0']}
+        result_ref = sess.run('relu0:0', feed_dict)
+        infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+            sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+    _assert_compiler_success(infer_graph)
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+
+        @contextmanager
+        def set_neuron_device_sizes(env_var):
+            env_set = False
+            if 'NEURON_DEVICE_SIZES' not in os.environ:
+                os.environ['NEURON_DEVICE_SIZES'] = env_var
+                env_set = True
+            try:
+                yield
+            finally:
+                if env_set:
+                    os.environ.pop('NEURON_DEVICE_SIZES')
+
+        with set_neuron_device_sizes('[4,100,1]'):
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+        with set_neuron_device_sizes('[1, 1, 1]'):
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+        with set_neuron_device_sizes('[1,1,1,1,1,1,1]'):
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+        np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
+
+
 def test_shape_inference_with_inputs_while_loop():
     np.random.seed(_RANDOM_SEED)
     kernel0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
