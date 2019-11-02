@@ -183,8 +183,8 @@ Status NeuronDeviceManager::initialize() {
 
 Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address) {
     Status status = errors::Internal("No Neuron device can be initialized.");
-    for (size_t num_cores = MAX_NUM_CORES; num_cores >= MIN_NUM_CORES; --num_cores) {
-        status = device_array_[0].initialize(stub_, num_cores, nrtd_address);
+    for (int num_cores = MAX_NUM_CORES; num_cores >= MIN_NUM_CORES; --num_cores) {
+        status = device_array_[0].initialize(stub_, (uint32_t)num_cores, nrtd_address);
         if (status.ok()) {
             num_devices_ = 1;
             return status;
