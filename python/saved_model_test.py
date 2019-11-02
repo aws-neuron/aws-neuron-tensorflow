@@ -329,3 +329,4 @@ def test_saved_model_cli_convert_neuron():
     shutil.rmtree(new_model_dir_b2, ignore_errors=True)
     shutil.rmtree(new_model_dir_b3, ignore_errors=True)
     shutil.rmtree(new_model_dir_b4, ignore_errors=True)
+    os.remove(model_feed_dict_npz)

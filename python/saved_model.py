@@ -9,6 +9,7 @@ import os
 import argparse
 import json
 from tensorflow.python.util.tf_export import tf_export
+from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.tensor_shape import TensorShape
@@ -17,6 +18,7 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
 
 
+@deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.saved_model.simple_save')
 def simple_save(sess, export_dir, inputs, outputs, batch_size=1, **kwargs):
     """Convenience function to build a `SavedModel` suitable for serving.
@@ -35,7 +37,7 @@ def simple_save(sess, export_dir, inputs, outputs, batch_size=1, **kwargs):
     if 'shape_feed_dict' not in kwargs and 'feed_dict' not in kwargs:
         shape_feed_dict = _infer_input_shapes(inputs.values(), batch_size)
         kwargs.update(shape_feed_dict=shape_feed_dict)
-    infer_graph = inference_graph_from_session(
+    infer_graph = inference_graph_from_session.__wrapped__(
         sess, input_tensors=inputs.values(), output_tensors=outputs.values(),
         **kwargs)
 
@@ -43,7 +45,7 @@ def simple_save(sess, export_dir, inputs, outputs, batch_size=1, **kwargs):
     with session.Session(graph=infer_graph) as sess:
         inputs = {key: sess.graph.get_tensor_by_name(ts.name) for key, ts in inputs.items()}
         outputs = {key: sess.graph.get_tensor_by_name(ts.name) for key, ts in outputs.items()}
-        tf_saved_model.simple_save(sess, export_dir, inputs, outputs)
+        tf_saved_model.simple_save.__wrapped__(sess, export_dir, inputs, outputs)
 
 
 def _infer_input_shapes(input_tensors, batch_size):
@@ -140,7 +142,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             kwargs.update(shape_feed_dict=shape_feed_dict)
 
         # get inference graph
-        infer_graph = inference_graph_from_session(
+        infer_graph = inference_graph_from_session.__wrapped__(
             sess, input_tensors=inputs.values(), output_tensors=outputs.values(),
             **kwargs)
 

@@ -1,10 +1,13 @@
 import os
+from tensorflow.python.util.tf_export import tf_export
+from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import gfile
 from tensorflow.python.framework import ops
 from tensorflow.python.client import session
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.framework import importer
 from tensorflow.python.saved_model import saved_model as tf_saved_model
+from tensorflow.python.saved_model.utils import build_tensor_info
 from tensorflow.python.saved_model import loader
 from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.tools import saved_model_utils
@@ -14,6 +17,99 @@ from tensorflow.python.neuron.python.saved_model_util import get_io_names_from_s
 
 
 DEFAULT_TAGS = 'serve'
+
+
+@deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
+@tf_export('neuron.predictor.from_saved_model')
+def from_saved_model(export_dir, signature_def_key=None, signature_def=None,
+                     input_names=None, output_names=None, tags=None, graph=None, config=None):
+  """Constructs a `Predictor` from a `SavedModel` on disk.
+
+    Args:
+      export_dir: a path to a directory containing a `SavedModel`.
+      signature_def_key: Optional string specifying the signature to use. If
+        `None`, then `DEFAULT_SERVING_SIGNATURE_DEF_KEY` is used. Only one of
+      `signature_def_key` and `signature_def`
+      signature_def: A `SignatureDef` proto specifying the inputs and outputs
+        for prediction. Only one of `signature_def_key` and `signature_def`
+        should be specified.
+        input_names: A dictionary mapping strings to `Tensor`s in the `SavedModel`
+          that represent the input. The keys can be any string of the user's
+          choosing.
+        output_names: A dictionary mapping strings to `Tensor`s in the
+          `SavedModel` that represent the output. The keys can be any string of
+          the user's choosing.
+      tags: Optional. Tags that will be used to retrieve the correct
+        `SignatureDef`. Defaults to `DEFAULT_TAGS`.
+      graph: Optional. The Tensorflow `graph` in which prediction should be
+        done.
+      config: `ConfigProto` proto used to configure the session.
+
+    Returns:
+      An initialized `Predictor`.
+
+    Raises:
+      ValueError: More than one of `signature_def_key` and `signature_def` is
+        specified.
+  """
+  # todo: split NeuronPredictor constructor into two cases for SavedModel/GraphDef
+  return NeuronPredictor(model_dir=export_dir,
+                         signature_def_key=signature_def_key,
+                         signature_def=signature_def,
+                         input_names=input_names,
+                         output_names=output_names,
+                         tags=tags,
+                         graph=graph,
+                         config=config)
+
+
+@deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
+@tf_export('neuron.predictor.from_graph_def')
+def from_graph_def(export_dir, signature_def_key=None, signature_def=None,
+                   input_names=None, output_names=None, tags=None, graph=None, config=None):
+  """Constructs a `Predictor` from a serialized `GraphDef` protocol buffer
+     (a.k.a serialized frozen graph) on disk.
+
+    Args:
+      export_dir: a path to a directory containing a serialized `GraphDef` protocol buffer.
+      signature_def_key: Optional string specifying the signature to use. If
+        `None`, then `DEFAULT_SERVING_SIGNATURE_DEF_KEY` is used. Only one of
+      `signature_def_key` and `signature_def`
+      signature_def: A `SignatureDef` proto specifying the inputs and outputs
+        for prediction. Only one of `signature_def_key` and `signature_def`
+        should be specified.
+        input_names: A dictionary mapping strings to `Tensor`s in the `GraphDef`
+          that represent the input. The keys can be any string of the user's
+          choosing.
+        output_names: A dictionary mapping strings to `Tensor`s in the
+          `GraphDef` that represent the output. The keys can be any string of
+          the user's choosing.
+      tags: Optional. Tags that will be used to retrieve the correct
+        `SignatureDef`. Defaults to `DEFAULT_TAGS`.
+      graph: Optional. The Tensorflow `graph` in which prediction should be
+        done.
+      config: `ConfigProto` proto used to configure the session.
+
+    Returns:
+      An initialized `Predictor`.
+
+    Raises:
+      ValueError: `input_names` or `output_names` are not given, or more than one
+        of `signature_def_key` and `signature_def` is specified.
+  """
+  # todo: split NeuronPredictor constructor into two cases for SavedModel/GraphDef
+  if input_names is None:
+    raise ValueError('input_names must be provided for running inference on frozen graph')
+  if output_names is None:
+    raise ValueError('output_names must be provided for running inference on frozen graph')
+  return NeuronPredictor(model_dir=export_dir,
+                         signature_def_key=signature_def_key,
+                         signature_def=signature_def,
+                         input_names=input_names,
+                         output_names=output_names,
+                         tags=tags,
+                         graph=graph,
+                         config=config)
 
 
 class NeuronPredictor(object):
@@ -78,7 +174,7 @@ class NeuronPredictor(object):
                         compiler_args=args, compiler_workdir=workdir)
     extra_kwargs.update(kwargs)
     sess = self._internal_sess
-    graph = inference_graph_from_session(sess, input_tensors=self.input_names,
+    graph = inference_graph_from_session.__wrapped__(sess, input_tensors=self.input_names,
                                          output_tensors=self.output_names, **extra_kwargs)
     self._feed_tensors = {name: graph.get_tensor_by_name(ts.name)
                           for name, ts in self._feed_tensors.items()}
@@ -192,8 +288,8 @@ class NeuronPredictor(object):
         self._signature_def_map = metagraph_def.signature_def
     # construct default signature def map for export
     else:
-        inputs = {k: tf_saved_model.build_tensor_info(v) for k, v in self._feed_tensors.items()}
-        outputs = {k: tf_saved_model.build_tensor_info(v) for k, v in self._fetch_tensors.items()}
+        inputs = {k: build_tensor_info(v) for k, v in self._feed_tensors.items()}
+        outputs = {k: build_tensor_info(v) for k, v in self._fetch_tensors.items()}
         self._signature_def_map = {
             tf_saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY:
                 tf_saved_model.signature_def_utils.build_signature_def(

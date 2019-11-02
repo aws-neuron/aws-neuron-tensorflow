@@ -9,6 +9,7 @@ import subprocess
 from functools import wraps, partial
 from distutils import spawn
 from tensorflow.python.util.tf_export import tf_export
+from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
 from tensorflow.core.framework import attr_value_pb2
@@ -23,6 +24,7 @@ _neuron_cc_input_name = 'graph_def.pb'
 _neuron_executable_name = 'graph_def.neff'
 
 
+@deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.fuse')
 def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None,
          verbose=0, workdir=None):

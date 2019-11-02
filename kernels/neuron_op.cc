@@ -36,7 +36,8 @@ NeuronDeviceManager global_neuron_device_manager;
 void sigint_handler(int sig) {
     global_neuron_device_manager.clear();
     std::signal(SIGINT, SIG_DFL);
-    std::raise(SIGINT);
+    std::signal(SIGTERM, SIG_DFL);
+    std::raise(sig);
 }
 #endif  // NEURONTFSERV
 
@@ -76,6 +77,7 @@ Status NeuronOp::initialize() {
             TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize());
 #ifdef NEURONTFSERV
             std::signal(SIGINT, sigint_handler);
+            std::signal(SIGTERM, sigint_handler);
 #endif  // NEURONTFSERV
         }
         if (!global_neuron_device_manager.ready()) {

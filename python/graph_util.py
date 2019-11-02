@@ -18,6 +18,7 @@ from distutils import spawn
 import reprlib
 import numpy
 from tensorflow.python.util.tf_export import tf_export
+from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
 from tensorflow.python.framework import constant_op
@@ -43,6 +44,7 @@ _NEURON_OP = 'NeuronOp'
 _LARGE_CONST_SIZE = 1024
 
 
+@deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.graph_util.inference_graph_from_session')
 def inference_graph_from_session(
         sess=None, input_tensors=None, output_tensors=None,
