@@ -12,9 +12,6 @@ namespace tensorflow {
 namespace kaena {
 
 
-#define DEFAULT_EG_SIZE 1
-
-
 static std::string gen_shm_name() {
     // typedef unsigned char uuid_t[16];
     uuid_t uuid;
@@ -134,50 +131,67 @@ Status NeuronDeviceManager::initialize() {
     }
 
     // get number of neuron cores from comma-separated list of integers
-    std::vector<uint32_t> num_cores_vector;
-    std::string neuron_device_sizes_raw = env_get("NEURON_DEVICE_SIZES", "1");
+    std::string neuron_device_sizes_raw = env_get("NEURON_DEVICE_SIZES", "");
+    if ("" == neuron_device_sizes_raw) {
+        TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
+    } else {
+        // remove [ and ]
+        std::string neuron_device_sizes = remove_pattern(neuron_device_sizes_raw, "[");
+        neuron_device_sizes = remove_pattern(neuron_device_sizes, "]");
 
-    // remove [ and ]
-    std::string neuron_device_sizes = remove_pattern(neuron_device_sizes_raw, "[");
-    neuron_device_sizes = remove_pattern(neuron_device_sizes, "]");
-
-    std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
-    while (neuron_device_sizes_stream.good()) {
-        std::string substr;
-        std::getline(neuron_device_sizes_stream, substr, ',');
-        if (substr.empty()) {
-            continue;
+        std::vector<uint32_t> num_cores_vector;
+        std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
+        while (neuron_device_sizes_stream.good()) {
+            std::string substr;
+            std::getline(neuron_device_sizes_stream, substr, ',');
+            if (substr.empty()) {
+                continue;
+            }
+            int int_num_cores = stoi_no_throw(substr);
+            if (int_num_cores < 0 || int_num_cores > 64) {
+                LOG(WARNING) << "NEURON_DEVICE_SIZES=" << neuron_device_sizes_raw
+                             << " looks ill-formatted. Falling back to initializing"
+                             << " a default Neuron device.";
+                num_cores_vector.clear();
+                break;
+            }
+            num_cores_vector.push_back((uint32_t)int_num_cores);
         }
-        int int_num_cores = stoi_no_throw(substr);
-        if (int_num_cores < 0 || int_num_cores > 64) {
-            LOG(WARNING) << "NEURON_DEVICE_SIZES=" << neuron_device_sizes_raw
-                         << " looks ill-formatted. Falling back to default device size "
-                         << DEFAULT_EG_SIZE << ".";
-            num_cores_vector.clear();
-            break;
+        if (num_cores_vector.empty()) {
+            TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
+        } else {
+            Status status = errors::Internal("No Neuron device can be initialized.");
+            for (size_t idx = 0; idx < num_cores_vector.size(); ++idx) {
+                uint32_t num_cores = num_cores_vector[idx];
+                status = device_array_[idx].initialize(stub_, num_cores, nrtd_address);
+                if (!status.ok()) {
+                    LOG(WARNING) << "Cannot initialize Neuron device with " << num_cores
+                                 << " cores; stopping initialization.";
+                    break;
+                }
+                ++num_devices_;
+                VLOG(1) << "successfully initialized Neuron device of size " << num_cores;
+            }
+            if (0 == num_devices_) {
+                return status;
+            }
         }
-        num_cores_vector.push_back((uint32_t)int_num_cores);
-    }
-    if (num_cores_vector.empty()) {
-        num_cores_vector.push_back(DEFAULT_EG_SIZE);
-    }
-
-    for (size_t idx = 0; idx < num_cores_vector.size(); ++idx) {
-        uint32_t num_cores = num_cores_vector[idx];
-        Status status = device_array_[idx].initialize(stub_, num_cores, nrtd_address);
-        if (!status.ok()) {
-            break;
-        }
-        ++num_devices_;
-        VLOG(1) << "successfully created EG of size " << num_cores;
-    }
-    if (0 == num_devices_) {  // try to allocate one default EG as a last resort
-        LOG(WARNING) << "All Neuron device initialization attempts failed. "
-                     << " Initialising a default Neuron device as a last resort.";
-        TF_RETURN_IF_ERROR(device_array_[0].initialize(stub_, DEFAULT_EG_SIZE, nrtd_address));
     }
     ready_ = true;
     return Status::OK();
+}
+
+Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address) {
+    Status status = errors::Internal("No Neuron device can be initialized.");
+    for (size_t num_cores = MAX_NUM_CORES; num_cores >= MIN_NUM_CORES; --num_cores) {
+        status = device_array_[0].initialize(stub_, num_cores, nrtd_address);
+        if (status.ok()) {
+            num_devices_ = 1;
+            return status;
+        }
+    }
+    num_devices_ = 0;
+    return status;
 }
 
 bool NeuronDeviceManager::is_empty() {
