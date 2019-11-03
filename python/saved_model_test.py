@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import shutil
 import subprocess
 import json
 import numpy as np
@@ -58,6 +59,8 @@ def test_simple_save():
         result_test = pred_test(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_test[name], result_ref[name], rtol=1e-2, atol=1e-3)
+    shutil.rmtree(export_dir_ref, ignore_errors=True)
+    shutil.rmtree(export_dir_test, ignore_errors=True)
 
 
 def test_convert_to_inference_model():
@@ -94,6 +97,8 @@ def test_convert_to_inference_model():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(new_model_dir, ignore_errors=True)
 
 
 def test_convert_to_inference_model_with_feed_dict():
@@ -130,6 +135,8 @@ def test_convert_to_inference_model_with_feed_dict():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(new_model_dir, ignore_errors=True)
 
 def test_convert_to_inference_model_regress_api():
     np.random.seed(_RANDOM_SEED)
@@ -175,6 +182,8 @@ def test_convert_to_inference_model_regress_api():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(new_model_dir, ignore_errors=True)
 
 def test_convert_to_inference_model_classify_api():
     np.random.seed(_RANDOM_SEED)
@@ -224,6 +233,8 @@ def test_convert_to_inference_model_classify_api():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(new_model_dir, ignore_errors=True)
 
 
 def test_saved_model_cli_convert_neuron():
@@ -313,3 +324,8 @@ def test_saved_model_cli_convert_neuron():
             np.testing.assert_allclose(result_neuron_b2[name], result_ref_b2[name], rtol=1e-2, atol=1e-3)
             np.testing.assert_allclose(result_neuron_b3[name], result_ref_b3[name], rtol=1e-2, atol=1e-3)
             np.testing.assert_allclose(result_neuron_b4[name], result_ref_b4[name], rtol=1e-2, atol=1e-3)
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b1, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b2, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b3, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b4, ignore_errors=True)
