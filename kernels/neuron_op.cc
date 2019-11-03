@@ -15,6 +15,9 @@
 #include <sys/wait.h>
 #include "tensorflow/python/neuron/kernels/neuron_op.h"
 #include <grpcpp/grpcpp.h>
+#ifdef NEURONTFSERV
+#include <csignal>
+#endif  // NEURONTFSERV
 
 
 namespace tensorflow {
@@ -27,6 +30,15 @@ typedef const AttrValue_ListValue AttrList;
 
 
 NeuronDeviceManager global_neuron_device_manager;
+
+
+#ifdef NEURONTFSERV
+void sigint_handler(int sig) {
+    global_neuron_device_manager.clear();
+    std::signal(SIGINT, SIG_DFL);
+    std::raise(SIGINT);
+}
+#endif  // NEURONTFSERV
 
 
 NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
@@ -62,6 +74,9 @@ Status NeuronOp::initialize() {
         tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
         if (!global_neuron_device_manager.ready()) {
             TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize());
+#ifdef NEURONTFSERV
+            std::signal(SIGINT, sigint_handler);
+#endif  // NEURONTFSERV
         }
         if (!global_neuron_device_manager.ready()) {
             return errors::FailedPrecondition(
