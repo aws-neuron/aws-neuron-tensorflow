@@ -40,9 +40,11 @@ def test_simple_save():
         outputs = {'y0': relu0, 'y1': relu1}
 
         # Save the current session using tensorflow's simple_save() method
+        shutil.rmtree(export_dir_ref, ignore_errors=True)
         tf.saved_model.simple_save(sess, export_dir=export_dir_ref, inputs=inputs, outputs=outputs)
 
         # Save the current session using tensorflow-neuron's simple_save() method
+        shutil.rmtree(export_dir_test, ignore_errors=True)
         tfn.saved_model.simple_save(sess, export_dir=export_dir_test, inputs=inputs, outputs=outputs)
 
     # load two predictors from neuron saved and tf simple_saved models
@@ -59,8 +61,6 @@ def test_simple_save():
         result_test = pred_test(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_test[name], result_ref[name], rtol=1e-2, atol=1e-3)
-    shutil.rmtree(export_dir_ref, ignore_errors=True)
-    shutil.rmtree(export_dir_test, ignore_errors=True)
 
 
 def test_convert_to_inference_model():
@@ -82,7 +82,9 @@ def test_convert_to_inference_model():
         relu1 = tf.nn.relu(conv2d2, name='relu1')
         inputs = {'x0': input0, 'x1': input1}
         outputs = {'y0': relu0, 'y1': relu1}
+        shutil.rmtree(model_dir, ignore_errors=True)
         tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
+    shutil.rmtree(new_model_dir, ignore_errors=True)
     tfn.saved_model.compile(model_dir, new_model_dir)
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
     pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
@@ -97,8 +99,6 @@ def test_convert_to_inference_model():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
-    shutil.rmtree(model_dir, ignore_errors=True)
-    shutil.rmtree(new_model_dir, ignore_errors=True)
 
 
 def test_convert_to_inference_model_with_feed_dict():
@@ -120,11 +120,13 @@ def test_convert_to_inference_model_with_feed_dict():
         relu1 = tf.nn.relu(conv2d2, name='relu1')
         inputs = {'x0': input0, 'x1': input1}
         outputs = {'y0': relu0, 'y1': relu1}
+        shutil.rmtree(model_dir, ignore_errors=True)
         tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
     model_feed_dict = {
         'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
         'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
     }
+    shutil.rmtree(new_model_dir, ignore_errors=True)
     tf.neuron.saved_model.compile(model_dir, new_model_dir, model_feed_dict=model_feed_dict)
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
     pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
@@ -135,8 +137,7 @@ def test_convert_to_inference_model_with_feed_dict():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
-    shutil.rmtree(model_dir, ignore_errors=True)
-    shutil.rmtree(new_model_dir, ignore_errors=True)
+
 
 def test_convert_to_inference_model_regress_api():
     np.random.seed(_RANDOM_SEED)
@@ -149,6 +150,7 @@ def test_convert_to_inference_model_regress_api():
                                strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
         conv2d1 = tf.nn.conv2d(conv2d0, np.random.uniform(-1, 1, size=[2, 2, 3, 1]).astype(np.float16),
                                strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        shutil.rmtree(model_dir, ignore_errors=True)
 
         # Create a signature defination and save the model in the current session
         # regress only has 1 input and 1 output
@@ -171,7 +173,7 @@ def test_convert_to_inference_model_regress_api():
     model_feed_dict = {
         signature_constants.REGRESS_INPUTS: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)
     }
-
+    shutil.rmtree(new_model_dir, ignore_errors=True)
     tf.neuron.saved_model.compile(model_dir, new_model_dir, model_feed_dict=model_feed_dict)
 
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
@@ -182,8 +184,7 @@ def test_convert_to_inference_model_regress_api():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
-    shutil.rmtree(model_dir, ignore_errors=True)
-    shutil.rmtree(new_model_dir, ignore_errors=True)
+
 
 def test_convert_to_inference_model_classify_api():
     np.random.seed(_RANDOM_SEED)
@@ -198,6 +199,7 @@ def test_convert_to_inference_model_classify_api():
                                strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
         conv2d2 = tf.nn.conv2d(conv2d0, np.random.uniform(-1, 1, size=[2, 2, 3, 1]).astype(np.float16),
                                strides=[1, 1, 1, 1], padding='VALID', name='conv2d2')
+        shutil.rmtree(model_dir, ignore_errors=True)
 
         # Create a signature defination and save the model in the current session
         # classify has 1 input and 2 outputs
@@ -223,6 +225,7 @@ def test_convert_to_inference_model_classify_api():
     model_feed_dict = {
         signature_constants.CLASSIFY_INPUTS: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)
     }
+    shutil.rmtree(new_model_dir, ignore_errors=True)
     tf.neuron.saved_model.compile(model_dir, new_model_dir, model_feed_dict=model_feed_dict)
 
     pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
@@ -233,8 +236,6 @@ def test_convert_to_inference_model_classify_api():
         result_neuron = pred_neuron(model_feed_dict)
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
-    shutil.rmtree(model_dir, ignore_errors=True)
-    shutil.rmtree(new_model_dir, ignore_errors=True)
 
 
 def test_saved_model_cli_convert_neuron():
@@ -244,6 +245,11 @@ def test_saved_model_cli_convert_neuron():
     new_model_dir_b2 = './saved_model_cli_convert_neuron_b2'
     new_model_dir_b3 = './saved_model_cli_convert_neuron_b3'
     new_model_dir_b4 = './saved_model_cli_convert_neuron_b4'
+    shutil.rmtree(model_dir, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b1, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b2, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b3, ignore_errors=True)
+    shutil.rmtree(new_model_dir_b4, ignore_errors=True)
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
@@ -324,9 +330,3 @@ def test_saved_model_cli_convert_neuron():
             np.testing.assert_allclose(result_neuron_b2[name], result_ref_b2[name], rtol=1e-2, atol=1e-3)
             np.testing.assert_allclose(result_neuron_b3[name], result_ref_b3[name], rtol=1e-2, atol=1e-3)
             np.testing.assert_allclose(result_neuron_b4[name], result_ref_b4[name], rtol=1e-2, atol=1e-3)
-    shutil.rmtree(model_dir, ignore_errors=True)
-    shutil.rmtree(new_model_dir_b1, ignore_errors=True)
-    shutil.rmtree(new_model_dir_b2, ignore_errors=True)
-    shutil.rmtree(new_model_dir_b3, ignore_errors=True)
-    shutil.rmtree(new_model_dir_b4, ignore_errors=True)
-    os.remove(model_feed_dict_npz)
