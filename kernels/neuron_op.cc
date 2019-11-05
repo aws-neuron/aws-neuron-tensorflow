@@ -433,13 +433,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 OP_REQUIRES(ctx, k_shape.dims() > 0,
                             errors::InvalidArgument(
                                 "no batch-dimension found on output tensor ",
-                                output_names.s(idx), " with kaena shape ",
+                                output_names.s(idx), " with Neuron shape ",
                                 k_shape.DebugString()));
                 OP_REQUIRES(ctx, k_batch_size == k_shape.dim_size(0),
                             errors::InvalidArgument(
                                 "incorrect batch size found on output tensor ",
-                                output_names.s(idx), ", kaena tensor shape ",
-                                k_shape.DebugString(), ", kaena batch size ",
+                                output_names.s(idx), ", Neuron tensor shape ",
+                                k_shape.DebugString(), ", Neuron batch size ",
                                 k_batch_size));
                 is_batch_tensor = batch_size != k_shape.dim_size(0);
             }
