@@ -125,7 +125,7 @@ private:
     Status init_default_device(const std::string &nrtd_address);
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int MAX_NUM_CORES = 64;
-    static const int MIN_NUM_CORES = 0;
+    static const uint32_t DEFAULT_NUM_CORES = 4;
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     size_t device_index_ = 0;
     size_t num_devices_ = 0;
