@@ -296,14 +296,14 @@ def test_neuron_device_sizes():
         @contextmanager
         def set_neuron_device_sizes(env_var):
             env_set = False
-            if 'NEURON_DEVICE_SIZES' not in os.environ:
-                os.environ['NEURON_DEVICE_SIZES'] = env_var
+            if 'NEURONCORE_GROUP_SIZES' not in os.environ:
+                os.environ['NEURONCORE_GROUP_SIZES'] = env_var
                 env_set = True
             try:
                 yield
             finally:
                 if env_set:
-                    os.environ.pop('NEURON_DEVICE_SIZES')
+                    os.environ.pop('NEURONCORE_GROUP_SIZES')
 
         with set_neuron_device_sizes('[4,100,1]'):
             with tf.Session(graph=infer_graph) as sess:

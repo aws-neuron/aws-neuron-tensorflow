@@ -133,6 +133,9 @@ Status NeuronDeviceManager::initialize() {
     // get number of neuron cores from comma-separated list of integers
     std::string neuron_device_sizes_raw = env_get("NEURON_DEVICE_SIZES", "");
     if ("" == neuron_device_sizes_raw) {
+        neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
+    }
+    if ("" == neuron_device_sizes_raw) {
         TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
     } else {
         // remove [ and ]
@@ -149,7 +152,7 @@ Status NeuronDeviceManager::initialize() {
             }
             int int_num_cores = stoi_no_throw(substr);
             if (int_num_cores < 0 || int_num_cores > 64) {
-                LOG(WARNING) << "NEURON_DEVICE_SIZES=" << neuron_device_sizes_raw
+                LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_device_sizes_raw
                              << " looks ill-formatted. Falling back to initializing"
                              << " a default Neuron device.";
                 num_cores_vector.clear();
