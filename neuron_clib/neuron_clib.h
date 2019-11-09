@@ -58,7 +58,7 @@ inline Status nrt_error_status(const std::string &fn_name,
 class SharedMemory {
 public:
     SharedMemory(size_t size) : size_(size) {}
-    Status initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
+    Status initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub, uint32_t nn_id);
     const std::string name() { return name_; }
     const size_t size() { return size_; }
     void *ptr() { return ptr_; }

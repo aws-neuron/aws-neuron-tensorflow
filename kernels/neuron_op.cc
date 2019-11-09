@@ -47,7 +47,7 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
                 errors::InvalidArgument("neff is invalid"));
     profile_dir_ = env_get("NEURON_PROFILE");
-    profile_enabled_ = "" != profile_dir_;
+    profile_enabled_ = !profile_dir_.empty();
     if (profile_enabled_) {
         profile_dump_info();
     }
@@ -131,7 +131,7 @@ Status NeuronOp::initialize() {
     }
     max_num_infers_ = dynamic_batch_size ? neuron_device_->num_cores() : 1;
     std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
-    if ("" != ninfer_str) {
+    if (!ninfer_str.empty()) {
         int int_ninfer = stoi_no_throw(ninfer_str);
         if (int_ninfer < 1 || int_ninfer > 64) {
             LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
@@ -193,7 +193,7 @@ Status NeuronOp::initialize() {
 
     // preallocate output tensors (not used by the default infer call)
     std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
-    if ("" != nrt_shm_map) {
+    if (!nrt_shm_map.empty()) {
         if (0 == nrtd_address_.find("unix:") && prepare_shared_memory().ok()) {
             use_shared_memory_ = true;
             for (size_t idx = 0; idx < output_dtypes.type_size(); ++idx) {
@@ -215,7 +215,7 @@ Status NeuronOp::prepare_shared_memory() {
     for (size_t idx = 0; idx < input_tensor_sizes_.size(); ++idx) {
         size_t shm_size = input_tensor_sizes_[idx];
         input_shms_.emplace_back(shm_size);
-        TF_RETURN_IF_ERROR(input_shms_.back().initialize(stub_));
+        TF_RETURN_IF_ERROR(input_shms_.back().initialize(stub_, nn_id_));
         VLOG(1) << "input shared memory " << input_shms_.back().name()
                 << " ready at address " << input_shms_.back().ptr();
     }
@@ -225,7 +225,7 @@ Status NeuronOp::prepare_shared_memory() {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
         size_t shm_size = temp_tensor.tensor_data().size();
         output_shms_.emplace_back(shm_size);
-        TF_RETURN_IF_ERROR(output_shms_.back().initialize(stub_));
+        TF_RETURN_IF_ERROR(output_shms_.back().initialize(stub_, nn_id_));
         VLOG(1) << "output shared memory " << output_shms_.back().name()
                 << " ready at address " << output_shms_.back().ptr();
     }
@@ -684,7 +684,7 @@ void NeuronOp::profile_start_session() {
 
 
 void NeuronOp::profile_stop_session() {
-    if (profile_enabled_ && "" != profile_session_filename_) {
+    if (profile_enabled_ && !profile_session_filename_.empty()) {
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile stop-session -s " << profile_session_filename_;
         VLOG(1) << "Stopping profiling session by " << cmd_stream.str();

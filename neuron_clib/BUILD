@@ -9,15 +9,8 @@ cc_library(
     hdrs = ["neuron_clib.h"],
     deps = [
         ":nmgr_service.grpc.o",
-        ":libuuid",
         "@grpc//:grpc++_codegen_base",
     ] + tf_custom_op_library_additional_deps(),
-)
-
-cc_library(
-    name = "libuuid",
-    srcs = ["uuid/libuuid.so"],
-    hdrs = ["uuid/uuid.h"],
 )
 
 # nrt proto libraries

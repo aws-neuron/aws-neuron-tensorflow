@@ -3,7 +3,6 @@
 #include <sstream>
 #include <sys/mman.h>
 #include <fcntl.h>
-#include "uuid/uuid.h"
 #include <grpcpp/grpcpp.h>
 #include "neuron_clib.h"
 
@@ -12,23 +11,25 @@ namespace tensorflow {
 namespace kaena {
 
 
-static std::string gen_shm_name() {
-    // typedef unsigned char uuid_t[16];
-    uuid_t uuid;
-
-    // generate
-    uuid_generate_time(uuid);
-
-    // unparse (to string)
-    char uuid_str[128];  // ex. "1b4e28ba-2fa1-11d2-883f-0016d3cca427" + "\0"
-    uuid_unparse_lower(uuid, uuid_str);
-
-    return "/neuron_clib_" + std::string(uuid_str);
+static std::string gen_shm_name(uint32_t nn_id) {
+    std::string filename = "/neuron_clib_";
+    filename += std::to_string(nn_id);
+    for (size_t i = 0; i < 64; ++i) {
+        if (Env::Default()->CreateUniqueFileName(&filename, "")) {
+            return filename;
+        }
+        Env::Default()->SleepForMicroseconds(1);
+    }
+    return "";
 }
 
 
-Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
-    name_ = gen_shm_name();
+Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
+                                uint32_t nn_id) {
+    name_ = gen_shm_name(nn_id);
+    if (name_.empty()) {
+        return errors::Internal("cannot generate unique file name for shared memory");
+    }
     int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG);
     SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
     shm_open_done_ = true;
@@ -132,10 +133,10 @@ Status NeuronDeviceManager::initialize() {
 
     // get number of neuron cores from comma-separated list of integers
     std::string neuron_device_sizes_raw = env_get("NEURON_DEVICE_SIZES", "");
-    if ("" == neuron_device_sizes_raw) {
+    if (neuron_device_sizes_raw.empty()) {
         neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
     }
-    if ("" == neuron_device_sizes_raw) {
+    if (neuron_device_sizes_raw.empty()) {
         TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
     } else {
         // remove [ and ]
