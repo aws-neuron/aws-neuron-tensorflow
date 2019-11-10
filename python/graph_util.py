@@ -668,9 +668,20 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         output_tensors = {ts for op in _output_ops(graph) for ts in op.outputs}
     if op_whitelist is None:
         neuron_cc = spawn.find_executable('neuron-cc')
-        command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
-        op_whitelist = set(subprocess.check_output(command).decode().split('\n')[:-1])
-        op_whitelist.discard('Placeholder')
+        if neuron_cc is None:
+            logging.warning('neuron-cc is not found. To fully optimize your TensorFlow model '
+                            'for Inferentia, please install the neuron-cc compiler by '
+                            '"pip install neuron-cc".')
+            return graph_def
+        else:
+            command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
+            try:
+                op_whitelist = set(subprocess.check_output(command).decode().split('\n')[:-1])
+            except subprocess.CalledProcessError:
+                logging.warning('neuron-cc is not behaving correctly. Please check neuron-cc '
+                                'installation, or reinstall by "pip install --force neuron-cc".')
+                return graph_def
+            op_whitelist.discard('Placeholder')
     if no_fuse_ops is None:
         no_fuse_ops = []
     if force_fuse_ops is None:
@@ -829,6 +840,8 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
     neuron_cc = spawn.find_executable('neuron-cc')
+    if neuron_cc is None:
+        return graph_def
     for node in _gd_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue

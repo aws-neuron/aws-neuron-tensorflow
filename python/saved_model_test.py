@@ -50,7 +50,6 @@ def test_simple_save():
     # load two predictors from neuron saved and tf simple_saved models
     pred_ref = tf.contrib.predictor.from_saved_model(export_dir_ref)
     pred_test = tf.contrib.predictor.from_saved_model(export_dir_test)
-    _assert_compiler_success(pred_test.graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         # Test for accuracy
         model_feed_dict = {
