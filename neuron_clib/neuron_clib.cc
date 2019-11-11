@@ -143,7 +143,7 @@ Status NeuronDeviceManager::initialize() {
         std::string neuron_device_sizes = remove_pattern(neuron_device_sizes_raw, "[");
         neuron_device_sizes = remove_pattern(neuron_device_sizes, "]");
 
-        std::vector<uint32_t> num_cores_vector;
+        std::vector<int> num_cores_req_vector;
         std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
         while (neuron_device_sizes_stream.good()) {
             std::string substr;
@@ -151,30 +151,30 @@ Status NeuronDeviceManager::initialize() {
             if (substr.empty()) {
                 continue;
             }
-            int int_num_cores = stoi_no_throw(substr);
-            if (int_num_cores < 0 || int_num_cores > 64) {
+            int num_cores_req = stoi_no_throw(substr);
+            if (num_cores_req < 0 || num_cores_req > 64) {
                 LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_device_sizes_raw
                              << " looks ill-formatted. Falling back to initializing"
                              << " a default Neuron device.";
-                num_cores_vector.clear();
+                num_cores_req_vector.clear();
                 break;
             }
-            num_cores_vector.push_back((uint32_t)int_num_cores);
+            num_cores_req_vector.push_back(num_cores_req);
         }
-        if (num_cores_vector.empty()) {
+        if (num_cores_req_vector.empty()) {
             TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
         } else {
             Status status = errors::Internal("No Neuron device can be initialized.");
-            for (size_t idx = 0; idx < num_cores_vector.size(); ++idx) {
-                uint32_t num_cores = num_cores_vector[idx];
-                status = device_array_[idx].initialize(stub_, num_cores, nrtd_address);
+            for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
+                int num_cores_req = num_cores_req_vector[idx];
+                status = device_array_[idx].initialize(stub_, nrtd_address, num_cores_req);
                 if (!status.ok()) {
-                    LOG(WARNING) << "Cannot initialize Neuron device with " << num_cores
+                    LOG(WARNING) << "Cannot initialize Neuron device with " << num_cores_req
                                  << " cores; stopping initialization.";
                     break;
                 }
                 ++num_devices_;
-                VLOG(1) << "successfully initialized Neuron device of size " << num_cores;
+                VLOG(1) << "successfully initialized Neuron device of size " << num_cores_req;
             }
             if (0 == num_devices_) {
                 return status;
@@ -186,7 +186,7 @@ Status NeuronDeviceManager::initialize() {
 }
 
 Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address) {
-    Status status = device_array_[0].initialize(stub_, DEFAULT_NUM_CORES, nrtd_address);
+    Status status = device_array_[0].initialize(stub_, nrtd_address, DEFAULT_NUM_CORES);
     num_devices_ = status.ok() ? 1 : 0;
     return status;
 }
@@ -222,12 +222,14 @@ NeuronDevice *NeuronDeviceManager::get_device() {
 
 
 Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
-                                uint32_t num_cores,
-                                const std::string &nrtd_address) {
+                                const std::string &nrtd_address,
+                                int num_cores_req) {
     grpc::Status status;
     grpc::ClientContext context;
     nrt::create_eg_request create_eg_request;
-    create_eg_request.set_nc_count(num_cores);
+    if (num_cores_req >= 0) {
+        create_eg_request.set_nc_count((uint32_t)num_cores_req);
+    }
     nrt::create_eg_response create_eg_response;
     status = stub->create_eg(&context, create_eg_request, &create_eg_response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
@@ -242,7 +244,7 @@ Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
         return errors::Unavailable("grpc server ", nrtd_address, message);
     }
     NRT_CHECK_RETURN("create_eg", status, create_eg_response);
-    num_cores_ = num_cores;
+    num_cores_ = create_eg_response.nc_count();
     eg_id_ = create_eg_response.h_eg().id();
     create_eg_done_ = true;
     running_nn_id_ = NRT_INVALID_NN_ID;

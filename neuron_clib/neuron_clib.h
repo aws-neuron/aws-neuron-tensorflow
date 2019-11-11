@@ -88,7 +88,7 @@ class NeuronDevice {
 public:
     NeuronDevice() {};
     Status initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
-                      uint32_t num_cores, const std::string &nrtd_address);
+                      const std::string &nrtd_address, int num_cores_req);
     void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
     uint32_t eg_id() { return eg_id_; };
     size_t num_executable() { return nn_id_set_.size(); };
@@ -125,7 +125,7 @@ private:
     Status init_default_device(const std::string &nrtd_address);
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int MAX_NUM_CORES = 64;
-    static const uint32_t DEFAULT_NUM_CORES = 4;
+    static const int DEFAULT_NUM_CORES = -1;  // any negative number
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     size_t device_index_ = 0;
     size_t num_devices_ = 0;
