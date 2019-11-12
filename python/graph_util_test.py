@@ -16,6 +16,7 @@ from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.neuron.python.graph_util import (
     shape_inference, shape_inference_with_inputs, whitelist_partition, compile_subgraphs)
 from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
+from tensorflow.python.platform import tf_logging as logging
 import pytest
 
 
@@ -378,11 +379,13 @@ def test_random_graph_multithread():
     _assert_compiler_success(infer_graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
-            for _ in range(10):
+            for idx in range(10):
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    start = time.time()
                     future_list = [executor.submit(sess.run, outputs, feed_dict)
                                    for feed_dict in feed_dict_list]
                     result_neuron_list = [future.result() for future in future_list]
+                    logging.warning('cycle {}, elapsed {}'.format(idx, time.time() - start))
             for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
                 np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
