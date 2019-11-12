@@ -228,15 +228,16 @@ def inference_graph_from_session(
                         large_constants[node.name] = val_name, copy.deepcopy(value)
                         node.attr['value'].tensor.ClearField(val_name)
 
+    # setup op exclusions
+    no_fuse_ops = set() if no_fuse_ops is None else set(no_fuse_ops)
+
     # remove identity ops inserted by convert_variables_to_constants
     graph = _graph_def_to_graph(graph_def)
     control_op_names = [op.name for op in graph.get_operations() if op._control_outputs]
     protected_op_names.update(control_op_names)
+    protected_op_names.update(no_fuse_ops)
     graph_def = tf_graph_util.remove_training_nodes.__wrapped__(
         graph_def, protected_nodes=protected_op_names)
-
-    # setup op exclusions
-    no_fuse_ops = set() if no_fuse_ops is None else set(no_fuse_ops)
 
     # exclude ops with control outputs
     graph = _graph_def_to_graph(graph_def)
@@ -682,6 +683,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
                                 'installation, or reinstall by "pip install --force neuron-cc".')
                 return graph_def
             op_whitelist.discard('Placeholder')
+            op_whitelist.discard('IdentityN')
     if no_fuse_ops is None:
         no_fuse_ops = []
     if force_fuse_ops is None:

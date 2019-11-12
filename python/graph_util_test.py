@@ -16,6 +16,7 @@ from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.neuron.python.graph_util import (
     shape_inference, shape_inference_with_inputs, whitelist_partition, compile_subgraphs)
 from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
+import pytest
 
 
 _RANDOM_SEED = 15213
@@ -315,6 +316,42 @@ def test_neuron_device_sizes():
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run('relu0:0', feed_dict)
         np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
+
+
+@pytest.mark.xfail(run=False, reason='Do not run by default')
+def test_random_graph_multithread():
+    np.random.seed(_RANDOM_SEED)
+    max_workers = 16;
+    rdrange = lambda: range(np.random.randint(30, 50))
+    no_fuse_ops = set()
+    with tf.Session(graph=tf.Graph()) as sess:
+        inputs = [tf.placeholder(tf.float32, [1, 1]) for _ in rdrange()]
+        feed_dict = {ts.name: np.random.uniform(-1, 1, size=[1, 1]) for ts in inputs}
+        feed_dict_list = [{ts.name: np.random.uniform(-1, 1, size=[1, 1]) for ts in inputs}
+                          for _ in range(max_workers)]
+        tensors = inputs
+        num_neuron_ops = 0
+        for _ in range(10):
+            tensors = [tf.add(np.random.choice(tensors), np.random.choice(tensors)) for _ in rdrange()]
+            tensors = [tf.nn.relu(ts) for ts in tensors]
+            tensors = [tf.identity(ts) for ts in tensors]
+            no_fuse_ops.update(ts.op.name for ts in tensors)
+        outputs = [ts.name for ts in tensors]
+        result_ref_list = [sess.run(outputs, feed_dict) for feed_dict in feed_dict_list]
+        infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+            sess, input_tensors=inputs, output_tensors=outputs, feed_dict=feed_dict,
+            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'}, minimum_segment_size=2,
+            no_fuse_ops=no_fuse_ops)
+    _assert_compiler_success(infer_graph)
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+        with tf.Session(graph=infer_graph) as sess:
+            for _ in range(10):
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    future_list = [executor.submit(sess.run, outputs, feed_dict)
+                                   for feed_dict in feed_dict_list]
+                    result_neuron_list = [future.result() for future in future_list]
+            for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
 def test_shape_inference_with_inputs_while_loop():
