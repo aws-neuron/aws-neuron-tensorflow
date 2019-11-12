@@ -243,7 +243,7 @@ def test_shared_memory_infer():
 
 def test_multithread_load_infer():
     np.random.seed(_RANDOM_SEED)
-    max_workers = 16
+    max_workers = 48
     with tf.Session(graph=tf.Graph()) as sess:
         input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
         input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
@@ -321,27 +321,60 @@ def test_neuron_device_sizes():
 @pytest.mark.xfail(run=False, reason='Do not run by default')
 def test_random_graph_multithread():
     np.random.seed(_RANDOM_SEED)
-    max_workers = 16;
-    rdrange = lambda: range(np.random.randint(30, 50))
-    no_fuse_ops = set()
-    with tf.Session(graph=tf.Graph()) as sess:
-        inputs = [tf.placeholder(tf.float32, [1, 1]) for _ in rdrange()]
-        feed_dict = {ts.name: np.random.uniform(-1, 1, size=[1, 1]) for ts in inputs}
-        feed_dict_list = [{ts.name: np.random.uniform(-1, 1, size=[1, 1]) for ts in inputs}
+    max_workers = 48
+    graph_fn = 'random_graph.pb'
+    infer_graph_fn = 'random_graph_infer.pb'
+    input_names_fn = 'random_input_names.txt'
+    output_names_fn = 'random_output_names.txt'
+    if (os.path.isfile(graph_fn) and os.path.isfile(infer_graph_fn) and
+            os.path.isfile(input_names_fn) and os.path.isfile(output_names_fn)):
+        with open(input_names_fn, 'r') as f:
+            input_names = f.read().split(',')
+        with open(output_names_fn, 'r') as f:
+            outputs = f.read().split(',')
+        np.random.seed(_RANDOM_SEED)
+        feed_dict_list = [{name: np.random.uniform(-1, 1, size=[1, 1]) for name in input_names}
                           for _ in range(max_workers)]
-        tensors = inputs
-        num_neuron_ops = 0
-        for _ in range(10):
-            tensors = [tf.add(np.random.choice(tensors), np.random.choice(tensors)) for _ in rdrange()]
-            tensors = [tf.nn.relu(ts) for ts in tensors]
-            tensors = [tf.identity(ts) for ts in tensors]
-            no_fuse_ops.update(ts.op.name for ts in tensors)
-        outputs = [ts.name for ts in tensors]
-        result_ref_list = [sess.run(outputs, feed_dict) for feed_dict in feed_dict_list]
-        infer_graph = tf.neuron.graph_util.inference_graph_from_session(
-            sess, input_tensors=inputs, output_tensors=outputs, feed_dict=feed_dict,
-            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'}, minimum_segment_size=2,
-            no_fuse_ops=no_fuse_ops)
+        with tf.Session(graph=tf.Graph()) as sess:
+            graph_def = tf.GraphDef()
+            with open(graph_fn, 'rb') as f:
+                graph_def.ParseFromString(f.read())
+            tf.import_graph_def(graph_def, name='')
+            result_ref_list = [sess.run(outputs, feed_dict) for feed_dict in feed_dict_list]
+        infer_graph_def = tf.GraphDef()
+        with open(infer_graph_fn, 'rb') as f:
+            infer_graph_def.ParseFromString(f.read())
+        infer_graph = tf.Graph()
+        with infer_graph.as_default():
+            tf.import_graph_def(infer_graph_def, name='')
+    else:
+        rdrange = lambda: range(np.random.randint(30, 50))
+        no_fuse_ops = set()
+        with tf.Session(graph=tf.Graph()) as sess:
+            inputs = [tf.placeholder(tf.float32, [1, 1]) for _ in rdrange()]
+            with open(input_names_fn, 'w') as f:
+                f.write(','.join(ts.name for ts in inputs))
+            np.random.seed(_RANDOM_SEED)
+            feed_dict_list = [{ts.name: np.random.uniform(-1, 1, size=[1, 1]) for ts in inputs}
+                              for _ in range(max_workers)]
+            tensors = inputs
+            for _ in range(10):
+                tensors = [tf.add(np.random.choice(tensors), np.random.choice(tensors)) for _ in rdrange()]
+                tensors = [tf.nn.relu(ts) for ts in tensors]
+                tensors = [tf.identity(ts) for ts in tensors]
+                no_fuse_ops.update(ts.op.name for ts in tensors)
+            outputs = [ts.name for ts in tensors]
+            with open(output_names_fn, 'w') as f:
+                f.write(','.join(outputs))
+            with open(graph_fn, 'wb') as f:
+                f.write(sess.graph.as_graph_def().SerializeToString())
+            result_ref_list = [sess.run(outputs, feed_dict) for feed_dict in feed_dict_list]
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, input_tensors=inputs, output_tensors=outputs,
+                op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'}, minimum_segment_size=2,
+                no_fuse_ops=no_fuse_ops)
+            with open(infer_graph_fn, 'wb') as f:
+                f.write(infer_graph.as_graph_def().SerializeToString())
     _assert_compiler_success(infer_graph)
     if 'NEURON_RTD_ADDRESS' in os.environ:
         with tf.Session(graph=infer_graph) as sess:
@@ -351,7 +384,7 @@ def test_random_graph_multithread():
                                    for feed_dict in feed_dict_list]
                     result_neuron_list = [future.result() for future in future_list]
             for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
-                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
 def test_shape_inference_with_inputs_while_loop():
