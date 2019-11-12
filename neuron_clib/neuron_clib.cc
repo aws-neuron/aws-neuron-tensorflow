@@ -94,16 +94,14 @@ void SharedMemoryAllocator::DeallocateRaw(void *ptr) {
 
 
 static std::string remove_pattern(std::string data, const std::string &pattern) {
-    // Get the first occurrence
-	size_t pos = data.find(pattern);
-
-	// Repeat till end is reached
-	while( pos != std::string::npos) {
-		// Replace this occurrence of Sub String
-		data.replace(pos, pattern.size(), "");
-		// Get the next occurrence from the current position
-		pos = data.find(pattern, pos);
-	}
+    size_t string_length = data.size();
+    for (size_t idx = 0; idx < string_length; ++idx) {
+        size_t pos = data.find(pattern, pos);
+        if (std::string::npos == pos) {
+            break;
+        }
+        data.replace(pos, pattern.size(), "");
+    }
     return data;
 }
 
@@ -145,7 +143,10 @@ Status NeuronDeviceManager::initialize() {
 
         std::vector<int> num_cores_req_vector;
         std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
-        while (neuron_device_sizes_stream.good()) {
+        for (size_t idx = 0; idx < MAX_NUM_CORES; ++idx) {
+            if (!neuron_device_sizes_stream.good()) {
+                break;
+            }
             std::string substr;
             std::getline(neuron_device_sizes_stream, substr, ',');
             if (substr.empty()) {

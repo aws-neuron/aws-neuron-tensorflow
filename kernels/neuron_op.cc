@@ -42,7 +42,8 @@ void sigint_handler(int sig) {
 #endif  // NEURONTFSERV
 
 
-NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
+NeuronOp::NeuronOp(OpKernelConstruction *ctx)
+        : OpKernel(ctx), infer_sem_(INFER_SEM_MAX_CAPACITY) {
     VLOG(1) << "calling NeuronOp constructor";
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
                 errors::InvalidArgument("neff is invalid"));
@@ -89,6 +90,30 @@ Status NeuronOp::initialize() {
         neuron_device_ = global_neuron_device_manager.get_device();
     }
 
+    max_num_infers_ = neuron_device_->num_cores();
+    max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
+    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
+    if (!ninfer_str.empty()) {
+        int64 int_ninfer = (int64)stoi_no_throw(ninfer_str);
+        if (int_ninfer < 1 || int_ninfer > INFER_SEM_MAX_CAPACITY) {
+            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
+                         << " is invalid; using default value "
+                         << max_num_infers_  << ".";
+        } else {
+            max_num_infers_ = (uint32_t)int_ninfer;
+        }
+    }
+    init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
+    if (init_acquire_amount_ >= INFER_SEM_MAX_CAPACITY) {
+        LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
+                     << " forcing semaphore value to be 1";
+        init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - 1;
+    }
+    if (init_acquire_amount_ > 0) {
+        infer_sem_.Acquire(init_acquire_amount_);
+        VLOG(1) << "infer semaphore initialized";
+    }
+
     // load
     grpc::ClientContext context;
     nrt::load_response load_response;
@@ -120,26 +145,6 @@ Status NeuronOp::initialize() {
                      << " is invalid; using default value 10 seconds.";
     } else {
         uint32_timeout = (uint32_t)int_timeout;
-    }
-    bool dynamic_batch_size = false;
-    AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
-    for (size_t idx = 0; idx < input_batch_axis.i_size(); ++idx) {
-        if (-1 != input_batch_axis.i(idx)) {
-            dynamic_batch_size = true;
-            break;
-        }
-    }
-    max_num_infers_ = dynamic_batch_size ? neuron_device_->num_cores() : 1;
-    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
-    if (!ninfer_str.empty()) {
-        int int_ninfer = stoi_no_throw(ninfer_str);
-        if (int_ninfer < 1 || int_ninfer > 64) {
-            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
-                         << " is invalid; using default value "
-                         << max_num_infers_  << ".";
-        } else {
-            max_num_infers_ = (uint32_t)int_ninfer;
-        }
     }
     nrt::model_params *model_params = load_request.mutable_model_params();
     model_params->mutable_timeout()->set_data(uint32_timeout);
@@ -280,6 +285,10 @@ NeuronOp::~NeuronOp() {
             for (auto &shm : output_shms_) {
                 neuron_device_->get_ptr2shm()->erase(shm.ptr());
                 shm.clear(stub_);
+            }
+            if (init_acquire_amount_ > 0) {
+                infer_sem_.Release(init_acquire_amount_);
+                VLOG(1) << "infer semaphore restored";
             }
         }
 
@@ -498,13 +507,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         {   // lock EG; we assume this op instance is not loaded into more than
             // one EG and so we just use this EG's lock
             tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+            int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
             std::vector<uint64_t> cookie_vec;
             Status status = start_model();
             OP_REQUIRES_OK(ctx, status);
             timestamps.mark_above_nrtd_infer();
-            int64_t start = 0;
-            int64_t end = std::min(start + max_num_infers_, num_batches);
-            while (start < num_batches) {
+            for (int64_t start = 0; start < num_batches; start += window_size) {
+                int64_t end = std::min(start + window_size, num_batches);
                 for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
                     std::vector<const Tensor*> sliced_inputs;
                     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
@@ -540,8 +549,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
                     int64_t dim0_start = batch_idx * k_batch_size;
                     int64_t dim0_limit = batch_idx * k_batch_size + k_batch_size;
-                    status = infer_wait(&output_tensors, cookie_vec[batch_idx]);
-                    OP_REQUIRES_OK(ctx, status);
+                    nrt::infer_response response;
+                    OP_REQUIRES_OK(ctx, infer_wait(&response, cookie_vec[batch_idx]));
+                    OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
                     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                         if (is_batch_output_tensors[idx]) {
                             StringPiece k_data = temp_outputs[idx].tensor_data();
@@ -552,16 +562,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         }
                     }
                 }
-
-                // shift window
-                start += max_num_infers_;
-                end = std::min(start + max_num_infers_, num_batches);
             }
             timestamps.mark_below_nrtd_infer();
-        }  // unlock EG
+        }   // unlock EG
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
-    } else {
+    } else if (profile_enabled_ || use_shared_memory_) {
+        VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
         std::vector<Tensor*> output_tensors;
         if (!use_shared_memory_) {
             for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
@@ -583,7 +590,31 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 }
             }
             OP_REQUIRES_OK(ctx, status);
-        }  // unlock EG
+        }   // unlock EG
+        timestamps.mark_exit();
+        VLOG(1) << timestamps.timing_string();
+    } else {
+        std::vector<Tensor*> output_tensors;
+        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+            output_tensors.emplace_back();
+            OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
+                                                     &output_tensors[idx]));
+        }
+        nrt::infer_response response;
+        {
+            auto infer_sem_scope = infer_sem_.ScopedAcquire(1);
+            uint64_t cookie;
+            {   // lock EG; we assume this op instance is not loaded into more than
+                // one EG and so we just use this EG's lock
+                tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+                OP_REQUIRES_OK(ctx, start_model());
+                timestamps.mark_above_nrtd_infer();
+                OP_REQUIRES_OK(ctx, infer_post(&cookie, input_tensors));
+            }   // unlock EG
+            OP_REQUIRES_OK(ctx, infer_wait(&response, cookie));
+            timestamps.mark_below_nrtd_infer();
+        }
+        OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     }
@@ -832,8 +863,8 @@ Status NeuronOp::infer_post(uint64_t *infer_post_cookie,
 }
 
 
-Status NeuronOp::infer_wait(std::vector<Tensor*> *output_tensors,
-                                        uint64_t infer_post_cookie) {
+Status NeuronOp::infer_wait(nrt::infer_response *response,
+                            uint64_t infer_post_cookie) {
     if (!ready_) {
         return errors::FailedPrecondition("not ready for inference");
     }
@@ -843,16 +874,20 @@ Status NeuronOp::infer_wait(std::vector<Tensor*> *output_tensors,
 
     // infer_wait
     grpc::ClientContext context;
-    nrt::infer_response response;
-    grpc::Status status = stub_->infer_wait(&context, request, &response);
+    grpc::Status status = stub_->infer_wait(&context, request, response);
     if (status.ok()) {
         // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
-            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
+            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
-    NRT_CHECK_RETURN("infer_wait", status, response);
+    NRT_CHECK_RETURN("infer_wait", status, *response);
+    return Status::OK();
+}
 
+
+Status NeuronOp::copy_output_tensors(std::vector<Tensor*> *output_tensors,
+                                     const nrt::infer_response &response) {
     // set output tensors
     std::vector<StringPiece> raw_output_tensors;
     std::unordered_map<std::string, StringPiece> map_name_raw;

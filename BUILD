@@ -104,6 +104,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//tensorflow/core:protos_all_cc",
+        "//tensorflow/compiler/xla/python:semaphore",
         ":neuron_clib",
     ] + tf_custom_op_library_additional_deps(),
     alwayslink = 1,

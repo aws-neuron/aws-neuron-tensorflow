@@ -15,6 +15,7 @@
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/compiler/xla/python/semaphore.h"
 #include "tensorflow/python/neuron/neuron_clib/neuron_clib.h"
 
 
@@ -38,10 +39,11 @@ private:
     Status infer(std::vector<Tensor*> *output_tensors,
                  const std::vector<const Tensor*> &input_tensors,
                  FALTimestamps *timestamps);
-    Status infer_post(uint64_t *infer_post_cookie,
+    Status infer_post(uint64_t *cookie,
                       const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(std::vector<Tensor*> *output_tensors,
-                      uint64_t infer_post_cookie);
+    Status infer_wait(nrt::infer_response *response, uint64_t cookie);
+    Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
+                               const nrt::infer_response &response);
     tensorflow::mutex load_mutex_;
     NeuronDevice *neuron_device_ = nullptr;
     std::string nrtd_address_;
@@ -56,6 +58,9 @@ private:
     std::vector<size_t> input_tensor_sizes_;
     std::vector<Tensor> output_tensors_;
     uint32_t max_num_infers_;
+    static const int64 INFER_SEM_MAX_CAPACITY = NeuronDeviceManager::MAX_NUM_CORES;
+    int64 init_acquire_amount_ = 0;
+    xla::Semaphore infer_sem_;
     int profile_session_id_ = 0;
     bool profile_enabled_ = false;
     std::string profile_dir_ = "";

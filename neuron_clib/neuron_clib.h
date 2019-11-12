@@ -121,10 +121,10 @@ public:
     void clear();
     ~NeuronDeviceManager() { clear(); };
     tensorflow::mutex global_mutex_;
+    static const int64 MAX_NUM_CORES = 64;
 private:
     Status init_default_device(const std::string &nrtd_address);
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
-    static const int MAX_NUM_CORES = 64;
     static const int DEFAULT_NUM_CORES = -1;  // any negative number
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     size_t device_index_ = 0;
