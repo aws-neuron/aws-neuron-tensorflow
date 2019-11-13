@@ -90,30 +90,6 @@ Status NeuronOp::initialize() {
         neuron_device_ = global_neuron_device_manager.get_device();
     }
 
-    max_num_infers_ = neuron_device_->num_cores();
-    max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
-    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
-    if (!ninfer_str.empty()) {
-        int64 int_ninfer = (int64)stoi_no_throw(ninfer_str);
-        if (int_ninfer < 1 || int_ninfer > INFER_SEM_MAX_CAPACITY) {
-            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
-                         << " is invalid; using default value "
-                         << max_num_infers_  << ".";
-        } else {
-            max_num_infers_ = (uint32_t)int_ninfer;
-        }
-    }
-    init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
-    if (init_acquire_amount_ >= INFER_SEM_MAX_CAPACITY) {
-        LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
-                     << " forcing semaphore value to be 1";
-        init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - 1;
-    }
-    if (init_acquire_amount_ > 0) {
-        infer_sem_.Acquire(init_acquire_amount_);
-        VLOG(1) << "infer semaphore initialized";
-    }
-
     // load
     grpc::ClientContext context;
     nrt::load_response load_response;
@@ -145,6 +121,19 @@ Status NeuronOp::initialize() {
                      << " is invalid; using default value 10 seconds.";
     } else {
         uint32_timeout = (uint32_t)int_timeout;
+    }
+    max_num_infers_ = neuron_device_->num_cores();
+    max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
+    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
+    if (!ninfer_str.empty()) {
+        int64 int_ninfer = (int64)stoi_no_throw(ninfer_str);
+        if (int_ninfer < 1 || int_ninfer > INFER_SEM_MAX_CAPACITY) {
+            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
+                         << " is invalid; using default value "
+                         << max_num_infers_  << ".";
+        } else {
+            max_num_infers_ = (uint32_t)int_ninfer;
+        }
     }
     nrt::model_params *model_params = load_request.mutable_model_params();
     model_params->mutable_timeout()->set_data(uint32_timeout);
@@ -211,6 +200,17 @@ Status NeuronOp::initialize() {
             use_shared_memory_ = false;
         }
     }
+    init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
+    if (init_acquire_amount_ >= INFER_SEM_MAX_CAPACITY) {
+        LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
+                     << " forcing semaphore value to be 1";
+        init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - 1;
+    }
+    if (init_acquire_amount_ > 0 && !infer_sem_initialized_) {
+        infer_sem_.Acquire(init_acquire_amount_);
+        infer_sem_initialized_ = true;
+        VLOG(1) << "infer semaphore initialized";
+    }
     ready_ = true;
     return Status::OK();
 }
@@ -255,6 +255,12 @@ NeuronOp::~NeuronOp() {
 
         {
             tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+            if (init_acquire_amount_ > 0 && infer_sem_initialized_) {
+                infer_sem_.Release(init_acquire_amount_);
+                infer_sem_initialized_ = false;
+                VLOG(1) << "infer semaphore restored";
+            }
+
             // stop
             if (neuron_device_->running(nn_id_)) {
                 grpc::ClientContext context;
@@ -285,10 +291,6 @@ NeuronOp::~NeuronOp() {
             for (auto &shm : output_shms_) {
                 neuron_device_->get_ptr2shm()->erase(shm.ptr());
                 shm.clear(stub_);
-            }
-            if (init_acquire_amount_ > 0) {
-                infer_sem_.Release(init_acquire_amount_);
-                VLOG(1) << "infer semaphore restored";
             }
         }
 
@@ -568,7 +570,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     } else if (profile_enabled_ || use_shared_memory_) {
-        VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
+        VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         std::vector<Tensor*> output_tensors;
         if (!use_shared_memory_) {
             for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {

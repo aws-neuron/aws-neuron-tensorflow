@@ -61,6 +61,7 @@ private:
     static const int64 INFER_SEM_MAX_CAPACITY = NeuronDeviceManager::MAX_NUM_CORES;
     int64 init_acquire_amount_ = 0;
     xla::Semaphore infer_sem_;
+    bool infer_sem_initialized_ = false;
     int profile_session_id_ = 0;
     bool profile_enabled_ = false;
     std::string profile_dir_ = "";
