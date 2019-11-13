@@ -8,6 +8,9 @@ load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library_additional_deps")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 
+licenses(["notice"])  # Apache 2.0
+
+exports_files(["LICENSE"])
 
 cc_library(
     name = "all_ops",
