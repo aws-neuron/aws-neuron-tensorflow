@@ -9,7 +9,7 @@ import argparse
 import json
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
-from tensorflow.python.client import session
+from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.saved_model import saved_model as tf_saved_model
@@ -23,10 +23,10 @@ from tensorflow.python.neuron.python.graph_util import inference_graph_from_sess
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.saved_model.simple_save')
-def simple_save(sess, export_dir, inputs, outputs, batch_size=1, **kwargs):
+def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch_size=1, **kwargs):
     """Convenience function to build a `SavedModel` suitable for serving.
     Args:
-        sess: The TensorFlow session from which to save the meta graph and variables.
+        session: The TensorFlow session from which to save the meta graph and variables.
         export_dir: The path to which the `SavedModel` will be stored.
         inputs: dict mapping string input names to tensors. These are added
             to the `SignatureDef` as the inputs.
@@ -41,14 +41,15 @@ def simple_save(sess, export_dir, inputs, outputs, batch_size=1, **kwargs):
         shape_feed_dict = _infer_input_shapes(inputs.values(), batch_size)
         kwargs.update(shape_feed_dict=shape_feed_dict)
     infer_graph = inference_graph_from_session.__wrapped__(
-        sess, input_tensors=inputs.values(), output_tensors=outputs.values(),
+        session, input_tensors=inputs.values(), output_tensors=outputs.values(),
         **kwargs)
 
     # load inference graph into a session and export as a SavedModel
-    with session.Session(graph=infer_graph) as sess:
+    with tf_session.Session(graph=infer_graph) as sess:
         inputs = {key: sess.graph.get_tensor_by_name(ts.name) for key, ts in inputs.items()}
         outputs = {key: sess.graph.get_tensor_by_name(ts.name) for key, ts in outputs.items()}
-        tf_saved_model.simple_save.__wrapped__(sess, export_dir, inputs, outputs)
+        tf_saved_model.simple_save.__wrapped__(sess, export_dir, inputs, outputs,
+                                               legacy_init_op=legacy_init_op)
 
 
 def _infer_input_shapes(input_tensors, batch_size):
@@ -125,7 +126,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                             'using {} as the default'.format(model_dir, tags_list, tags))
     elif type(tags) is str:
         tags = tags.split(',')
-    with session.Session(graph=ops.Graph()) as sess:
+    with tf_session.Session(graph=ops.Graph()) as sess:
         meta_graph = tf_saved_model.loader.load(sess, tags, model_dir)
         signature_def_map = meta_graph.signature_def
         if signature_def_key is None:  # default to 'serving_default' first
@@ -162,7 +163,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             **kwargs)
 
     # load inference graph into a session and export as a SavedModel
-    with session.Session(graph=infer_graph) as sess:
+    with tf_session.Session(graph=infer_graph) as sess:
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
         signature_def_map = {signature_def_key: signature_def_map[signature_def_key]}
         for tensor in signature_def.inputs.values():
