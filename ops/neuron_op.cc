@@ -27,6 +27,10 @@ REGISTER_OP("NeuronOp")
     .Attr("executable: string = ''")
     .Attr("input_batch_axis: list(int) = []")
     .Attr("output_batch_axis: list(int) = []")
+    .Attr("model_config: list(int) = []")
     .Input("input_tensors: input_dtypes")
     .Output("output_tensors: output_dtypes");
 } // namespace tensorflow
+
+// model_config format:
+//   [global_opt_num_cores, this_opt_num_cores, opt_num_infer, timeout]

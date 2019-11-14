@@ -56,6 +56,23 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
 }
 
 
+static bool model_config_valid(const AttrList &model_config) {
+    return model_config.i_size() >= 4;
+}
+static int64 model_config_global_opt_num_cores(const AttrList &model_config) {
+    return model_config.i(0);
+}
+static int64 model_config_this_opt_num_cores(const AttrList &model_config) {
+    return model_config.i(1);
+}
+static int64 model_config_opt_num_infer(const AttrList &model_config) {
+    return model_config.i(2);
+}
+static int64 model_config_timeout(const AttrList &model_config) {
+    return model_config.i(3);
+}
+
+
 Status NeuronOp::initialize() {
     grpc::ChannelArguments ch_args;
     ch_args.SetMaxReceiveMessageSize(-1);
@@ -71,11 +88,15 @@ Status NeuronOp::initialize() {
     if (nullptr == stub_) {
         return errors::Unavailable("cannot create stub");
     }
-
+    AttrList &model_config = def().attr().at("model_config").list();
+    int64_t opt_device_size = -1;
+    if (model_config_valid(model_config)) {
+        opt_device_size = model_config_global_opt_num_cores(model_config);
+    }
     {
         tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
         if (!global_neuron_device_manager.ready()) {
-            TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize());
+            TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize(opt_device_size));
 #ifdef NEURONTFSERV
             std::signal(SIGINT, sigint_handler);
             std::signal(SIGTERM, sigint_handler);
@@ -112,17 +133,31 @@ Status NeuronOp::initialize() {
     WRITE_LOAD_REQUEST;
 
     // model_params
-    // todo: read these info from neff
     uint32_t uint32_timeout = 10;
+    if (model_config_valid(model_config)) {
+        int64 int64_timeout = model_config_timeout(model_config);
+        if (0 < int64_timeout) {
+            uint32_timeout = (uint32_t)int64_timeout;
+        }
+    } else {
+        uint32_timeout = 10;
+    }
     std::string infer_timeout_str = env_get("NEURON_INFER_TIMEOUT_SEC", "10");
     int int_timeout = stoi_no_throw(infer_timeout_str);
     if (int_timeout < 0) {
         LOG(WARNING) << "NEURON_INFER_TIMEOUT_SEC=" << infer_timeout_str
-                     << " is invalid; using default value 10 seconds.";
+                     << " is invalid; using default value " << uint32_timeout
+                     << " seconds.";
     } else {
         uint32_timeout = (uint32_t)int_timeout;
     }
-    max_num_infers_ = neuron_device_->num_cores();
+    max_num_infers_ = 1;
+    if (model_config_valid(model_config)) {
+        int64 opt_num_infer = model_config_opt_num_infer(model_config);
+        if (opt_num_infer > 0) {
+            max_num_infers_ = (uint32_t)opt_num_infer;
+        }
+    }
     max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
     std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
     if (!ninfer_str.empty()) {
@@ -133,6 +168,19 @@ Status NeuronOp::initialize() {
                          << max_num_infers_  << ".";
         } else {
             max_num_infers_ = (uint32_t)int_ninfer;
+        }
+    }
+    if (model_config_valid(model_config)) {
+        // enforce max_num_infers_ = 1 if ncg size is insufficient
+        int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
+        if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
+                || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
+            max_num_infers_ = 1;
+        } else {
+            uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
+            if (neuron_device_->num_cores() < opt_num_cores) {
+                max_num_infers_ = 1;
+            }
         }
     }
     nrt::model_params *model_params = load_request.mutable_model_params();

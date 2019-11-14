@@ -114,7 +114,7 @@ private:
 class NeuronDeviceManager {
 public:
     NeuronDeviceManager() {};
-    Status initialize();
+    Status initialize(int64_t opt_device_size);
     bool ready() { return ready_; };
     NeuronDevice *get_device();
     bool is_empty();
@@ -122,8 +122,11 @@ public:
     ~NeuronDeviceManager() { clear(); };
     tensorflow::mutex global_mutex_;
     static const int64 MAX_NUM_CORES = 64;
+    static const int64 MIN_NUM_CORES = 0;
 private:
-    Status init_default_device(const std::string &nrtd_address);
+    Status init_default_device(const std::string &nrtd_address, int64_t opt_device_size);
+    Status init_devices(const std::vector<int> &num_cores_req_vector,
+                        const std::string &nrtd_address);
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int DEFAULT_NUM_CORES = -1;  // any negative number
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;

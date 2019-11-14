@@ -105,8 +105,28 @@ static std::string remove_pattern(std::string data, const std::string &pattern) 
     return data;
 }
 
+Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector,
+                                         const std::string &nrtd_address) {
+    Status status = errors::Internal("No NeuronCore Group can be initialized.");
+    for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
+        int num_cores_req = num_cores_req_vector[idx];
+        status = device_array_[idx].initialize(stub_, nrtd_address, num_cores_req);
+        if (!status.ok()) {
+            LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
+                         << " cores; stopping initialization.";
+            break;
+        }
+        ++num_devices_;
+        VLOG(1) << "successfully initialized NeuronCore Group of size " << num_cores_req;
+    }
+    if (0 == num_devices_) {
+        return status;
+    }
+    return Status::OK();
+}
 
-Status NeuronDeviceManager::initialize() {
+
+Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
     // append /opt/aws/neuron/bin to PATH
     std::string env_path = env_get("PATH", "");
     setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
@@ -130,12 +150,9 @@ Status NeuronDeviceManager::initialize() {
     }
 
     // get number of neuron cores from comma-separated list of integers
-    std::string neuron_device_sizes_raw = env_get("NEURON_DEVICE_SIZES", "");
+    std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
     if (neuron_device_sizes_raw.empty()) {
-        neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
-    }
-    if (neuron_device_sizes_raw.empty()) {
-        TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
+        TF_RETURN_IF_ERROR(init_default_device(nrtd_address, opt_device_size));
     } else {
         // remove [ and ]
         std::string neuron_device_sizes = remove_pattern(neuron_device_sizes_raw, "[");
@@ -156,40 +173,52 @@ Status NeuronDeviceManager::initialize() {
             if (num_cores_req < 0 || num_cores_req > 64) {
                 LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_device_sizes_raw
                              << " looks ill-formatted. Falling back to initializing"
-                             << " a default Neuron device.";
+                             << " a default NeuronCore Group.";
                 num_cores_req_vector.clear();
                 break;
             }
             num_cores_req_vector.push_back(num_cores_req);
         }
         if (num_cores_req_vector.empty()) {
-            TF_RETURN_IF_ERROR(init_default_device(nrtd_address));
+            TF_RETURN_IF_ERROR(init_default_device(nrtd_address, opt_device_size));
         } else {
-            Status status = errors::Internal("No Neuron device can be initialized.");
-            for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
-                int num_cores_req = num_cores_req_vector[idx];
-                status = device_array_[idx].initialize(stub_, nrtd_address, num_cores_req);
-                if (!status.ok()) {
-                    LOG(WARNING) << "Cannot initialize Neuron device with " << num_cores_req
-                                 << " cores; stopping initialization.";
-                    break;
-                }
-                ++num_devices_;
-                VLOG(1) << "successfully initialized Neuron device of size " << num_cores_req;
-            }
-            if (0 == num_devices_) {
-                return status;
-            }
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, nrtd_address));
         }
     }
     ready_ = true;
     return Status::OK();
 }
 
-Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address) {
-    Status status = device_array_[0].initialize(stub_, nrtd_address, DEFAULT_NUM_CORES);
-    num_devices_ = status.ok() ? 1 : 0;
-    return status;
+Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address,
+                                                int64_t opt_device_size) {
+    if (opt_device_size < 0 || opt_device_size > 64) {
+        // device size looks wrong -- just get the largest ncg possible
+        Status status = device_array_[0].initialize(stub_, nrtd_address, DEFAULT_NUM_CORES);
+        num_devices_ = status.ok() ? 1 : 0;
+        return status;
+    } else {
+        // get one full Inferentia by default
+        if (opt_device_size == 1) {
+            std::vector<int> num_cores_req_vector({1, 1, 1, 1});
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, nrtd_address));
+        } else if (opt_device_size == 2) {
+            std::vector<int> num_cores_req_vector({2, 2});
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, nrtd_address));
+        } else {
+            // search for the largest possible ncg ... sorry
+            Status status = errors::Internal("No NeuronCore Group can be initialized.");
+            for (int num_cores = opt_device_size; num_cores >= MIN_NUM_CORES; --num_cores) {
+                status = device_array_[0].initialize(stub_, nrtd_address, num_cores);
+                if (status.ok()) {
+                    num_devices_ = 1;
+                    return status;
+                }
+            }
+            num_devices_ = 0;
+            return status;
+        }
+    }
+    return Status::OK();
 }
 
 bool NeuronDeviceManager::is_empty() {

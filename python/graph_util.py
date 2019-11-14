@@ -9,6 +9,7 @@ import os
 import time
 import tempfile
 import json
+import struct
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
@@ -890,6 +891,27 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     for node_name in subgraph_compilers.keys():
         if not compiler_returns[node_name]:
             subgraph_compilers[node_name] = None
+
+    # scan to get num neuroncores
+    num_cores_tuple_map = {}
+    mis_config = False
+    for node in _gd_neuron_nodes(graph_def):
+        if subgraph_compilers.get(node.name, None) is None:
+            continue
+        workdir_path = subgraph_compilers[node.name].workdir_path
+        executable_path = os.path.join(workdir_path, _neuron_executable_name)
+        num_cores_tuple = _neff_get_cores(executable_path)
+        if num_cores_tuple is None:
+            mis_config = True
+        else:
+            opt_num_cores, _ = num_cores_tuple
+            num_cores_tuple_map[node.name] = num_cores_tuple
+    if mis_config or not num_cores_tuple_map:
+        global_opt_num_cores = -1
+    else:
+        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
+
+    # fill NeuronOp properties
     for node in _gd_neuron_nodes(graph_def):
         node.attr['input_batch_axis'].list.i[:] = [-1 for _ in node.attr['input_names'].list.s]
         node.attr['output_batch_axis'].list.i[:] = [-1 for _ in node.attr['output_names'].list.s]
@@ -908,6 +930,19 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         executable_path = os.path.join(workdir_path, _neuron_executable_name)
         with open(executable_path, 'rb') as f:
             node.attr['executable'].s = f.read()
+        if node.name in num_cores_tuple_map:
+            this_opt_num_cores, _ = num_cores_tuple_map[node.name]
+            opt_num_infer = this_opt_num_cores
+        else:
+            this_opt_num_cores = -1
+            opt_num_infer = 1
+        # Minimum timeout is 10 sec
+        # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
+        est_timeout = len(node.attr['executable'].s) / 1e8
+        timeout = max(est_timeout, 10)
+        # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
+        model_config = [global_opt_num_cores, this_opt_num_cores, opt_num_infer, timeout]
+        node.attr['model_config'].list.i[:] = model_config
     return graph_def
 
 
@@ -960,6 +995,24 @@ def _wait_compiler(proc, timeout):
         proc.terminate()
         return None
     return proc.returncode
+
+
+def _neff_get_cores(neff_filename):
+    nc_header_size = 544
+    with open(neff_filename, mode='rb') as f:
+        header = f.read(nc_header_size)
+    if len(header) != nc_header_size:
+        return None
+    info = struct.unpack('168xI304xI64B', header)
+    if len(info) != 66:  # 1 + 1 + 64
+        return None
+    opt_num_cores = info[0]
+    if opt_num_cores <= 0 or opt_num_cores > 64:
+        return None
+    min_num_cores = max(info[2:])
+    if min_num_cores <= 0 or min_num_cores > 64:
+        return None
+    return opt_num_cores, min_num_cores
 
 
 def restore_compiler_failures(compiled_graph_def, graph):
