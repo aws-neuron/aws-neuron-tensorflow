@@ -271,7 +271,7 @@ def test_multithread_load_infer():
                 elapsed = time.time() - start
                 latency_list.append(elapsed)
             for infer_only_latency in  latency_list[1:]:
-                assert latency_list[0] > infer_only_latency + 0.01
+                assert latency_list[0] > infer_only_latency + 0.005
         for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
             np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 

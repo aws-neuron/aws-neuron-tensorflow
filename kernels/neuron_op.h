@@ -52,6 +52,7 @@ private:
     bool load_done_ = false;
     bool use_shared_memory_ = false;
     bool ready_ = false;
+    bool enable_dynamic_batch_size_ = false;
     std::vector<SharedMemory> input_shms_;
     std::vector<SharedMemory> output_shms_;
     std::vector<SharedMemoryAllocator> output_shm_allocs_;

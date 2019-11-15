@@ -248,6 +248,13 @@ Status NeuronOp::initialize() {
             use_shared_memory_ = false;
         }
     }
+    AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
+    for (size_t idx = 0; idx < input_batch_axis.i_size(); ++idx) {
+        if (-1 != input_batch_axis.i(idx)) {
+            enable_dynamic_batch_size_ = true;
+            break;
+        }
+    }
     init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
     if (init_acquire_amount_ >= INFER_SEM_MAX_CAPACITY) {
         LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
@@ -446,7 +453,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     AttrList &output_names = def().attr().at("output_names").list();
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
     AttrList &output_batch_axis = def().attr().at("output_batch_axis").list();
-    if (input_names.s_size() == input_batch_axis.i_size() &&
+    if (enable_dynamic_batch_size_ && input_names.s_size() == input_batch_axis.i_size() &&
             output_names.s_size() == output_batch_axis.i_size()) {
         AttrList &input_shapes = def().attr().at("input_shapes").list();
         for (auto idx = 0; idx < input_tensors.size(); ++idx) {
@@ -620,12 +627,10 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     } else if (profile_enabled_ || use_shared_memory_) {
         VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         std::vector<Tensor*> output_tensors;
-        if (!use_shared_memory_) {
-            for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                output_tensors.emplace_back();
-                OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
-                                                         &output_tensors[idx]));
-            }
+        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+            output_tensors.emplace_back();
+            OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
+                                                     &output_tensors[idx]));
         }
         {   // lock EG; we assume this op instance is not loaded into more than
             // one EG and so we just use this EG's lock
@@ -634,22 +639,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             profile_start_session();
             Status status = infer(&output_tensors, input_tensors, &timestamps);
             profile_stop_session();
-            if (status.ok() && use_shared_memory_) {
-                for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                    ctx->set_output(idx, output_tensors_[idx]);
-                }
-            }
             OP_REQUIRES_OK(ctx, status);
         }   // unlock EG
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     } else {
         std::vector<Tensor*> output_tensors;
-        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-            output_tensors.emplace_back();
-            OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
-                                                     &output_tensors[idx]));
-        }
         nrt::infer_response response;
         {
             auto infer_sem_scope = infer_sem_.ScopedAcquire(1);
@@ -661,6 +656,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 timestamps.mark_above_nrtd_infer();
                 OP_REQUIRES_OK(ctx, infer_post(&cookie, input_tensors));
             }   // unlock EG
+            for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+                output_tensors.emplace_back();
+                OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
+                                                         &output_tensors[idx]));
+            }
             OP_REQUIRES_OK(ctx, infer_wait(&response, cookie));
             timestamps.mark_below_nrtd_infer();
         }
@@ -843,8 +843,14 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
     }
     NRT_CHECK_RETURN("infer", status, response);
 
-    // output tensors are already in place if using shared memory
     if (use_shared_memory_) {
+        for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
+            StringPiece out_tensor_raw(output_tensors_[idx].tensor_data());
+            Tensor *out_tensor = output_tensors->at(idx);
+            TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
+                                            "tensor_memcpy failure on tensor name: ",
+                                            output_names.s(idx));
+        }
         return Status::OK();
     }
 
