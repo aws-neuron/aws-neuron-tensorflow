@@ -550,7 +550,7 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
 
 def _get_mask(op, key, ndim):
     mask_str = bin(op.get_attr(key)).lstrip('0b').zfill(ndim)
-    return [int(char) for char in mask_str]
+    return [int(char) for char in mask_str][::-1]
 
 
 def _is_evaluable(op, evaluated_map):

@@ -1022,6 +1022,21 @@ def test_shape_inference_inputs_short_long_mid():
         assert inferred_shapes[name] == desired_shapes[name]
 
 
+def test_shape_inference_strided_slice():
+    np.random.seed(_RANDOM_SEED)
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [3, 1, 1, 1, 1, 2], name='input0')
+        const0_np = np.random.rand(3, 2, 1, 2, 3, 2).astype(np.float16)
+        const0 = tf.constant(const0_np, name='const0')
+        stridedslice0 = const0[:, 1, ..., tf.newaxis, 1:2, 2:, :5]
+        output0 = tf.identity(input0 + stridedslice0, name='output0')
+        evaluated_map_tf = {ts.name: ts.name for ts in stridedslice0.op.inputs}
+        evaluated_map = sess.run(evaluated_map_tf)
+    shape_feed_dict0 = {input0: [3, 1, 1, 1, 1, 2]}
+    shaped_graph = shape_inference(sess.graph, shape_feed_dict0, evaluated_map=evaluated_map)
+    assert evaluated_map[stridedslice0.name].shape == stridedslice0.shape
+
+
 def test_sorted_inferrable_ops_branch_merge():
     np.random.seed(_RANDOM_SEED)
     graph = tf.Graph()
