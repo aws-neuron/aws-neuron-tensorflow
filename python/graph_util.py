@@ -310,26 +310,22 @@ def inference_graph_from_session(
     for node in compiled_graph_def.node:
         node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
 
-    # statistics on number of operations
-    num_original_ops = len(sess.graph.get_operations())
-    num_tfn_opt_ops = len(shaped_graph.get_operations())
-    num_ops_on_neuron = sum(
-        len(_get_subgraph_def(node).node) - len(node.attr['input_names'].list.s)
-        for node in _gd_neuron_nodes(compiled_graph_def)
-    )
-    verbosity = logging.get_verbosity()
-    logging.set_verbosity(logging.INFO)
-    logging.info('Number of operations in TensorFlow session: {}'.format(num_original_ops))
-    logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_tfn_opt_ops))
-    logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
-    logging.set_verbosity(verbosity)
-
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
     if not dynamic_batch_size:
         for name in input_names.union(output_names):
             shape = shaped_graph.get_tensor_by_name(name).shape
             compiled_graph.get_tensor_by_name(name).set_shape(shape)
+
+    # statistics on number of operations
+    num_ops_original = len(sess.graph.get_operations())
+    num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(compiled_graph)
+    verbosity = logging.get_verbosity()
+    logging.set_verbosity(logging.INFO)
+    logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
+    logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
+    logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
+    logging.set_verbosity(verbosity)
     return compiled_graph
 
 
@@ -371,6 +367,16 @@ def most_popular_namescope(all_node_names):
         else:
             break
     return '/'.join(most_popular_namescope)
+
+
+def compiled_graph_op_counts(compiled_graph):
+    neuron_ops = [op for op in _neuron_ops(compiled_graph)]
+    num_ops_on_neuron = sum(
+        len(_get_subgraph(op.node_def).get_operations()) - len(op.get_attr('input_names'))
+        for op in neuron_ops
+    )
+    num_ops_tfn = len(compiled_graph.get_operations()) + num_ops_on_neuron - len(neuron_ops)
+    return num_ops_tfn, num_ops_on_neuron
 
 
 def _graph_def_to_graph(graph_def):
