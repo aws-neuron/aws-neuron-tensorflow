@@ -52,7 +52,8 @@ def inference_graph_from_session(
         shape_feed_dict=None, feed_dict=None, dynamic_batch_size=False,
         op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
         grappler=False, max_num_compilers=None,
-        compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True):
+        compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True,
+        compiler_verbose=None):
     """Constructs an inference graph from a tensorflow session.
 
     Generally decomposes into 5 passes:
@@ -282,7 +283,8 @@ def inference_graph_from_session(
         args_dict = {node.name: compiler_args for node in _gd_neuron_nodes(part_graph_def)}
     compiled_graph_def = compile_subgraphs(
         part_graph_def, subgraph_shapes, large_constants, workdir=compiler_workdir,
-        args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers)
+        args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers,
+        verbose=compiler_verbose)
 
     if compiler_recovery:
         compiled_graph_def = restore_compiler_failures(compiled_graph_def, graph)
@@ -813,7 +815,8 @@ def _gd_tensor_name(tensor_name):
 
 
 def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
-                      workdir=None, args_dict=None, timeout=None, max_num_compilers=None):
+                      workdir=None, args_dict=None, timeout=None, max_num_compilers=None,
+                      verbose=None):
     """Compile `NeuronOp`s in a `GraphDef` proto.
 
     Args:
@@ -874,6 +877,8 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         command.extend(['--io-config', io_config_json])
         if args_dict is not None:
             command.extend(args_dict.get(node.name, []))
+        if verbose is not None:
+            command.extend(['--verbose', str(verbose)])
         debug_logging = workdir is not None
         subgraph_compilers[node.name] = Compiler(command, debug_logging, workdir_path)
     if max_num_compilers is None:

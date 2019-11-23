@@ -357,6 +357,38 @@ def test_opt_num_cores():
                 np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
+def test_compiler_verbose():
+    np.random.seed(_RANDOM_SEED)
+    with tf.Session(graph=tf.Graph()) as sess:
+        input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
+        input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
+        conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+        conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        add0 = tf.add(conv2d0, conv2d1, name='add0')
+        relu0 = tf.nn.relu(add0, name='relu0')
+        sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+        conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        relu1 = tf.nn.relu(conv2d2, name='relu1')
+        feed_dict = {
+            'input0:0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+            'input1:0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+        }
+        result_ref0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
+        infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+            sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+            compiler_workdir='./workdir', compiler_verbose=2)
+    _assert_compiler_success(infer_graph0)
+    if 'NEURON_RTD_ADDRESS' in os.environ:
+        with tf.Session(graph=infer_graph0) as sess:
+            result_neuron0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
+            assert len(result_neuron0) == len(result_ref0)
+            for res_neuron, res_ref in zip(result_neuron0, result_ref0):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+
+
 @pytest.mark.xfail(run=False, reason='Do not run by default')
 def test_random_graph_multithread():
     np.random.seed(_RANDOM_SEED)
