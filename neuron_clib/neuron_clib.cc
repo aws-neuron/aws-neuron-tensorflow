@@ -105,6 +105,11 @@ static std::string remove_pattern(std::string data, const std::string &pattern) 
     return data;
 }
 
+NeuronDeviceManager::~NeuronDeviceManager() {
+    tensorflow::mutex_lock lock(global_mutex_);
+    clear();
+}
+
 Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector,
                                          const std::string &nrtd_address) {
     Status status = errors::Internal("No NeuronCore Group can be initialized.");
@@ -233,6 +238,7 @@ bool NeuronDeviceManager::is_empty() {
 
 void NeuronDeviceManager::clear() {
     for (size_t idx = 0; idx < num_devices_; ++idx) {
+        tensorflow::mutex_lock lock(device_array_[idx].mutex_eg_);
         device_array_[idx].clear(stub_);
     }
     num_devices_ = 0;

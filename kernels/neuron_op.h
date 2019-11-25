@@ -23,6 +23,9 @@ namespace tensorflow {
 namespace kaena {
 
 
+typedef const AttrValue_ListValue AttrList;
+
+
 class NeuronOp : public OpKernel {
 public:
     explicit NeuronOp(OpKernelConstruction *ctx);
@@ -31,6 +34,7 @@ public:
 
 private:
     Status initialize();
+    Status load(const AttrList &model_config);
     Status prepare_shared_memory();
     Status start_model();
     void profile_dump_info();
@@ -44,7 +48,7 @@ private:
     Status infer_wait(nrt::infer_response *response, uint64_t cookie);
     Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
                                const nrt::infer_response &response);
-    tensorflow::mutex load_mutex_;
+    tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
     std::string nrtd_address_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
@@ -52,6 +56,7 @@ private:
     bool load_done_ = false;
     bool use_shared_memory_ = false;
     bool ready_ = false;
+    bool unloaded_ = false;
     bool enable_dynamic_batch_size_ = false;
     std::vector<SharedMemory> input_shms_;
     std::vector<SharedMemory> output_shms_;

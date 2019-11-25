@@ -100,7 +100,7 @@ public:
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
     uint32_t nn_get_current_running();
-    tensorflow::mutex mutex_infer_;
+    tensorflow::mutex mutex_eg_;
 private:
     bool create_eg_done_ = false;
     uint32_t eg_id_;
@@ -119,7 +119,7 @@ public:
     NeuronDevice *get_device();
     bool is_empty();
     void clear();
-    ~NeuronDeviceManager() { clear(); };
+    ~NeuronDeviceManager();
     tensorflow::mutex global_mutex_;
     static const int64 MAX_NUM_CORES = 64;
     static const int64 MIN_NUM_CORES = 0;

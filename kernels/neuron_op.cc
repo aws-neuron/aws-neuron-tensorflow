@@ -26,7 +26,6 @@ namespace kaena {
 
 static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
-typedef const AttrValue_ListValue AttrList;
 
 
 NeuronDeviceManager global_neuron_device_manager;
@@ -39,7 +38,7 @@ void sigint_handler(int sig) {
     std::signal(SIGTERM, SIG_DFL);
     std::raise(sig);
 }
-#endif  // NEURONTFSERV
+#endif // NEURONTFSERV
 
 
 NeuronOp::NeuronOp(OpKernelConstruction *ctx)
@@ -100,7 +99,7 @@ Status NeuronOp::initialize() {
 #ifdef NEURONTFSERV
             std::signal(SIGINT, sigint_handler);
             std::signal(SIGTERM, sigint_handler);
-#endif  // NEURONTFSERV
+#endif // NEURONTFSERV
         }
         if (!global_neuron_device_manager.ready()) {
             return errors::FailedPrecondition(
@@ -111,100 +110,13 @@ Status NeuronOp::initialize() {
         neuron_device_ = global_neuron_device_manager.get_device();
     }
 
-    // load
-    grpc::ClientContext context;
-    nrt::load_response load_response;
-    std::unique_ptr<grpc::ClientWriter<nrt::load_request> > writer(
-        stub_->load(&context, &load_response));
-    nrt::load_request load_request;
-
-    #define WRITE_LOAD_REQUEST {                                                \
-        if (!writer->Write(load_request)) {                                     \
-            return errors::Internal("neuron-rtd load failure - broken stream"); \
-        }                                                                       \
-    }
-    // eg_id
-    load_request.mutable_h_eg()->set_id(neuron_device_->eg_id());
-    WRITE_LOAD_REQUEST;
-
-    // neff_size
-    size_t exec_total_size = def().attr().at("executable").s().size();
-    load_request.set_neff_size(exec_total_size);
-    WRITE_LOAD_REQUEST;
-
-    // model_params
-    uint32_t uint32_timeout = 10;
-    if (model_config_valid(model_config)) {
-        int64 int64_timeout = model_config_timeout(model_config);
-        if (0 < int64_timeout) {
-            uint32_timeout = (uint32_t)int64_timeout;
-        }
-    } else {
-        uint32_timeout = 10;
-    }
-    std::string infer_timeout_str = env_get("NEURON_INFER_TIMEOUT_SEC", "10");
-    int int_timeout = stoi_no_throw(infer_timeout_str);
-    if (int_timeout < 0) {
-        LOG(WARNING) << "NEURON_INFER_TIMEOUT_SEC=" << infer_timeout_str
-                     << " is invalid; using default value " << uint32_timeout
-                     << " seconds.";
-    } else {
-        uint32_timeout = (uint32_t)int_timeout;
-    }
-    max_num_infers_ = 1;
-    if (model_config_valid(model_config)) {
-        int64 opt_num_infer = model_config_opt_num_infer(model_config);
-        if (opt_num_infer > 0) {
-            max_num_infers_ = (uint32_t)opt_num_infer;
+    {
+        tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
+        Status status = load(model_config);
+        if (!status.ok()) {
+            return status;
         }
     }
-    max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
-    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
-    if (!ninfer_str.empty()) {
-        int64 int_ninfer = (int64)stoi_no_throw(ninfer_str);
-        if (int_ninfer < 1 || int_ninfer > INFER_SEM_MAX_CAPACITY) {
-            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
-                         << " is invalid; using default value "
-                         << max_num_infers_  << ".";
-        } else {
-            max_num_infers_ = (uint32_t)int_ninfer;
-        }
-    }
-    if (model_config_valid(model_config)) {
-        // enforce max_num_infers_ = 1 if ncg size is insufficient
-        int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
-        if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
-                || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
-            max_num_infers_ = 1;
-        } else {
-            uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
-            if (neuron_device_->num_cores() < opt_num_cores) {
-                max_num_infers_ = 1;
-            }
-        }
-    }
-    nrt::model_params *model_params = load_request.mutable_model_params();
-    model_params->mutable_timeout()->set_data(uint32_timeout);
-    model_params->mutable_ninfer()->set_data(max_num_infers_);
-    WRITE_LOAD_REQUEST;
-
-    // neff file content
-    StringPiece executable_view(def().attr().at("executable").s());
-    for (size_t pos = 0; pos < exec_total_size; pos += EXEC_MAX_CHUNK_SIZE) {
-        size_t remaining = exec_total_size - pos;
-        size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
-        StringPiece file_chunk = executable_view.substr(pos, chunk_size);
-        load_request.mutable_neff_chunk()->set_chunk(file_chunk.data(), chunk_size);
-        WRITE_LOAD_REQUEST;
-    }
-    if (!writer->WritesDone()) {
-        return errors::Internal("neuron-rtd load failure - broken stream");
-    }
-    grpc::Status status = writer->Finish();
-    NRT_CHECK_RETURN("load", status, load_response);
-    nn_id_ = load_response.h_nn().id();
-    load_done_ = true;
-    neuron_device_->register_executable(nn_id_);
     VLOG(1) << "load: number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
@@ -270,6 +182,103 @@ Status NeuronOp::initialize() {
     return Status::OK();
 }
 
+Status NeuronOp::load(const AttrList &model_config) {
+    // load
+    grpc::ClientContext context;
+    nrt::load_response response;
+    std::unique_ptr<grpc::ClientWriter<nrt::load_request> > writer(
+        stub_->load(&context, &response));
+    nrt::load_request request;
+
+    #define WRITE_LOAD_REQUEST {                                                \
+        if (!writer->Write(request)) {                                          \
+            return errors::Internal("neuron-rtd load failure - broken stream"); \
+        }                                                                       \
+    }
+    // eg_id
+    request.mutable_h_eg()->set_id(neuron_device_->eg_id());
+    WRITE_LOAD_REQUEST;
+
+    // neff_size
+    size_t exec_total_size = def().attr().at("executable").s().size();
+    request.set_neff_size(exec_total_size);
+    WRITE_LOAD_REQUEST;
+
+    // model_params
+    uint32_t uint32_timeout = 10;
+    if (model_config_valid(model_config)) {
+        int64 int64_timeout = model_config_timeout(model_config);
+        if (0 < int64_timeout) {
+            uint32_timeout = (uint32_t)int64_timeout;
+        }
+    } else {
+        uint32_timeout = 10;
+    }
+    std::string infer_timeout_str = env_get("NEURON_INFER_TIMEOUT_SEC", "10");
+    int int_timeout = stoi_no_throw(infer_timeout_str);
+    if (int_timeout < 0) {
+        LOG(WARNING) << "NEURON_INFER_TIMEOUT_SEC=" << infer_timeout_str
+                     << " is invalid; using default value " << uint32_timeout
+                     << " seconds.";
+    } else {
+        uint32_timeout = (uint32_t)int_timeout;
+    }
+    max_num_infers_ = 1;
+    if (model_config_valid(model_config)) {
+        int64 opt_num_infer = model_config_opt_num_infer(model_config);
+        if (opt_num_infer > 0) {
+            max_num_infers_ = (uint32_t)opt_num_infer;
+        }
+    }
+    max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
+    std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
+    if (!ninfer_str.empty()) {
+        int64 int_ninfer = (int64)stoi_no_throw(ninfer_str);
+        if (int_ninfer < 1 || int_ninfer > INFER_SEM_MAX_CAPACITY) {
+            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
+                         << " is invalid; using default value "
+                         << max_num_infers_  << ".";
+        } else {
+            max_num_infers_ = (uint32_t)int_ninfer;
+        }
+    }
+    if (model_config_valid(model_config)) {
+        // enforce max_num_infers_ = 1 if ncg size is insufficient
+        int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
+        if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
+                || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
+            max_num_infers_ = 1;
+        } else {
+            uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
+            if (neuron_device_->num_cores() < opt_num_cores) {
+                max_num_infers_ = 1;
+            }
+        }
+    }
+    nrt::model_params *model_params = request.mutable_model_params();
+    model_params->mutable_timeout()->set_data(uint32_timeout);
+    model_params->mutable_ninfer()->set_data(max_num_infers_);
+    WRITE_LOAD_REQUEST;
+
+    // neff file content
+    StringPiece executable_view(def().attr().at("executable").s());
+    for (size_t pos = 0; pos < exec_total_size; pos += EXEC_MAX_CHUNK_SIZE) {
+        size_t remaining = exec_total_size - pos;
+        size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
+        StringPiece file_chunk = executable_view.substr(pos, chunk_size);
+        request.mutable_neff_chunk()->set_chunk(file_chunk.data(), chunk_size);
+        WRITE_LOAD_REQUEST;
+    }
+    if (!writer->WritesDone()) {
+        return errors::Internal("neuron-rtd load failure - broken stream");
+    }
+    grpc::Status status = writer->Finish();
+    NRT_CHECK_RETURN("load", status, response);
+    nn_id_ = response.h_nn().id();
+    load_done_ = true;
+    neuron_device_->register_executable(nn_id_);
+    return Status::OK();
+}
 
 Status NeuronOp::prepare_shared_memory() {
     for (size_t idx = 0; idx < input_tensor_sizes_.size(); ++idx) {
@@ -300,8 +309,8 @@ Status NeuronOp::prepare_shared_memory() {
 
 
 NeuronOp::~NeuronOp() {
-    if (ready_) {
-        tensorflow::mutex_lock lock(load_mutex_);
+    if (!unloaded_) {
+        tensorflow::mutex_lock lock(mutex_model_);
         VLOG(1) << "calling NeuronOp destructor";
         if (nullptr == neuron_device_) {
             VLOG(1) << "neuron_device_ not available; not tearing down";
@@ -309,7 +318,7 @@ NeuronOp::~NeuronOp() {
         }
 
         {
-            tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+            tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
             if (init_acquire_amount_ > 0 && infer_sem_initialized_) {
                 infer_sem_.Release(init_acquire_amount_);
                 infer_sem_initialized_ = false;
@@ -358,6 +367,7 @@ NeuronOp::~NeuronOp() {
         }
         VLOG(1) << "NeuronOp destructor done";
         ready_ = false;
+        unloaded_ = true;
     }
 }
 
@@ -430,7 +440,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     timestamps.mark_enter();
 
     if (!ready_) {
-        tensorflow::mutex_lock lock(load_mutex_);
+        tensorflow::mutex_lock lock(mutex_model_);
         if (!ready_) {
             OP_REQUIRES_OK(ctx, initialize());
         }
@@ -563,7 +573,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
         {   // lock EG; we assume this op instance is not loaded into more than
             // one EG and so we just use this EG's lock
-            tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+            tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
             int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
             std::vector<uint64_t> cookie_vec;
             Status status = start_model();
@@ -634,7 +644,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
         {   // lock EG; we assume this op instance is not loaded into more than
             // one EG and so we just use this EG's lock
-            tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+            tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
             OP_REQUIRES_OK(ctx, start_model());
             profile_start_session();
             Status status = infer(&output_tensors, input_tensors, &timestamps);
@@ -651,7 +661,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             uint64_t cookie;
             {   // lock EG; we assume this op instance is not loaded into more than
                 // one EG and so we just use this EG's lock
-                tensorflow::mutex_lock lock(neuron_device_->mutex_infer_);
+                tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
                 OP_REQUIRES_OK(ctx, start_model());
                 timestamps.mark_above_nrtd_infer();
                 OP_REQUIRES_OK(ctx, infer_post(&cookie, input_tensors));
