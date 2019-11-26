@@ -287,6 +287,11 @@ Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
     return Status::OK();
 }
 
+Status NeuronDevice::is_valid() {
+    return create_eg_done_ ? Status::OK()
+                           : errors::Internal("neuron_device is not initialized");
+}
+
 void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
     grpc::Status status;
     for (uint32_t nn_id : nn_id_set_) {
@@ -308,6 +313,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         nrt::unload_response unload_response;
         status = stub->unload(&context, unload_request, &unload_response);
         NRT_CHECK_LOG("unload", status, unload_response);
+        VLOG(1) << "unload from NeuronDevice::clear";
     }
     nn_id_set_.clear();
     if (create_eg_done_) {
@@ -319,6 +325,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         status = stub->destroy_eg(&context, request, &response);
         NRT_CHECK_LOG("destroy_eg", status, response);
         create_eg_done_ = false;
+        VLOG(1) << "destroy_eg from NeuronDevice::clear";
     }
 }
 

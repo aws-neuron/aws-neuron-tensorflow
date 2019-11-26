@@ -309,9 +309,9 @@ Status NeuronOp::prepare_shared_memory() {
 
 
 NeuronOp::~NeuronOp() {
+    VLOG(1) << "calling NeuronOp destructor";
     if (!unloaded_) {
         tensorflow::mutex_lock lock(mutex_model_);
-        VLOG(1) << "calling NeuronOp destructor";
         if (nullptr == neuron_device_) {
             VLOG(1) << "neuron_device_ not available; not tearing down";
             return;
@@ -347,6 +347,7 @@ NeuronOp::~NeuronOp() {
             }
             neuron_device_->deregister_executable(nn_id_);
             VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
+            VLOG(1) << "unload from NeuronOp::~NeuronOp";
 
             // unmap all shared memories
             for (auto &shm : input_shms_) {
@@ -534,8 +535,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             if (is_batch_output_tensors[idx]) {
                 shape.set_dim(0, batch_size);
             }
-            Status status = ctx->allocate_output(idx, shape, &batch_out_tensor);
-            OP_REQUIRES_OK(ctx, status);
+            OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, shape, &batch_out_tensor));
             batch_output_tensors.push_back(batch_out_tensor);
         }
 
@@ -553,13 +553,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         Tensor pad_end_slice(input_tensors[idx]->dtype(), ps_shape);
                         Tensor zero_slice = pad_end_slice.Slice(
                             k_batch_size - (pad_batch_size - batch_size), k_batch_size);
-                        Status status = tensor_memset(&zero_slice, 0);
-                        OP_REQUIRES_OK(ctx, status);
+                        OP_REQUIRES_OK(ctx, tensor_memset(&zero_slice, 0));
                         Tensor end_slice = input_tensors[idx]->Slice(
                             dim0_start, batch_size);
                         StringPiece t_data = end_slice.tensor_data();
-                        status = tensor_memcpy(&pad_end_slice, t_data, t_data.size());
-                        OP_REQUIRES_OK(ctx, status);
+                        OP_REQUIRES_OK(ctx, tensor_memcpy(
+                            &pad_end_slice, t_data, t_data.size()));
                         batches_kaena_input_tensors.back().emplace_back(pad_end_slice);
                     } else {
                         batches_kaena_input_tensors.back().emplace_back(
@@ -574,10 +573,10 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         {   // lock EG; we assume this op instance is not loaded into more than
             // one EG and so we just use this EG's lock
             tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
+            OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
+            OP_REQUIRES_OK(ctx, start_model());
             int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
             std::vector<uint64_t> cookie_vec;
-            Status status = start_model();
-            OP_REQUIRES_OK(ctx, status);
             timestamps.mark_above_nrtd_infer();
             for (int64_t start = 0; start < num_batches; start += window_size) {
                 int64_t end = std::min(start + window_size, num_batches);
@@ -601,10 +600,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
                     temp_outputs.emplace_back();
                     if (is_batch_output_tensors[idx]) {
-                        status = ctx->allocate_temp(output_dtypes.type(idx),
-                                                    output_shapes.shape(idx),
-                                                    &temp_outputs[idx]);
-                        OP_REQUIRES_OK(ctx, status);
+                        OP_REQUIRES_OK(ctx, ctx->allocate_temp(
+                            output_dtypes.type(idx), output_shapes.shape(idx),
+                            &temp_outputs[idx]));
                     }
                 }
                 std::vector<Tensor*> output_tensors;
@@ -645,6 +643,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         {   // lock EG; we assume this op instance is not loaded into more than
             // one EG and so we just use this EG's lock
             tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
+            OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
             OP_REQUIRES_OK(ctx, start_model());
             profile_start_session();
             Status status = infer(&output_tensors, input_tensors, &timestamps);
@@ -662,6 +661,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             {   // lock EG; we assume this op instance is not loaded into more than
                 // one EG and so we just use this EG's lock
                 tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
+                OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
                 OP_REQUIRES_OK(ctx, start_model());
                 timestamps.mark_above_nrtd_infer();
                 OP_REQUIRES_OK(ctx, infer_post(&cookie, input_tensors));
@@ -686,21 +686,21 @@ Status NeuronOp::start_model() {
     if (!neuron_device_->running(nn_id_) && neuron_device_->is_busy()) {
         // if nn_id_ is not running, stop the current running model
         grpc::ClientContext context;
-        nrt::stop_request stop_request;
-        stop_request.mutable_h_nn()->set_id(neuron_device_->nn_get_current_running());
-        nrt::stop_response stop_response;
-        status = stub_->stop(&context, stop_request, &stop_response);
-        NRT_CHECK_RETURN("stop", status, stop_response);
+        nrt::stop_request request;
+        request.mutable_h_nn()->set_id(neuron_device_->nn_get_current_running());
+        nrt::stop_response response;
+        status = stub_->stop(&context, request, &response);
+        NRT_CHECK_RETURN("stop", status, response);
         neuron_device_->set_running(NRT_INVALID_NN_ID);
     }
     if (!neuron_device_->is_busy()) {
         // if no model is running, start nn_id_
         grpc::ClientContext context;
-        nrt::start_request start_request;
-        start_request.mutable_h_nn()->set_id(nn_id_);
-        nrt::start_response start_response;
-        status = stub_->start(&context, start_request, &start_response);
-        NRT_CHECK_RETURN("start", status, start_response);
+        nrt::start_request request;
+        request.mutable_h_nn()->set_id(nn_id_);
+        nrt::start_response response;
+        status = stub_->start(&context, request, &response);
+        NRT_CHECK_RETURN("start", status, response);
         neuron_device_->set_running(nn_id_);
     }
     return Status::OK();

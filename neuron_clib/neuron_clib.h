@@ -96,6 +96,7 @@ public:
     void register_executable(uint32_t nn_id) { nn_id_set_.insert(nn_id); };
     void deregister_executable(uint32_t nn_id) { nn_id_set_.erase(nn_id); };
     std::unordered_map<void*, SharedMemory*> *get_ptr2shm() { return &ptr2shm_; };
+    Status is_valid();
     bool is_busy();
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
