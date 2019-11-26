@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include "tensorflow/python/neuron/kernels/neuron_op.h"
 #include <grpcpp/grpcpp.h>
+#include <queue>
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
@@ -227,6 +228,7 @@ Status NeuronOp::load(const AttrList &model_config) {
     if (model_config_valid(model_config)) {
         int64 opt_num_infer = model_config_opt_num_infer(model_config);
         if (opt_num_infer > 0) {
+            opt_num_infer += NRTD_NUM_CPU_THREADS;  // add some extras for CPU nodes
             max_num_infers_ = (uint32_t)opt_num_infer;
         }
     }
@@ -576,26 +578,43 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
             OP_REQUIRES_OK(ctx, start_model());
             int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
-            std::vector<uint64_t> cookie_vec;
+            window_size = std::min(window_size, num_batches);
+            std::queue<uint64_t> cookie_queue;
+            std::queue<int64_t> batch_idx_queue;
             timestamps.mark_above_nrtd_infer();
-            for (int64_t start = 0; start < num_batches; start += window_size) {
-                int64_t end = std::min(start + window_size, num_batches);
-                for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
-                    std::vector<const Tensor*> sliced_inputs;
-                    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-                        if (is_batch_input_tensors[idx]) {
-                            sliced_inputs.push_back(
-                                &batches_kaena_input_tensors[batch_idx][idx]);
-                        } else {
-                            sliced_inputs.push_back(input_tensors[idx]);
-                        }
+            // post ninfer ones
+            int64_t post_bidx = 0;
+            for (post_bidx = 0; post_bidx < window_size; ++post_bidx) {
+                std::vector<const Tensor*> sliced_inputs;
+                for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+                    if (is_batch_input_tensors[idx]) {
+                        sliced_inputs.push_back(
+                            &batches_kaena_input_tensors[post_bidx][idx]);
+                    } else {
+                        sliced_inputs.push_back(input_tensors[idx]);
                     }
-                    uint64_t cookie;
-                    OP_REQUIRES_OK(ctx, infer_post(&cookie, sliced_inputs));
-                    cookie_vec.push_back(cookie);
                 }
-                AttrList &output_dtypes = def().attr().at("output_dtypes").list();
-                AttrList &output_shapes = def().attr().at("output_shapes").list();
+                uint64_t post_cookie;
+                OP_REQUIRES_OK(ctx, infer_post(&post_cookie, sliced_inputs));
+                cookie_queue.push(post_cookie);
+                batch_idx_queue.push(post_bidx);
+            }
+
+            // wait one and post one
+            AttrList &output_dtypes = def().attr().at("output_dtypes").list();
+            AttrList &output_shapes = def().attr().at("output_shapes").list();
+            for (post_bidx = window_size; post_bidx < num_batches; ++post_bidx) {
+                std::vector<const Tensor*> sliced_inputs;
+                for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+                    if (is_batch_input_tensors[idx]) {
+                        sliced_inputs.push_back(
+                            &batches_kaena_input_tensors[post_bidx][idx]);
+                    } else {
+                        sliced_inputs.push_back(input_tensors[idx]);
+                    }
+                }
+
+                // wait one
                 std::vector<Tensor> temp_outputs;
                 for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
                     temp_outputs.emplace_back();
@@ -611,20 +630,68 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         &temp_outputs[idx] : batch_output_tensors[idx];
                     output_tensors.push_back(out_tensor);
                 }
-                for (int64_t batch_idx = start; batch_idx < end; ++batch_idx) {
-                    int64_t dim0_start = batch_idx * k_batch_size;
-                    int64_t dim0_limit = batch_idx * k_batch_size + k_batch_size;
-                    nrt::infer_response response;
-                    OP_REQUIRES_OK(ctx, infer_wait(&response, cookie_vec[batch_idx]));
-                    OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
-                    for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                        if (is_batch_output_tensors[idx]) {
-                            StringPiece k_data = temp_outputs[idx].tensor_data();
-                            Tensor slice = batch_output_tensors[idx]->Slice(
-                                dim0_start, std::min(dim0_limit, batch_size));
-                            OP_REQUIRES_OK(ctx, tensor_memcpy(
-                                &slice, k_data, slice.tensor_data().size()));
-                        }
+                uint64_t wait_cookie = cookie_queue.front();
+                int64_t wait_batch_idx = batch_idx_queue.front();
+                cookie_queue.pop();
+                batch_idx_queue.pop();
+                int64_t dim0_start = wait_batch_idx * k_batch_size;
+                int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
+                nrt::infer_response response;
+                OP_REQUIRES_OK(ctx, infer_wait(&response, wait_cookie));
+                OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
+                for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+                    if (is_batch_output_tensors[idx]) {
+                        StringPiece k_data = temp_outputs[idx].tensor_data();
+                        Tensor slice = batch_output_tensors[idx]->Slice(
+                            dim0_start, std::min(dim0_limit, batch_size));
+                        OP_REQUIRES_OK(ctx, tensor_memcpy(
+                            &slice, k_data, slice.tensor_data().size()));
+                    }
+                }
+
+                // post next one
+                uint64_t post_cookie;
+                OP_REQUIRES_OK(ctx, infer_post(&post_cookie, sliced_inputs));
+                cookie_queue.push(post_cookie);
+                batch_idx_queue.push(post_bidx);
+            }
+
+            // wait for remaining ones in the queue
+            for (int64_t dummy_idx = 0; dummy_idx < num_batches; ++dummy_idx) {
+                if (cookie_queue.empty() || batch_idx_queue.empty()) {
+                    break;
+                }
+                std::vector<Tensor> temp_outputs;
+                for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+                    temp_outputs.emplace_back();
+                    if (is_batch_output_tensors[idx]) {
+                        OP_REQUIRES_OK(ctx, ctx->allocate_temp(
+                            output_dtypes.type(idx), output_shapes.shape(idx),
+                            &temp_outputs[idx]));
+                    }
+                }
+                std::vector<Tensor*> output_tensors;
+                for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
+                    Tensor *out_tensor = is_batch_output_tensors[idx] ?
+                        &temp_outputs[idx] : batch_output_tensors[idx];
+                    output_tensors.push_back(out_tensor);
+                }
+                uint64_t wait_cookie = cookie_queue.front();
+                int64_t wait_batch_idx = batch_idx_queue.front();
+                cookie_queue.pop();
+                batch_idx_queue.pop();
+                int64_t dim0_start = wait_batch_idx * k_batch_size;
+                int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
+                nrt::infer_response response;
+                OP_REQUIRES_OK(ctx, infer_wait(&response, wait_cookie));
+                OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
+                for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+                    if (is_batch_output_tensors[idx]) {
+                        StringPiece k_data = temp_outputs[idx].tensor_data();
+                        Tensor slice = batch_output_tensors[idx]->Slice(
+                            dim0_start, std::min(dim0_limit, batch_size));
+                        OP_REQUIRES_OK(ctx, tensor_memcpy(
+                            &slice, k_data, slice.tensor_data().size()));
                     }
                 }
             }

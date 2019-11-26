@@ -64,7 +64,9 @@ private:
     std::vector<size_t> input_tensor_sizes_;
     std::vector<Tensor> output_tensors_;
     uint32_t max_num_infers_;
-    static const int64 INFER_SEM_MAX_CAPACITY = NeuronDeviceManager::MAX_NUM_CORES;
+    static const int64 NRTD_NUM_CPU_THREADS = 3;
+    static const int64 INFER_SEM_MAX_CAPACITY = (
+        NeuronDeviceManager::MAX_NUM_CORES + 2 * NRTD_NUM_CPU_THREADS);  // for safety
     int64 init_acquire_amount_ = 0;
     xla::Semaphore infer_sem_;
     bool infer_sem_initialized_ = false;
