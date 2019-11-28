@@ -168,14 +168,16 @@ Status NeuronOp::initialize() {
             break;
         }
     }
-    init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
-    if (init_acquire_amount_ >= INFER_SEM_MAX_CAPACITY) {
+    int64 init_acquire_amount = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
+    if (init_acquire_amount >= INFER_SEM_MAX_CAPACITY) {
         LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
                      << " forcing semaphore value to be 1";
-        init_acquire_amount_ = INFER_SEM_MAX_CAPACITY - 1;
+        init_acquire_amount = INFER_SEM_MAX_CAPACITY - 1;
     }
-    if (init_acquire_amount_ > 0 && !infer_sem_initialized_) {
-        infer_sem_.Acquire(init_acquire_amount_);
+    std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
+    if (init_acquire_amount > 0 && !infer_sem_initialized_ && "yes" != unlimited_threads) {
+        infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
+            infer_sem_.ScopedAcquire(init_acquire_amount));
         infer_sem_initialized_ = true;
         VLOG(1) << "infer semaphore initialized";
     }
@@ -321,12 +323,6 @@ NeuronOp::~NeuronOp() {
 
         {
             tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
-            if (init_acquire_amount_ > 0 && infer_sem_initialized_) {
-                infer_sem_.Release(init_acquire_amount_);
-                infer_sem_initialized_ = false;
-                VLOG(1) << "infer semaphore restored";
-            }
-
             // stop
             if (neuron_device_->running(nn_id_)) {
                 grpc::ClientContext context;

@@ -65,11 +65,10 @@ private:
     std::vector<Tensor> output_tensors_;
     uint32_t max_num_infers_;
     static const int64 NRTD_NUM_CPU_THREADS = 3;
-    static const int64 INFER_SEM_MAX_CAPACITY = (
-        NeuronDeviceManager::MAX_NUM_CORES + 2 * NRTD_NUM_CPU_THREADS);  // for safety
-    int64 init_acquire_amount_ = 0;
+    static const int64 INFER_SEM_MAX_CAPACITY = 1024;
     xla::Semaphore infer_sem_;
     bool infer_sem_initialized_ = false;
+    std::shared_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     int profile_session_id_ = 0;
     bool profile_enabled_ = false;
     std::string profile_dir_ = "";
