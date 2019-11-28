@@ -226,7 +226,7 @@ Status NeuronOp::load(const AttrList &model_config) {
     } else {
         uint32_timeout = (uint32_t)int_timeout;
     }
-    max_num_infers_ = 1;
+    max_num_infers_ = NRTD_DEFAULT_NUM_INFER;
     if (model_config_valid(model_config)) {
         int64 opt_num_infer = model_config_opt_num_infer(model_config);
         if (opt_num_infer > 0) {
@@ -251,11 +251,11 @@ Status NeuronOp::load(const AttrList &model_config) {
         int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
         if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
                 || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
-            max_num_infers_ = 1;
+            max_num_infers_ = NRTD_DEFAULT_NUM_INFER;
         } else {
             uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
             if (neuron_device_->num_cores() < opt_num_cores) {
-                max_num_infers_ = 1;
+                max_num_infers_ = NRTD_DEFAULT_NUM_INFER;
             }
         }
     }
@@ -573,7 +573,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
             OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
             OP_REQUIRES_OK(ctx, start_model());
-            int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
+            int64_t window_size = max_num_infers_ - 1;
+            window_size = window_size > 1 ? window_size : 1;
             window_size = std::min(window_size, num_batches);
             std::queue<uint64_t> cookie_queue;
             std::queue<int64_t> batch_idx_queue;
