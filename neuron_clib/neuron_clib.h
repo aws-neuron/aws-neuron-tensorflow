@@ -1,20 +1,16 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#ifndef TENSORFLOW_CONTRIB_KAENA_KAENA_CLIB_H_
-#define TENSORFLOW_CONTRIB_KAENA_KAENA_CLIB_H_
+#ifndef TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
+#define TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
 
 #include "tensorflow/core/framework/allocator.h"
-#include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/errors.h"
-#include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/mutex.h"
-#include "nerr.pb.h"
-#include "nmgr_service.pb.h"
 #include "nmgr_service.grpc.pb.h"
 
 
 namespace tensorflow {
-namespace kaena {
+namespace neuron {
 
 
 #define NRT_INVALID_NN_ID 0
@@ -151,7 +147,7 @@ private:
     uint64 exit_ = 0;
 
     std::string time_unit_ = " us";
-    uint64 now() { return Env::Default()->NowMicros(); };
+    uint64 now();
 };
 
 
@@ -159,7 +155,7 @@ std::string env_get(const char *env_var, const char *default_env_var="");
 int stoi_no_throw(const std::string &str);
 
 
-}  // namespace kaena
+}  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_CONTRIB_KAENA_KAENA_CLIB_H_
+#endif  // TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_

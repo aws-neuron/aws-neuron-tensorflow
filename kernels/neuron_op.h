@@ -10,8 +10,8 @@
  *     limitations under the License.
  *     ==============================================================================*/
 
-#ifndef TENSORFLOW_CONTRIB_KAENA_KERNELS_INFERENTIA_OP_H_
-#define TENSORFLOW_CONTRIB_KAENA_KERNELS_INFERENTIA_OP_H_
+#ifndef TENSORFLOW_NEURON_KERNELS_NEURON_OP_H_
+#define TENSORFLOW_NEURON_KERNELS_NEURON_OP_H_
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
@@ -20,7 +20,7 @@
 
 
 namespace tensorflow {
-namespace kaena {
+namespace neuron {
 
 
 typedef const AttrValue_ListValue AttrList;
@@ -77,7 +77,7 @@ private:
 };
 
 
-}  // namespace kaena
+}  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_CONTRIB_KAENA_KERNELS_INFERENTIA_OP_H_
+#endif  // TENSORFLOW_NEURON_KERNELS_NEURON_OP_H_

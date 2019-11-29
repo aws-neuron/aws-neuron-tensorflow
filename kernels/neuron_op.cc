@@ -16,13 +16,14 @@
 #include "tensorflow/python/neuron/kernels/neuron_op.h"
 #include <grpcpp/grpcpp.h>
 #include <queue>
+#include "nerr.pb.h"
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
 
 
 namespace tensorflow {
-namespace kaena {
+namespace neuron {
 
 
 static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
@@ -537,12 +538,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             batch_output_tensors.push_back(batch_out_tensor);
         }
 
-        std::vector<std::vector<Tensor> > batches_kaena_input_tensors;
+        std::vector<std::vector<Tensor> > batches_neuron_input_tensors;
         int64_t num_batches = pad_batch_size / k_batch_size;
         for (int64_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
             int64_t dim0_start = batch_idx * k_batch_size;
             int64_t dim0_limit = batch_idx * k_batch_size + k_batch_size;
-            batches_kaena_input_tensors.emplace_back();
+            batches_neuron_input_tensors.emplace_back();
             for (auto idx = 0; idx < input_tensors.size(); ++idx) {
                 if (is_batch_input_tensors[idx]) {
                     if (batch_idx == num_batches - 1) {
@@ -557,13 +558,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         StringPiece t_data = end_slice.tensor_data();
                         OP_REQUIRES_OK(ctx, tensor_memcpy(
                             &pad_end_slice, t_data, t_data.size()));
-                        batches_kaena_input_tensors.back().emplace_back(pad_end_slice);
+                        batches_neuron_input_tensors.back().emplace_back(pad_end_slice);
                     } else {
-                        batches_kaena_input_tensors.back().emplace_back(
+                        batches_neuron_input_tensors.back().emplace_back(
                             input_tensors[idx]->Slice(dim0_start, dim0_limit));
                     }
                 } else {
-                    batches_kaena_input_tensors.back().emplace_back();
+                    batches_neuron_input_tensors.back().emplace_back();
                 }
             }
         }
@@ -586,7 +587,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 for (auto idx = 0; idx < input_names.s_size(); ++idx) {
                     if (is_batch_input_tensors[idx]) {
                         sliced_inputs.push_back(
-                            &batches_kaena_input_tensors[post_bidx][idx]);
+                            &batches_neuron_input_tensors[post_bidx][idx]);
                     } else {
                         sliced_inputs.push_back(input_tensors[idx]);
                     }
@@ -605,7 +606,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 for (auto idx = 0; idx < input_names.s_size(); ++idx) {
                     if (is_batch_input_tensors[idx]) {
                         sliced_inputs.push_back(
-                            &batches_kaena_input_tensors[post_bidx][idx]);
+                            &batches_neuron_input_tensors[post_bidx][idx]);
                     } else {
                         sliced_inputs.push_back(input_tensors[idx]);
                     }
@@ -1045,5 +1046,5 @@ Status NeuronOp::copy_output_tensors(std::vector<Tensor*> *output_tensors,
 
 REGISTER_KERNEL_BUILDER(Name("NeuronOp").Device(DEVICE_CPU), NeuronOp);
 
-}  // namespace kaena
+}  // namespace neuron
 }  // namespace tensorflow

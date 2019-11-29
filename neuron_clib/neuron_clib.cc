@@ -4,11 +4,13 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <grpcpp/grpcpp.h>
+#include "tensorflow/core/platform/env.h"
 #include "neuron_clib.h"
+#include "nmgr.pb.h"
 
 
 namespace tensorflow {
-namespace kaena {
+namespace neuron {
 
 
 static std::string gen_shm_name(uint32_t nn_id) {
@@ -368,6 +370,10 @@ std::string FALTimestamps::timing_string() {
     return result;
 }
 
+uint64 FALTimestamps::now() {
+    return Env::Default()->NowMicros();
+}
+
 
 std::string env_get(const char *env_var, const char *default_env_var) {
     char *str = std::getenv(env_var);
@@ -385,5 +391,5 @@ int stoi_no_throw(const std::string &str) {
 }
 
 
-}  // namespace kaena
+}  // namespace neuron
 }  // namespace tensorflow
