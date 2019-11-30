@@ -180,7 +180,8 @@ Status NeuronOp::initialize() {
         infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
             infer_sem_.ScopedAcquire(init_acquire_amount));
         infer_sem_initialized_ = true;
-        VLOG(1) << "infer semaphore initialized";
+        int64 infer_sem_capacity = INFER_SEM_MAX_CAPACITY - init_acquire_amount;
+        VLOG(1) << "infer semaphore capacity " << infer_sem_capacity;
     }
     ready_ = true;
     return Status::OK();
@@ -227,7 +228,7 @@ Status NeuronOp::load(const AttrList &model_config) {
     } else {
         uint32_timeout = (uint32_t)int_timeout;
     }
-    max_num_infers_ = NRTD_DEFAULT_NUM_INFER;
+    max_num_infers_ = DEFAULT_MAX_NUM_INFER;
     if (model_config_valid(model_config)) {
         int64 opt_num_infer = model_config_opt_num_infer(model_config);
         if (opt_num_infer > 0) {
@@ -252,17 +253,17 @@ Status NeuronOp::load(const AttrList &model_config) {
         int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
         if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
                 || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
-            max_num_infers_ = NRTD_DEFAULT_NUM_INFER;
+            max_num_infers_ = NRTD_INSUFFICIENT_NUM_INFER;
         } else {
             uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
             if (neuron_device_->num_cores() < opt_num_cores) {
-                max_num_infers_ = NRTD_DEFAULT_NUM_INFER;
+                max_num_infers_ = NRTD_INSUFFICIENT_NUM_INFER;
             }
         }
     }
     nrt::model_params *model_params = request.mutable_model_params();
     model_params->mutable_timeout()->set_data(uint32_timeout);
-    model_params->mutable_ninfer()->set_data(max_num_infers_);
+    model_params->mutable_ninfer()->set_data(max_num_infers_ + 1);
     WRITE_LOAD_REQUEST;
 
     // neff file content
@@ -565,90 +566,92 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
         }
 
-        {   // lock EG; we assume this op instance is not loaded into more than
-            // one EG and so we just use this EG's lock
-            tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
-            OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
-            OP_REQUIRES_OK(ctx, start_model());
-            int64_t window_size = max_num_infers_ - 1;
-            window_size = window_size > 1 ? window_size : 1;
-            window_size = std::min(window_size, num_batches);
-            std::queue<uint64_t> cookie_queue;
-            std::queue<int64_t> batch_idx_queue;
-            timestamps.mark_above_nrtd_infer();
-            // post ninfer ones
-            int64_t post_bidx = 0;
-            for (post_bidx = 0; post_bidx < window_size; ++post_bidx) {
-                std::vector<const Tensor*> sliced_inputs;
-                for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-                    if (is_batch_input_tensors[idx]) {
-                        sliced_inputs.push_back(
-                            &batches_neuron_input_tensors[post_bidx][idx]);
-                    } else {
-                        sliced_inputs.push_back(input_tensors[idx]);
-                    }
-                }
-                uint64_t post_cookie;
-                OP_REQUIRES_OK(ctx, infer_post(&post_cookie, sliced_inputs));
-                cookie_queue.push(post_cookie);
-                batch_idx_queue.push(post_bidx);
-            }
-
-            // wait one and post one
+        int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
+        window_size = std::min(window_size, num_batches);
+        std::queue<uint64_t> cookie_queue;
+        std::queue<int64_t> batch_idx_queue;
+        int64_t post_bidx = 0;
+        {   // scope of semaphore reservation queue
+            std::queue<xla::Semaphore::ScopedReservation> reservation_queue;
             AttrList &output_dtypes = def().attr().at("output_dtypes").list();
-            AttrList &output_shapes = def().attr().at("output_shapes").list();
-            for (post_bidx = window_size; post_bidx < num_batches; ++post_bidx) {
-                std::vector<const Tensor*> sliced_inputs;
-                for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-                    if (is_batch_input_tensors[idx]) {
-                        sliced_inputs.push_back(
-                            &batches_neuron_input_tensors[post_bidx][idx]);
-                    } else {
-                        sliced_inputs.push_back(input_tensors[idx]);
+            {   // lock EG; we assume this op instance is not loaded into more than
+                // one EG and so we just use this EG's lock
+                tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
+                OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
+                OP_REQUIRES_OK(ctx, start_model());
+                timestamps.mark_above_nrtd_infer();
+                // post ninfer ones
+                for (post_bidx = 0; post_bidx < window_size; ++post_bidx) {
+                    std::vector<const Tensor*> sliced_inputs;
+                    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+                        if (is_batch_input_tensors[idx]) {
+                            sliced_inputs.push_back(
+                                &batches_neuron_input_tensors[post_bidx][idx]);
+                        } else {
+                            sliced_inputs.push_back(input_tensors[idx]);
+                        }
                     }
+                    uint64_t post_cookie;
+                    reservation_queue.push(infer_sem_.ScopedAcquire(1));
+                    OP_REQUIRES_OK(ctx, infer_post(&post_cookie, sliced_inputs));
+                    cookie_queue.push(post_cookie);
+                    batch_idx_queue.push(post_bidx);
                 }
 
-                // wait one
-                std::vector<Tensor> temp_outputs;
-                for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-                    temp_outputs.emplace_back();
-                    if (is_batch_output_tensors[idx]) {
-                        OP_REQUIRES_OK(ctx, ctx->allocate_temp(
-                            output_dtypes.type(idx), output_shapes.shape(idx),
-                            &temp_outputs[idx]));
+                // wait one and post one
+                for (post_bidx = window_size; post_bidx < num_batches; ++post_bidx) {
+                    std::vector<const Tensor*> sliced_inputs;
+                    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+                        if (is_batch_input_tensors[idx]) {
+                            sliced_inputs.push_back(
+                                &batches_neuron_input_tensors[post_bidx][idx]);
+                        } else {
+                            sliced_inputs.push_back(input_tensors[idx]);
+                        }
                     }
-                }
-                std::vector<Tensor*> output_tensors;
-                for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
-                    Tensor *out_tensor = is_batch_output_tensors[idx] ?
-                        &temp_outputs[idx] : batch_output_tensors[idx];
-                    output_tensors.push_back(out_tensor);
-                }
-                uint64_t wait_cookie = cookie_queue.front();
-                int64_t wait_batch_idx = batch_idx_queue.front();
-                cookie_queue.pop();
-                batch_idx_queue.pop();
-                int64_t dim0_start = wait_batch_idx * k_batch_size;
-                int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
-                nrt::infer_response response;
-                OP_REQUIRES_OK(ctx, infer_wait(&response, wait_cookie));
-                OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
-                for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                    if (is_batch_output_tensors[idx]) {
-                        StringPiece k_data = temp_outputs[idx].tensor_data();
-                        Tensor slice = batch_output_tensors[idx]->Slice(
-                            dim0_start, std::min(dim0_limit, batch_size));
-                        OP_REQUIRES_OK(ctx, tensor_memcpy(
-                            &slice, k_data, slice.tensor_data().size()));
-                    }
-                }
 
-                // post next one
-                uint64_t post_cookie;
-                OP_REQUIRES_OK(ctx, infer_post(&post_cookie, sliced_inputs));
-                cookie_queue.push(post_cookie);
-                batch_idx_queue.push(post_bidx);
-            }
+                    // wait one
+                    std::vector<Tensor> temp_outputs;
+                    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+                        temp_outputs.emplace_back();
+                        if (is_batch_output_tensors[idx]) {
+                            OP_REQUIRES_OK(ctx, ctx->allocate_temp(
+                                output_dtypes.type(idx), output_shapes.shape(idx),
+                                &temp_outputs[idx]));
+                        }
+                    }
+                    std::vector<Tensor*> output_tensors;
+                    for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
+                        Tensor *out_tensor = is_batch_output_tensors[idx] ?
+                            &temp_outputs[idx] : batch_output_tensors[idx];
+                        output_tensors.push_back(out_tensor);
+                    }
+                    uint64_t wait_cookie = cookie_queue.front();
+                    int64_t wait_batch_idx = batch_idx_queue.front();
+                    cookie_queue.pop();
+                    batch_idx_queue.pop();
+                    int64_t dim0_start = wait_batch_idx * k_batch_size;
+                    int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
+                    nrt::infer_response response;
+                    OP_REQUIRES_OK(ctx, infer_wait(&response, wait_cookie));
+                    OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
+                    for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+                        if (is_batch_output_tensors[idx]) {
+                            StringPiece k_data = temp_outputs[idx].tensor_data();
+                            Tensor slice = batch_output_tensors[idx]->Slice(
+                                dim0_start, std::min(dim0_limit, batch_size));
+                            OP_REQUIRES_OK(ctx, tensor_memcpy(
+                                &slice, k_data, slice.tensor_data().size()));
+                        }
+                    }
+
+                    // post next one
+                    uint64_t post_cookie;
+                    OP_REQUIRES_OK(ctx, infer_post(&post_cookie, sliced_inputs));
+                    cookie_queue.push(post_cookie);
+                    batch_idx_queue.push(post_bidx);
+                }
+            }   // unlock EG
 
             // wait for remaining ones in the queue
             for (int64_t dummy_idx = 0; dummy_idx < num_batches; ++dummy_idx) {
@@ -678,6 +681,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
                 nrt::infer_response response;
                 OP_REQUIRES_OK(ctx, infer_wait(&response, wait_cookie));
+                reservation_queue.pop();
                 OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
                 for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                     if (is_batch_output_tensors[idx]) {
@@ -690,7 +694,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 }
             }
             timestamps.mark_below_nrtd_infer();
-        }   // unlock EG
+        }   // semaphore reservation queue goes out of scope
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     } else if (profile_enabled_ || use_shared_memory_) {
@@ -717,13 +721,14 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         std::vector<Tensor*> output_tensors;
         nrt::infer_response response;
         {
-            auto infer_sem_scope = infer_sem_.ScopedAcquire(1);
+            std::queue<xla::Semaphore::ScopedReservation> reservation_queue;
             uint64_t cookie;
             {   // lock EG; we assume this op instance is not loaded into more than
                 // one EG and so we just use this EG's lock
                 tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
                 OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
                 OP_REQUIRES_OK(ctx, start_model());
+                reservation_queue.push(infer_sem_.ScopedAcquire(1));
                 timestamps.mark_above_nrtd_infer();
                 OP_REQUIRES_OK(ctx, infer_post(&cookie, input_tensors));
             }   // unlock EG
@@ -733,6 +738,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                                                          &output_tensors[idx]));
             }
             OP_REQUIRES_OK(ctx, infer_wait(&response, cookie));
+            reservation_queue.pop();
             timestamps.mark_below_nrtd_infer();
         }
         OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
