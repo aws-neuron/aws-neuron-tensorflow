@@ -304,9 +304,6 @@ Status NeuronOp::prepare_shared_memory() {
                 << " ready at address " << output_shms_.back().ptr();
     }
     for (auto &out_shm : output_shms_) {
-        neuron_device_->get_ptr2shm()->emplace(out_shm.ptr(), &out_shm);
-    }
-    for (auto &out_shm : output_shms_) {
         output_shm_allocs_.emplace_back(&out_shm);
     }
     return Status::OK();
@@ -353,7 +350,6 @@ NeuronOp::~NeuronOp() {
                 shm.clear(stub_);
             }
             for (auto &shm : output_shms_) {
-                neuron_device_->get_ptr2shm()->erase(shm.ptr());
                 shm.clear(stub_);
             }
         }
@@ -880,19 +876,11 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
                 "incorrect input tensor size ", tensor_data.size(), " found on ",
                 input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
         }
-        void *data = (void*)tensor_data.data();
         if (use_shared_memory_) {
-            SharedMemory* shm;
-            std::unordered_map<void*, SharedMemory*> *ptr2shm = neuron_device_->get_ptr2shm();
-            if (ptr2shm->find(data) != ptr2shm->end()) {
-                shm = ptr2shm->at(data);
-            } else {
-                std::memcpy(input_shms_[idx].ptr(), data, tensor_data.size());
-                shm = &input_shms_[idx];
-            }
-            infer_io->mutable_buf_shm()->set_path(shm->name());
+            infer_io->mutable_buf_shm()->set_path(input_shms_[idx].name());
+            std::memcpy(input_shms_[idx].ptr(), tensor_data.data(), tensor_data.size());
         } else {
-            infer_io->set_buf(data, tensor_data.size());
+            infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
     if (use_shared_memory_) {

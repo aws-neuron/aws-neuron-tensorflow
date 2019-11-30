@@ -91,7 +91,6 @@ public:
     uint32_t num_cores() { return num_cores_; };
     void register_executable(uint32_t nn_id) { nn_id_set_.insert(nn_id); };
     void deregister_executable(uint32_t nn_id) { nn_id_set_.erase(nn_id); };
-    std::unordered_map<void*, SharedMemory*> *get_ptr2shm() { return &ptr2shm_; };
     Status is_valid();
     bool is_busy();
     bool running(uint32_t nn_id);
@@ -102,7 +101,6 @@ private:
     bool create_eg_done_ = false;
     uint32_t eg_id_;
     uint32_t running_nn_id_;
-    std::unordered_map<void*, SharedMemory*> ptr2shm_;
     std::set<uint32_t> nn_id_set_;
     uint32_t num_cores_ = 0;
 };
