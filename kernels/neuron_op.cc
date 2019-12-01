@@ -228,42 +228,57 @@ Status NeuronOp::load(const AttrList &model_config) {
     } else {
         uint32_timeout = (uint32_t)int_timeout;
     }
-    max_num_infers_ = DEFAULT_MAX_NUM_INFER;
+    int64 max_num_threads = DEFAULT_MAX_NUM_INFER;
     if (model_config_valid(model_config)) {
         int64 opt_num_infer = model_config_opt_num_infer(model_config);
-        if (opt_num_infer > 0) {
-            opt_num_infer += NRTD_NUM_CPU_THREADS;  // add some extras for CPU nodes
-            max_num_infers_ = (uint32_t)opt_num_infer;
+        if (opt_num_infer > 0 && opt_num_infer <= HARD_MAX_NUM_THREADS) {
+            // add some extras for CPU nodes
+            max_num_threads = opt_num_infer + NRTD_NUM_CPU_THREADS;
+        } else {
+            LOG(WARNING) << "model_config with opt_num_infer=" << opt_num_infer
+                         << " is invalid; using default value "
+                         << max_num_threads  << " instead.";
         }
     }
-    max_num_infers_ = max_num_infers_ > 1 ? max_num_infers_ : 1;
+    bool num_infer_is_negative = false;
     std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
     if (!ninfer_str.empty()) {
-        int64 int_ninfer = (int64)stoi_no_throw(ninfer_str);
-        if (int_ninfer < 1 || int_ninfer > INFER_SEM_MAX_CAPACITY) {
+        int64 env_ninfer = (int64)stoi_no_throw(ninfer_str);
+        if (env_ninfer < -HARD_MAX_NUM_THREADS || env_ninfer > HARD_MAX_NUM_THREADS) {
             LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
                          << " is invalid; using default value "
-                         << max_num_infers_  << ".";
+                         << max_num_threads  << " instead.";
+        } else if (env_ninfer < 0) {
+            num_infer_is_negative = true;
+            max_num_threads = -env_ninfer;
+        } else if (0 == env_ninfer) {
+            LOG(WARNING) << "NEURON_MAX_NUM_INFERS=0 is invalid; using 1 instead.";
+            max_num_threads = 1;
         } else {
-            max_num_infers_ = (uint32_t)int_ninfer;
+            max_num_threads = env_ninfer;
         }
     }
     if (model_config_valid(model_config)) {
-        // enforce max_num_infers_ = 1 if ncg size is insufficient
+        // enforce max_num_threads = 1 if ncg size is insufficient
         int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
         if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
                 || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
-            max_num_infers_ = NRTD_INSUFFICIENT_NUM_INFER;
+            max_num_threads = NRTD_INSUFFICIENT_NUM_INFER;
         } else {
             uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
             if (neuron_device_->num_cores() < opt_num_cores) {
-                max_num_infers_ = NRTD_INSUFFICIENT_NUM_INFER;
+                max_num_threads = NRTD_INSUFFICIENT_NUM_INFER;
             }
         }
     }
+    max_num_threads = max_num_threads > 1 ? max_num_threads : 1;
+    max_num_threads = std::min(max_num_threads, HARD_MAX_NUM_THREADS);
+    max_num_infers_ = (uint32_t)max_num_threads;
     nrt::model_params *model_params = request.mutable_model_params();
     model_params->mutable_timeout()->set_data(uint32_timeout);
-    model_params->mutable_ninfer()->set_data(max_num_infers_ + 1);
+    uint32_t model_ninfer = num_infer_is_negative ? max_num_infers_
+                                                  : max_num_infers_ + 1;
+    model_params->mutable_ninfer()->set_data(model_ninfer);
     WRITE_LOAD_REQUEST;
 
     // neff file content
