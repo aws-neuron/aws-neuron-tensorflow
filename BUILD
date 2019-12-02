@@ -80,6 +80,15 @@ py_library(
 )
 
 py_library(
+    name = "keras_test_py",
+    srcs = [
+        "python/keras_test.py",
+    ],
+    srcs_version = "PY2AND3",
+    deps = [":saved_model_py"],
+)
+
+py_library(
     name = "fuse_test_py",
     srcs = [
         "python/fuse_test.py",
@@ -190,6 +199,7 @@ py_library(
         ":fuse_py",
         ":graph_util_test_py",
         ":saved_model_test_py",
+        ":keras_test_py",
         ":fuse_test_py",
     ],
 )

@@ -202,7 +202,10 @@ def inference_graph_from_session(
                         if len(value) == 1 and np_dtype not in {numpy.float16}:
                             evaluated_map[tensor_name] = numpy.full(shape, value, dtype=np_dtype)
                         elif np_dtype is numpy.float16:
-                            tensor_content = numpy.array(value, dtype=numpy.uint16).tobytes()
+                            value_array = numpy.array(value, dtype=numpy.uint16)
+                            if len(value) == 1 and len(shape) != 0:
+                                value_array = numpy.broadcast_to(value_array, shape)
+                            tensor_content = value_array.tobytes()
                             const_np = numpy.frombuffer(tensor_content, dtype=np_dtype).reshape(shape)
                             evaluated_map[tensor_name] = const_np
 
