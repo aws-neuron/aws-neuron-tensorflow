@@ -125,6 +125,7 @@ private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int DEFAULT_NUM_CORES = -1;  // any negative number
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
+    bool path_set_ = false;
     size_t device_index_ = 0;
     size_t num_devices_ = 0;
     bool ready_ = false;

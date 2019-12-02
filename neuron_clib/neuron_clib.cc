@@ -134,9 +134,12 @@ Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_v
 
 
 Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
-    // append /opt/aws/neuron/bin to PATH
-    std::string env_path = env_get("PATH", "");
-    setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
+    if (!path_set_) {
+        // append /opt/aws/neuron/bin to PATH
+        std::string env_path = env_get("PATH", "");
+        setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
+        path_set_ = true;
+    }
 
     // stub
     std::string nrtd_address = env_get("NEURON_RTD_ADDRESS",
