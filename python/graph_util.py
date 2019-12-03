@@ -879,7 +879,10 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
                    '--output', os.path.join(workdir_path, _neuron_executable_name)]
         command.extend(['--io-config', io_config_json])
         if args_dict is not None:
-            command.extend(args_dict.get(node.name, []))
+            extend_args = args_dict.get(node.name, [])
+            if isinstance(extend_args, (str, bytes)):
+                extend_args = [extend_args]
+            command.extend(extend_args)
         if verbose is not None:
             command.extend(['--verbose', str(verbose)])
         debug_logging = workdir is not None
