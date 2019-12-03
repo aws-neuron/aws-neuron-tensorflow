@@ -27,10 +27,13 @@ _neuron_executable_name = 'graph_def.neff'
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.fuse')
 def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None,
-         verbose=0, workdir=None):
+         verbose=0, workdir=None, input_shapes=None, output_shapes=None,
+         dynamic_batch_size=False):
     if func is None:
         return partial(fuse, compiler_args=compiler_args, name=name, greedy=greedy,
-                       timeout=timeout, verbose=verbose, workdir=workdir)
+                       timeout=timeout, verbose=verbose, workdir=workdir,
+                       input_shapes=input_shapes, output_shapes=output_shapes,
+                       dynamic_batch_size=dynamic_batch_size)
     @wraps(func)
     def wrapper(*args, **kwargs):
         # need to import here; otherwise bazel sees @tf_export in gen_neuron_op
@@ -71,8 +74,15 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
             serialized_graph_def = graph_def.SerializeToString()
             f.write(serialized_graph_def)
         neuron_cc = spawn.find_executable('neuron-cc')
+        if input_shapes is not None:
+            for ts, shape in zip(placeholders, input_shapes):
+                ts.set_shape(shape)
+        if output_shapes is not None:
+            for ts, shape in zip(outputs, output_shapes):
+                ts.set_shape(shape)
         command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
-                   '--output', _neuron_executable_name, '--io-config', _io_config(placeholders, outputs)]
+                   '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
+                   '--io-config', _io_config(placeholders, outputs)]
         if compiler_args is not None:
             command.extend(compiler_args)
         if workdir is None:
@@ -101,16 +111,17 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
                 ops.enable_eager_execution()
             except ValueError:
                 ops.enable_eager_execution()
+        batch_axis = 0 if dynamic_batch_size else -1
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
                 input_tensors=input_tensors, graph_def=serialized_graph_def,
                 input_names=[ts.name for ts in placeholders],
                 input_shapes=[ts.shape for ts in placeholders],
-                input_batch_axis=[-1 for ts in placeholders],
+                input_batch_axis=[batch_axis for ts in placeholders],
                 output_names=[ts.name for ts in outputs],
                 output_dtypes=[ts.dtype for ts in outputs],
                 output_shapes=[ts.shape for ts in outputs],
-                output_batch_axis=[-1 for ts in outputs],
+                output_batch_axis=[batch_axis for ts in outputs],
                 executable=executable,
             )
         if not is_greedy:
