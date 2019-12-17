@@ -38,14 +38,12 @@ Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
     SYS_FAIL_RETURN(ftruncate(shm_fd, size_) < 0, "ftruncate");
     ptr_ = ::mmap(0, size_, PROT_WRITE, MAP_SHARED, shm_fd, 0);
     SYS_FAIL_RETURN(nullptr == ptr_, "mmap");
-    grpc::Status status;
-    grpc::ClientContext context;
-    nrt::shm_map_request shm_map_request;
-    shm_map_request.set_path(name_);
-    shm_map_request.set_mmap_prot(PROT_READ | PROT_WRITE);
-    nrt::shm_map_response shm_map_response;
-    status = stub->shm_map(&context, shm_map_request, &shm_map_response);
-    NRT_CHECK_RETURN("shm_map", status, shm_map_response);
+    nrt::shm_map_request request;
+    request.set_path(name_);
+    request.set_mmap_prot(PROT_READ | PROT_WRITE);
+    nrt::shm_map_response response;
+    grpc::Status status = NRT_GRPC(stub->shm_map, request, &response);
+    NRT_CHECK_RETURN("shm_map", status, response);
     shm_map_done_ = true;
     return Status::OK();
 }
@@ -55,10 +53,8 @@ void SharedMemory::clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         nrt::shm_unmap_request request;
         request.set_path(name_);
         request.set_mmap_prot(PROT_READ | PROT_WRITE);
-        grpc::Status status;
-        grpc::ClientContext context;
         nrt::shm_unmap_response response;
-        status = stub->shm_unmap(&context, request, &response);
+        grpc::Status status = NRT_GRPC(stub->shm_unmap, request, &response);
         NRT_CHECK_LOG("shm_unmap", status, response);
         if (status.ok() && 0 == response.status().code()) {
             shm_map_done_ = false;
@@ -265,14 +261,12 @@ NeuronDevice *NeuronDeviceManager::get_device() {
 Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
                                 const std::string &nrtd_address,
                                 int num_cores_req) {
-    grpc::Status status;
-    grpc::ClientContext context;
-    nrt::create_eg_request create_eg_request;
+    nrt::create_eg_request request;
     if (num_cores_req >= 0) {
-        create_eg_request.set_nc_count((uint32_t)num_cores_req);
+        request.set_nc_count((uint32_t)num_cores_req);
     }
-    nrt::create_eg_response create_eg_response;
-    status = stub->create_eg(&context, create_eg_request, &create_eg_response);
+    nrt::create_eg_response response;
+    grpc::Status status = NRT_GRPC(stub->create_eg, request, &response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
         std::string message(" is unavailable. Is neuron-rtd running?");
         std::string unix_prefix("unix:");
@@ -284,9 +278,9 @@ Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
         }
         return errors::Unavailable("grpc server ", nrtd_address, message);
     }
-    NRT_CHECK_RETURN("create_eg", status, create_eg_response);
-    num_cores_ = create_eg_response.nc_count();
-    eg_id_ = create_eg_response.h_eg().id();
+    NRT_CHECK_RETURN("create_eg", status, response);
+    num_cores_ = response.nc_count();
+    eg_id_ = response.h_eg().id();
     create_eg_done_ = true;
     running_nn_id_ = NRT_INVALID_NN_ID;
     return Status::OK();
@@ -298,36 +292,32 @@ Status NeuronDevice::is_valid() {
 }
 
 void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
-    grpc::Status status;
     for (uint32_t nn_id : nn_id_set_) {
         // stop
         if (running(nn_id)) {
-            grpc::ClientContext context;
-            nrt::stop_request stop_request;
-            stop_request.mutable_h_nn()->set_id(nn_id);
-            nrt::stop_response stop_response;
-            status = stub->stop(&context, stop_request, &stop_response);
-            NRT_CHECK_LOG("stop", status, stop_response);
+            nrt::stop_request request;
+            request.mutable_h_nn()->set_id(nn_id);
+            nrt::stop_response response;
+            grpc::Status status = NRT_GRPC(stub->stop, request, &response);
+            NRT_CHECK_LOG("stop", status, response);
             set_running(NRT_INVALID_NN_ID);
         }
 
         // unload
-        grpc::ClientContext context;
-        nrt::unload_request unload_request;
-        unload_request.mutable_h_nn()->set_id(nn_id);
-        nrt::unload_response unload_response;
-        status = stub->unload(&context, unload_request, &unload_response);
-        NRT_CHECK_LOG("unload", status, unload_response);
+        nrt::unload_request request;
+        request.mutable_h_nn()->set_id(nn_id);
+        nrt::unload_response response;
+        grpc::Status status = NRT_GRPC(stub->unload, request, &response);
+        NRT_CHECK_LOG("unload", status, response);
         VLOG(1) << "unload from NeuronDevice::clear";
     }
     nn_id_set_.clear();
     if (create_eg_done_) {
         // destroy_eg
-        grpc::ClientContext context;
         nrt::destroy_eg_request request;
         request.mutable_h_eg()->set_id(eg_id_);
         nrt::destroy_eg_response response;
-        status = stub->destroy_eg(&context, request, &response);
+        grpc::Status status = NRT_GRPC(stub->destroy_eg, request, &response);
         NRT_CHECK_LOG("destroy_eg", status, response);
         create_eg_done_ = false;
         VLOG(1) << "destroy_eg from NeuronDevice::clear";

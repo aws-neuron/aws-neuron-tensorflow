@@ -15,6 +15,17 @@ namespace neuron {
 
 #define NRT_INVALID_NN_ID 0
 
+#define NRT_GRPC(func, request, response) ({                    \
+    grpc::Status status;                                        \
+    grpc::ClientContext context;                                \
+    status = (func)(&context, (request), (response));           \
+    if (grpc::StatusCode::UNAVAILABLE == status.error_code()) { \
+        grpc::ClientContext context;                            \
+        status = (func)(&context, (request), (response));       \
+    }                                                           \
+    status;                                                     \
+})
+
 #define NRT_CHECK_RETURN(fn_name, status, response) {                       \
     if (!((status).ok() && 0 == (response).status().code())) {              \
         return nrt_error_status((fn_name), (status), (response).status());  \

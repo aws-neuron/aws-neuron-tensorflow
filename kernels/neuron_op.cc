@@ -339,22 +339,20 @@ NeuronOp::~NeuronOp() {
             tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
             // stop
             if (neuron_device_->running(nn_id_)) {
-                grpc::ClientContext context;
                 nrt::stop_request request;
                 request.mutable_h_nn()->set_id(nn_id_);
                 nrt::stop_response response;
-                grpc::Status status = stub_->stop(&context, request, &response);
+                grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
                 NRT_CHECK_LOG("stop", status, response);
                 neuron_device_->set_running(NRT_INVALID_NN_ID);
             }
 
             // unload
             if (load_done_) {
-                grpc::ClientContext context;
                 nrt::unload_request request;
                 request.mutable_h_nn()->set_id(nn_id_);
                 nrt::unload_response response;
-                grpc::Status status = stub_->unload(&context, request, &response);
+                grpc::Status status = NRT_GRPC(stub_->unload, request, &response);
                 NRT_CHECK_LOG("unload", status, response);
             }
             neuron_device_->deregister_executable(nn_id_);
@@ -764,24 +762,21 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
 
 Status NeuronOp::start_model() {
-    grpc::Status status;
     if (!neuron_device_->running(nn_id_) && neuron_device_->is_busy()) {
         // if nn_id_ is not running, stop the current running model
-        grpc::ClientContext context;
         nrt::stop_request request;
         request.mutable_h_nn()->set_id(neuron_device_->nn_get_current_running());
         nrt::stop_response response;
-        status = stub_->stop(&context, request, &response);
+        grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
         NRT_CHECK_RETURN("stop", status, response);
         neuron_device_->set_running(NRT_INVALID_NN_ID);
     }
     if (!neuron_device_->is_busy()) {
         // if no model is running, start nn_id_
-        grpc::ClientContext context;
         nrt::start_request request;
         request.mutable_h_nn()->set_id(nn_id_);
         nrt::start_response response;
-        status = stub_->start(&context, request, &response);
+        grpc::Status status = NRT_GRPC(stub_->start, request, &response);
         NRT_CHECK_RETURN("start", status, response);
         neuron_device_->set_running(nn_id_);
     }
@@ -914,10 +909,9 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
     request.mutable_h_nn()->set_id(nn_id_);
 
     // infer
-    grpc::ClientContext context;
     nrt::infer_response response;
     timestamps->mark_above_nrtd_infer();
-    grpc::Status status = stub_->infer(&context, request, &response);
+    grpc::Status status = NRT_GRPC(stub_->infer, request, &response);
     timestamps->mark_below_nrtd_infer();
     if (status.ok()) {
         // ignore inf/nan errors
@@ -994,9 +988,8 @@ Status NeuronOp::infer_post(uint64_t *infer_post_cookie,
     request.mutable_h_nn()->set_id(nn_id_);
 
     // infer
-    grpc::ClientContext context;
     nrt::infer_post_response response;
-    grpc::Status status = stub_->infer_post(&context, request, &response);
+    grpc::Status status = NRT_GRPC(stub_->infer_post, request, &response);
     NRT_CHECK_RETURN("infer_post", status, response);
     *infer_post_cookie = response.cookie();
     return Status::OK();
@@ -1013,8 +1006,7 @@ Status NeuronOp::infer_wait(nrt::infer_response *response,
     request.set_cookie(infer_post_cookie);
 
     // infer_wait
-    grpc::ClientContext context;
-    grpc::Status status = stub_->infer_wait(&context, request, response);
+    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, response);
     if (status.ok()) {
         // ignore inf/nan errors
         if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
