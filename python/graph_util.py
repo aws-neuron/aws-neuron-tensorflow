@@ -794,12 +794,14 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
 
     # add subgraph's control input to `NeuronOp`'s control input
     all_op_names = {op.name for op in graph.get_operations()}
+    post_part_node_names = {node.name for node in graph_def.node}
     for node in _gd_neuron_nodes(graph_def):
         for sg_node in _get_subgraph_def(node).node:
             if sg_node.name in all_op_names:
                 op_original = graph.get_operation_by_name(sg_node.name)
                 for control_input in op_original.control_inputs:
-                    node.input.append('^{}'.format(control_input.name))
+                    if control_input.name in post_part_node_names:
+                        node.input.append('^{}'.format(control_input.name))
     return graph_def
 
 
