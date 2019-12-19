@@ -155,13 +155,11 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             kwargs.update(feed_dict=feed_dict)
         else:
             if model_shape_feed_dict is not None:
-                shape_feed_dict = {inputs[key]: value
-                                   for key, value in model_shape_feed_dict.items()}
+                kwargs.update(shape_feed_dict={
+                    inputs[key]: value for key, value in model_shape_feed_dict.items()})
             else:
-                shape_feed_dict = _infer_input_shapes(inputs.values(), batch_size)
-            if 'shape_feed_dict' in kwargs:
-                shape_feed_dict.update(kwargs['shape_feed_dict'])
-            kwargs.update(shape_feed_dict=shape_feed_dict)
+                if 'shape_feed_dict' not in kwargs and 'feed_dict' not in kwargs:
+                    kwargs.update(shape_feed_dict=_infer_input_shapes(inputs.values(), batch_size))
 
         # get inference graph
         infer_graph = inference_graph_from_session.__wrapped__(
