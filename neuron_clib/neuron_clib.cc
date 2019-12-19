@@ -32,7 +32,7 @@ Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
     if (name_.empty()) {
         return errors::Internal("cannot generate unique file name for shared memory");
     }
-    int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG);
+    int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
     SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
     shm_open_done_ = true;
     SYS_FAIL_RETURN(ftruncate(shm_fd, size_) < 0, "ftruncate");
