@@ -60,9 +60,7 @@ private:
     bool enable_dynamic_batch_size_ = false;
     std::vector<SharedMemory> input_shms_;
     std::vector<SharedMemory> output_shms_;
-    std::vector<SharedMemoryAllocator> output_shm_allocs_;
     std::vector<size_t> input_tensor_sizes_;
-    std::vector<Tensor> output_tensors_;
     uint32_t max_num_infers_;
     static const int64 DEFAULT_MAX_NUM_INFER = 4;
     static const int64 NRTD_INSUFFICIENT_NUM_INFER = 1;

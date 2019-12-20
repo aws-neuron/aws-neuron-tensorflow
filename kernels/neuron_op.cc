@@ -81,12 +81,12 @@ Status NeuronOp::initialize() {
     nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
     std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
         nrtd_address_, grpc::InsecureChannelCredentials(), ch_args);
-    if (nullptr == channel) {
+    if (!channel) {
         return errors::Unavailable(
             "cannot establish grpc channel to neuron-rtd server");
     }
     stub_ = nrt::nmgr_v1::NewStub(channel);
-    if (nullptr == stub_) {
+    if (!stub_) {
         return errors::Unavailable("cannot create stub");
     }
     AttrList &model_config = def().attr().at("model_config").list();
@@ -152,10 +152,6 @@ Status NeuronOp::initialize() {
     if (!nrt_shm_map.empty()) {
         if (0 == nrtd_address_.find("unix:") && prepare_shared_memory().ok()) {
             use_shared_memory_ = true;
-            for (size_t idx = 0; idx < output_dtypes.type_size(); ++idx) {
-                output_tensors_.emplace_back(
-                    &output_shm_allocs_[idx], output_dtypes.type(idx), output_shapes.shape(idx));
-            }
         } else {
             LOG(WARNING) << "shared memory is requested but is not available; "
                          << "using regular grpc for transfering input/output tensors";
@@ -318,9 +314,6 @@ Status NeuronOp::prepare_shared_memory() {
         TF_RETURN_IF_ERROR(output_shms_.back().initialize(stub_, nn_id_));
         VLOG(1) << "output shared memory " << output_shms_.back().name()
                 << " ready at address " << output_shms_.back().ptr();
-    }
-    for (auto &out_shm : output_shms_) {
-        output_shm_allocs_.emplace_back(&out_shm);
     }
     return Status::OK();
 }
@@ -923,7 +916,7 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
 
     if (use_shared_memory_) {
         for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
-            StringPiece out_tensor_raw(output_tensors_[idx].tensor_data());
+            StringPiece out_tensor_raw((const char*)output_shms_[idx].ptr(), output_shms_[idx].size());
             Tensor *out_tensor = output_tensors->at(idx);
             TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
                                             "tensor_memcpy failure on tensor name: ",

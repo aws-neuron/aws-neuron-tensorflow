@@ -1,6 +1,8 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
 #include <sstream>
+#include <unistd.h>
+#include <sys/types.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <grpcpp/grpcpp.h>
@@ -35,7 +37,7 @@ Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
     int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
     SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
     shm_open_done_ = true;
-    SYS_FAIL_RETURN(ftruncate(shm_fd, size_) < 0, "ftruncate");
+    SYS_FAIL_RETURN(::ftruncate(shm_fd, size_) < 0, "ftruncate");
     ptr_ = ::mmap(0, size_, PROT_WRITE, MAP_SHARED, shm_fd, 0);
     SYS_FAIL_RETURN(nullptr == ptr_, "mmap");
     nrt::shm_map_request request;
@@ -74,20 +76,6 @@ void SharedMemory::clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
             shm_open_done_ = false;
         }
     }
-}
-
-
-SharedMemoryAllocator::SharedMemoryAllocator(SharedMemory *shared_memory)
-    : shared_memory_(shared_memory) {}
-SharedMemoryAllocator::~SharedMemoryAllocator() = default;
-
-std::string SharedMemoryAllocator::Name() { return "neuron_shared_memory"; }
-
-void* SharedMemoryAllocator::AllocateRaw(size_t alignment, size_t num_bytes) {
-    return shared_memory_->ptr();
-}
-
-void SharedMemoryAllocator::DeallocateRaw(void *ptr) {
 }
 
 
@@ -146,12 +134,12 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
     ch_args.SetMaxSendMessageSize(-1);
     std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
         nrtd_address, grpc::InsecureChannelCredentials(), ch_args);
-    if (nullptr == channel) {
+    if (!channel) {
         return errors::Unavailable(
             "cannot establish grpc channel to neuron-rtd server");
     }
     stub_ = nrt::nmgr_v1::NewStub(channel);
-    if (nullptr == stub_) {
+    if (!stub_) {
         return errors::Unavailable("cannot create stub");
     }
 

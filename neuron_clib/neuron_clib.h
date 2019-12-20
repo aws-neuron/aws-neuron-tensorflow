@@ -3,7 +3,6 @@
 #ifndef TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
 #define TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
 
-#include "tensorflow/core/framework/allocator.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/mutex.h"
 #include "nmgr_service.grpc.pb.h"
@@ -76,18 +75,6 @@ private:
     void *ptr_ = nullptr;
     std::string name_ = "";
     const size_t size_ = 0;
-};
-
-
-class SharedMemoryAllocator : public Allocator {
-public:
-    SharedMemoryAllocator(SharedMemory *shared_memory);
-    ~SharedMemoryAllocator() override;
-    std::string Name() override;
-    void *AllocateRaw(size_t alignment, size_t num_bytes) override;
-    void DeallocateRaw(void *ptr) override;
-private:
-    SharedMemory *shared_memory_;
 };
 
 
