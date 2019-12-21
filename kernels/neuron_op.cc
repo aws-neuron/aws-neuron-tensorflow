@@ -62,20 +62,6 @@ static int64 model_config_timeout(const AttrList &model_config) {
 
 
 Status NeuronOp::initialize() {
-    grpc::ChannelArguments ch_args;
-    ch_args.SetMaxReceiveMessageSize(-1);
-    ch_args.SetMaxSendMessageSize(-1);
-    nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
-    std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
-        nrtd_address_, grpc::InsecureChannelCredentials(), ch_args);
-    if (!channel) {
-        return errors::Unavailable(
-            "cannot establish grpc channel to neuron-rtd server");
-    }
-    stub_ = nrt::nmgr_v1::NewStub(channel);
-    if (!stub_) {
-        return errors::Unavailable("cannot create stub");
-    }
     AttrList &model_config = def().attr().at("model_config").list();
     int64_t opt_device_size = -1;
     if (model_config_valid(model_config)) {
@@ -84,6 +70,8 @@ Status NeuronOp::initialize() {
     TF_RETURN_IF_ERROR(
         global_neuron_device_manager.apply_for_device(&neuron_device_, opt_device_size)
     );
+    nrtd_address_ = global_neuron_device_manager.nrtd_address_;
+    TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address_));
 
     {
         tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
@@ -274,7 +262,7 @@ Status NeuronOp::prepare_shared_memory() {
     for (size_t idx = 0; idx < input_tensor_sizes_.size(); ++idx) {
         size_t shm_size = input_tensor_sizes_[idx];
         input_shms_.emplace_back(shm_size);
-        TF_RETURN_IF_ERROR(input_shms_.back().initialize(stub_, nn_id_));
+        TF_RETURN_IF_ERROR(input_shms_.back().initialize(nrtd_address_, nn_id_));
         VLOG(1) << "input shared memory " << input_shms_.back().name()
                 << " ready at address " << input_shms_.back().ptr();
     }
@@ -284,7 +272,7 @@ Status NeuronOp::prepare_shared_memory() {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
         size_t shm_size = temp_tensor.tensor_data().size();
         output_shms_.emplace_back(shm_size);
-        TF_RETURN_IF_ERROR(output_shms_.back().initialize(stub_, nn_id_));
+        TF_RETURN_IF_ERROR(output_shms_.back().initialize(nrtd_address_, nn_id_));
         VLOG(1) << "output shared memory " << output_shms_.back().name()
                 << " ready at address " << output_shms_.back().ptr();
     }
@@ -327,10 +315,10 @@ NeuronOp::~NeuronOp() {
 
             // unmap all shared memories
             for (auto &shm : input_shms_) {
-                shm.clear(stub_);
+                shm.clear();
             }
             for (auto &shm : output_shms_) {
-                shm.clear(stub_);
+                shm.clear();
             }
         }
         global_neuron_device_manager.clear_if_empty();
@@ -802,7 +790,7 @@ void NeuronOp::profile_start_session() {
         if (!status.ok()) {
             profile_session_filename_ = "";
             LOG(WARNING) << "neuron-profile start-session failed. "
-                         << "Did you install aws-neuron-tools-core?";
+                         << "Did you install aws-neuron-tools?";
             return;
         }
         profile_session_id_++;

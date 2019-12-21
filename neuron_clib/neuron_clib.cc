@@ -44,12 +44,12 @@ static std::string gen_shm_name(uint32_t nn_id) {
 }
 
 
-Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
-                                uint32_t nn_id) {
+Status SharedMemory::initialize(const std::string &nrtd_address, uint32_t nn_id) {
     name_ = gen_shm_name(nn_id);
     if (name_.empty()) {
         return errors::Internal("cannot generate unique file name for shared memory");
     }
+    TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address));
     int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
     SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
     shm_open_done_ = true;
@@ -60,19 +60,19 @@ Status SharedMemory::initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
     request.set_path(name_);
     request.set_mmap_prot(PROT_READ | PROT_WRITE);
     nrt::shm_map_response response;
-    grpc::Status status = NRT_GRPC(stub->shm_map, request, &response);
+    grpc::Status status = NRT_GRPC(stub_->shm_map, request, &response);
     NRT_CHECK_RETURN("shm_map", status, response);
     shm_map_done_ = true;
     return Status::OK();
 }
 
-void SharedMemory::clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
+void SharedMemory::clear() {
     if (shm_map_done_) {
         nrt::shm_unmap_request request;
         request.set_path(name_);
         request.set_mmap_prot(PROT_READ | PROT_WRITE);
         nrt::shm_unmap_response response;
-        grpc::Status status = NRT_GRPC(stub->shm_unmap, request, &response);
+        grpc::Status status = NRT_GRPC(stub_->shm_unmap, request, &response);
         NRT_CHECK_LOG("shm_unmap", status, response);
         if (status.ok() && 0 == response.status().code()) {
             shm_map_done_ = false;
@@ -112,27 +112,6 @@ NeuronDeviceManager::~NeuronDeviceManager() {
     clear();
 }
 
-Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector,
-                                         const std::string &nrtd_address) {
-    Status status = errors::Internal("No NeuronCore Group can be initialized.");
-    for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
-        int num_cores_req = num_cores_req_vector[idx];
-        status = device_array_[idx].initialize(stub_, nrtd_address, num_cores_req);
-        if (!status.ok()) {
-            LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
-                         << " cores; stopping initialization.";
-            break;
-        }
-        ++num_devices_;
-        VLOG(1) << "successfully initialized NeuronCore Group of size " << num_cores_req;
-    }
-    if (0 == num_devices_) {
-        return status;
-    }
-    return Status::OK();
-}
-
-
 Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
     if (!path_set_) {
         // append /opt/aws/neuron/bin to PATH
@@ -142,27 +121,13 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
     }
 
     // stub
-    std::string nrtd_address = env_get("NEURON_RTD_ADDRESS",
-                                       "unix:/run/neuron.sock");
-
-    grpc::ChannelArguments ch_args;
-    ch_args.SetMaxReceiveMessageSize(-1);
-    ch_args.SetMaxSendMessageSize(-1);
-    std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
-        nrtd_address, grpc::InsecureChannelCredentials(), ch_args);
-    if (!channel) {
-        return errors::Unavailable(
-            "cannot establish grpc channel to neuron-rtd server");
-    }
-    stub_ = nrt::nmgr_v1::NewStub(channel);
-    if (!stub_) {
-        return errors::Unavailable("cannot create stub");
-    }
+    nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
+    TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address_));
 
     // get number of neuron cores from comma-separated list of integers
     std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
     if (neuron_device_sizes_raw.empty()) {
-        TF_RETURN_IF_ERROR(init_default_device(nrtd_address, opt_device_size));
+        TF_RETURN_IF_ERROR(init_default_device(opt_device_size));
     } else {
         // remove [ and ]
         std::string neuron_device_sizes = remove_pattern(neuron_device_sizes_raw, "[");
@@ -190,35 +155,53 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
             num_cores_req_vector.push_back(num_cores_req);
         }
         if (num_cores_req_vector.empty()) {
-            TF_RETURN_IF_ERROR(init_default_device(nrtd_address, opt_device_size));
+            TF_RETURN_IF_ERROR(init_default_device(opt_device_size));
         } else {
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, nrtd_address));
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
         }
     }
     ready_ = true;
     return Status::OK();
 }
 
-Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address,
-                                                int64_t opt_device_size) {
+Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector) {
+    Status status = errors::Internal("No NeuronCore Group can be initialized.");
+    for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
+        int num_cores_req = num_cores_req_vector[idx];
+        status = device_array_[idx].initialize(nrtd_address_, num_cores_req);
+        if (!status.ok()) {
+            LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
+                         << " cores; stopping initialization.";
+            break;
+        }
+        ++num_devices_;
+        VLOG(1) << "successfully initialized NeuronCore Group of size " << num_cores_req;
+    }
+    if (0 == num_devices_) {
+        return status;
+    }
+    return Status::OK();
+}
+
+Status NeuronDeviceManager::init_default_device(int64_t opt_device_size) {
     if (opt_device_size < 0 || opt_device_size > 64) {
         // device size looks wrong -- just get the largest ncg possible
-        Status status = device_array_[0].initialize(stub_, nrtd_address, DEFAULT_NUM_CORES);
+        Status status = device_array_[0].initialize(nrtd_address_, DEFAULT_NUM_CORES);
         num_devices_ = status.ok() ? 1 : 0;
         return status;
     } else {
         // get one full Inferentia by default
         if (opt_device_size == 1) {
             std::vector<int> num_cores_req_vector({1, 1, 1, 1});
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, nrtd_address));
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
         } else if (opt_device_size == 2) {
             std::vector<int> num_cores_req_vector({2, 2});
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, nrtd_address));
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
         } else {
             // search for the largest possible ncg ... sorry
             Status status = errors::Internal("No NeuronCore Group can be initialized.");
             for (int num_cores = opt_device_size; num_cores >= MIN_NUM_CORES; --num_cores) {
-                status = device_array_[0].initialize(stub_, nrtd_address, num_cores);
+                status = device_array_[0].initialize(nrtd_address_, num_cores);
                 if (status.ok()) {
                     num_devices_ = 1;
                     return status;
@@ -248,7 +231,7 @@ Status NeuronDeviceManager::clear_if_empty() {
 void NeuronDeviceManager::clear() {
     for (size_t idx = 0; idx < num_devices_; ++idx) {
         tensorflow::mutex_lock lock(device_array_[idx].mutex_eg_);
-        device_array_[idx].clear(stub_);
+        device_array_[idx].clear();
     }
     num_devices_ = 0;
     device_index_ = 0;
@@ -275,15 +258,14 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
     return Status::OK();
 }
 
-Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
-                                const std::string &nrtd_address,
-                                int num_cores_req) {
+Status NeuronDevice::initialize(const std::string &nrtd_address, int num_cores_req) {
+    TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address));
     nrt::create_eg_request request;
     if (num_cores_req >= 0) {
         request.set_nc_count((uint32_t)num_cores_req);
     }
     nrt::create_eg_response response;
-    grpc::Status status = NRT_GRPC(stub->create_eg, request, &response);
+    grpc::Status status = NRT_GRPC(stub_->create_eg, request, &response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
         std::string message(" is unavailable. Is neuron-rtd running?");
         std::string unix_prefix("unix:");
@@ -308,14 +290,14 @@ Status NeuronDevice::is_valid() {
                            : errors::Internal("neuron_device is not initialized");
 }
 
-void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
+void NeuronDevice::clear() {
     for (uint32_t nn_id : nn_id_set_) {
         // stop
         if (running(nn_id)) {
             nrt::stop_request request;
             request.mutable_h_nn()->set_id(nn_id);
             nrt::stop_response response;
-            grpc::Status status = NRT_GRPC(stub->stop, request, &response);
+            grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
             NRT_CHECK_LOG("stop", status, response);
             set_running(NRT_INVALID_NN_ID);
         }
@@ -324,7 +306,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         nrt::unload_request request;
         request.mutable_h_nn()->set_id(nn_id);
         nrt::unload_response response;
-        grpc::Status status = NRT_GRPC(stub->unload, request, &response);
+        grpc::Status status = NRT_GRPC(stub_->unload, request, &response);
         NRT_CHECK_LOG("unload", status, response);
         VLOG(1) << "unload from NeuronDevice::clear";
     }
@@ -334,7 +316,7 @@ void NeuronDevice::clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub) {
         nrt::destroy_eg_request request;
         request.mutable_h_eg()->set_id(eg_id_);
         nrt::destroy_eg_response response;
-        grpc::Status status = NRT_GRPC(stub->destroy_eg, request, &response);
+        grpc::Status status = NRT_GRPC(stub_->destroy_eg, request, &response);
         NRT_CHECK_LOG("destroy_eg", status, response);
         create_eg_done_ = false;
         VLOG(1) << "destroy_eg from NeuronDevice::clear";
@@ -398,6 +380,24 @@ int stoi_no_throw(const std::string &str) {
     } catch (std::out_of_range e) {
         return -1;
     }
+}
+
+Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
+                 const std::string &nrtd_address) {
+    grpc::ChannelArguments ch_args;
+    ch_args.SetMaxReceiveMessageSize(-1);
+    ch_args.SetMaxSendMessageSize(-1);
+    std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
+        nrtd_address, grpc::InsecureChannelCredentials(), ch_args);
+    if (!channel) {
+        return errors::Unavailable(
+            "cannot establish grpc channel to neuron-rtd server");
+    }
+    *stub = nrt::nmgr_v1::NewStub(channel);
+    if (!(*stub)) {
+        return errors::Unavailable("cannot create stub");
+    }
+    return Status::OK();
 }
 
 

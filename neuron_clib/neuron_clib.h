@@ -64,12 +64,13 @@ inline Status nrt_error_status(const std::string &fn_name,
 class SharedMemory {
 public:
     SharedMemory(size_t size) : size_(size) {}
-    Status initialize(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub, uint32_t nn_id);
+    Status initialize(const std::string &nrtd_address, uint32_t nn_id);
     const std::string name() { return name_; }
     const size_t size() { return size_; }
     void *ptr() { return ptr_; }
-    void clear(const std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
+    void clear();
 private:
+    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     bool shm_open_done_ = false;
     bool shm_map_done_ = false;
     void *ptr_ = nullptr;
@@ -81,9 +82,8 @@ private:
 class NeuronDevice {
 public:
     NeuronDevice() {};
-    Status initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
-                      const std::string &nrtd_address, int num_cores_req);
-    void clear(std::unique_ptr<nrt::nmgr_v1::Stub> &stub);
+    Status initialize(const std::string &nrtd_address, int num_cores_req);
+    void clear();
     uint32_t eg_id() { return eg_id_; };
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
@@ -96,6 +96,7 @@ public:
     uint32_t nn_get_current_running();
     tensorflow::mutex mutex_eg_;
 private:
+    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     bool create_eg_done_ = false;
     uint32_t eg_id_;
     uint32_t running_nn_id_;
@@ -111,12 +112,12 @@ public:
     Status clear_if_empty();
     void clear();
     ~NeuronDeviceManager();
+    std::string nrtd_address_;
     static const int64 MAX_NUM_CORES = 64;
     static const int64 MIN_NUM_CORES = 0;
 private:
-    Status init_default_device(const std::string &nrtd_address, int64_t opt_device_size);
-    Status init_devices(const std::vector<int> &num_cores_req_vector,
-                        const std::string &nrtd_address);
+    Status init_default_device(int64_t opt_device_size);
+    Status init_devices(const std::vector<int> &num_cores_req_vector);
     Status initialize(int64_t opt_device_size);
     tensorflow::mutex global_mutex_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
@@ -149,6 +150,8 @@ private:
 
 std::string env_get(const char *env_var, const char *default_env_var="");
 int stoi_no_throw(const std::string &str);
+Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
+                 const std::string &nrtd_address);
 
 
 }  // namespace neuron
