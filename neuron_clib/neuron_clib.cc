@@ -9,10 +9,26 @@
 #include "tensorflow/core/platform/env.h"
 #include "neuron_clib.h"
 #include "nmgr.pb.h"
+#ifdef NEURONTFSERV
+#include <csignal>
+#endif  // NEURONTFSERV
 
 
 namespace tensorflow {
 namespace neuron {
+
+
+NeuronDeviceManager global_neuron_device_manager;
+
+
+#ifdef NEURONTFSERV
+void sigint_handler(int sig) {
+    global_neuron_device_manager.clear();
+    std::signal(SIGINT, SIG_DFL);
+    std::signal(SIGTERM, SIG_DFL);
+    std::raise(sig);
+}
+#endif // NEURONTFSERV
 
 
 static std::string gen_shm_name(uint32_t nn_id) {
@@ -215,14 +231,18 @@ Status NeuronDeviceManager::init_default_device(const std::string &nrtd_address,
     return Status::OK();
 }
 
-bool NeuronDeviceManager::is_empty() {
+Status NeuronDeviceManager::clear_if_empty() {
+    tensorflow::mutex_lock lock(global_mutex_);
     bool empty = true;
     for (size_t idx = 0; idx < num_devices_; ++idx) {
         if (0 != device_array_[idx].num_executable()) {
             empty = false;
         }
     }
-    return empty;
+    if (empty) {
+        clear();
+    }
+    return Status::OK();
 }
 
 void NeuronDeviceManager::clear() {
@@ -236,15 +256,24 @@ void NeuronDeviceManager::clear() {
     VLOG(1) << "NeuronDeviceManager is cleared";
 }
 
-NeuronDevice *NeuronDeviceManager::get_device() {
-    NeuronDevice *device = &device_array_[device_index_];
+Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
+                                             int64_t opt_device_size) {
+    tensorflow::mutex_lock lock(global_mutex_);
+    if (!ready_) {
+        TF_RETURN_IF_ERROR(initialize(opt_device_size));
+#ifdef NEURONTFSERV
+        std::signal(SIGINT, sigint_handler);
+        std::signal(SIGTERM, sigint_handler);
+#endif // NEURONTFSERV
+    }
+
+    *device = &device_array_[device_index_];
     ++device_index_;
     if (device_index_ >= num_devices_) {
         device_index_ = 0;
     }
-    return device;
+    return Status::OK();
 }
-
 
 Status NeuronDevice::initialize(std::unique_ptr<nrt::nmgr_v1::Stub> &stub,
                                 const std::string &nrtd_address,

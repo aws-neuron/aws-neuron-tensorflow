@@ -69,7 +69,7 @@ private:
     static const int64 HARD_MAX_NUM_THREADS = 1024;
     xla::Semaphore infer_sem_;
     bool infer_sem_initialized_ = false;
-    std::shared_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
+    std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     int profile_session_id_ = 0;
     bool profile_enabled_ = false;
     std::string profile_dir_ = "";

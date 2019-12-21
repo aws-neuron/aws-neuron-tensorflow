@@ -17,9 +17,6 @@
 #include <grpcpp/grpcpp.h>
 #include <queue>
 #include "nerr.pb.h"
-#ifdef NEURONTFSERV
-#include <csignal>
-#endif  // NEURONTFSERV
 
 
 namespace tensorflow {
@@ -30,17 +27,7 @@ static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable numbe
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 
 
-NeuronDeviceManager global_neuron_device_manager;
-
-
-#ifdef NEURONTFSERV
-void sigint_handler(int sig) {
-    global_neuron_device_manager.clear();
-    std::signal(SIGINT, SIG_DFL);
-    std::signal(SIGTERM, SIG_DFL);
-    std::raise(sig);
-}
-#endif // NEURONTFSERV
+extern NeuronDeviceManager global_neuron_device_manager;
 
 
 NeuronOp::NeuronOp(OpKernelConstruction *ctx)
@@ -94,23 +81,9 @@ Status NeuronOp::initialize() {
     if (model_config_valid(model_config)) {
         opt_device_size = model_config_global_opt_num_cores(model_config);
     }
-    {
-        tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
-        if (!global_neuron_device_manager.ready()) {
-            TF_RETURN_IF_ERROR(global_neuron_device_manager.initialize(opt_device_size));
-#ifdef NEURONTFSERV
-            std::signal(SIGINT, sigint_handler);
-            std::signal(SIGTERM, sigint_handler);
-#endif // NEURONTFSERV
-        }
-        if (!global_neuron_device_manager.ready()) {
-            return errors::FailedPrecondition(
-                "global_neuron_device_manager initialization failure");
-        }
-
-        // create_eg
-        neuron_device_ = global_neuron_device_manager.get_device();
-    }
+    TF_RETURN_IF_ERROR(
+        global_neuron_device_manager.apply_for_device(&neuron_device_, opt_device_size)
+    );
 
     {
         tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
@@ -173,7 +146,7 @@ Status NeuronOp::initialize() {
     }
     std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
     if (init_acquire_amount > 0 && !infer_sem_initialized_ && "yes" != unlimited_threads) {
-        infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
+        infer_sem_reserve_ptr_ = std::make_unique<xla::Semaphore::ScopedReservation>(
             infer_sem_.ScopedAcquire(init_acquire_amount));
         infer_sem_initialized_ = true;
         int64 infer_sem_capacity = INFER_SEM_MAX_CAPACITY - init_acquire_amount;
@@ -360,14 +333,7 @@ NeuronOp::~NeuronOp() {
                 shm.clear(stub_);
             }
         }
-
-        {
-            tensorflow::mutex_lock lock(global_neuron_device_manager.global_mutex_);
-            // clear global_neuron_device_manager if it's empty
-            if (global_neuron_device_manager.is_empty()) {
-                global_neuron_device_manager.clear();
-            }
-        }
+        global_neuron_device_manager.clear_if_empty();
         VLOG(1) << "NeuronOp destructor done";
         ready_ = false;
         unloaded_ = true;

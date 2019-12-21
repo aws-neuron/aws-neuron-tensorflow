@@ -109,7 +109,7 @@ cc_library(
     hdrs = [
         "kernels/neuron_op.h",
     ],
-    copts = tf_copts(),
+    copts = tf_copts() + ["-std=c++14"],
     visibility = ["//visibility:public"],
     deps = [
         "//tensorflow/core:protos_all_cc",
