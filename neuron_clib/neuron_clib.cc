@@ -43,55 +43,91 @@ static std::string gen_shm_name(uint32_t nn_id) {
     return "";
 }
 
-
-Status SharedMemory::initialize(const std::string &nrtd_address, uint32_t nn_id) {
-    name_ = gen_shm_name(nn_id);
-    if (name_.empty()) {
-        return errors::Internal("cannot generate unique file name for shared memory");
-    }
+Status SharedMemoryManager::initialize(const std::string &nrtd_address,
+                                       const uint32_t nn_id,
+                                       const std::vector<size_t> &input_tensor_sizes,
+                                       const std::vector<size_t> &output_tensor_sizes) {
     TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address));
-    int shm_fd = ::shm_open(name_.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
-    SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
-    shm_open_done_ = true;
-    SYS_FAIL_RETURN(::ftruncate(shm_fd, size_) < 0, "ftruncate");
-    ptr_ = ::mmap(0, size_, PROT_WRITE, MAP_SHARED, shm_fd, 0);
-    SYS_FAIL_RETURN(nullptr == ptr_, "mmap");
-    nrt::shm_map_request request;
-    request.set_path(name_);
-    request.set_mmap_prot(PROT_READ | PROT_WRITE);
-    nrt::shm_map_response response;
-    grpc::Status status = NRT_GRPC(stub_->shm_map, request, &response);
-    NRT_CHECK_RETURN("shm_map", status, response);
-    shm_map_done_ = true;
+    TF_RETURN_IF_ERROR(init_vectors(&input_names_, &input_ptrs_, &input_sizes_,
+                                    &input_grpc_names_, input_tensor_sizes, nn_id));
+    TF_RETURN_IF_ERROR(init_vectors(&output_names_, &output_ptrs_, &output_sizes_,
+                                    &output_grpc_names_, output_tensor_sizes, nn_id));
+    for (size_t idx = 0; idx < input_names_.size(); ++idx) {
+        VLOG(1) << "input shared memory " << input_names_[idx]
+                << " ready at address " << input_ptrs_[idx];
+    }
+    for (size_t idx = 0; idx < output_names_.size(); ++idx) {
+        VLOG(1) << "output shared memory " << output_names_[idx]
+                << " ready at address " << output_ptrs_[idx];
+    }
+    enabled_ = true;
     return Status::OK();
 }
 
-void SharedMemory::clear() {
-    if (shm_map_done_) {
-        nrt::shm_unmap_request request;
-        request.set_path(name_);
+Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
+                                         std::vector<void*> *ptrs,
+                                         std::vector<size_t> *sizes,
+                                         std::vector<std::string> *grpc_names,
+                                         const std::vector<size_t> &tensor_sizes,
+                                         const uint32_t nn_id) {
+    for (size_t size : tensor_sizes) {
+        std::string name = gen_shm_name(nn_id);
+        if (name.empty()) {
+            return errors::Internal("cannot generate unique file name for shared memory");
+        }
+        int shm_fd = ::shm_open(name.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
+        SYS_FAIL_RETURN(shm_fd < 0, "shm_open");
+        names->push_back(name);
+        SYS_FAIL_RETURN(::ftruncate(shm_fd, size) < 0, "ftruncate");
+        void *ptr = ::mmap(0, size, PROT_WRITE, MAP_SHARED, shm_fd, 0);
+        SYS_FAIL_RETURN(nullptr == ptr, "mmap");
+        ptrs->push_back(ptr);
+        sizes->push_back(size);
+        nrt::shm_map_request request;
+        request.set_path(name);
         request.set_mmap_prot(PROT_READ | PROT_WRITE);
-        nrt::shm_unmap_response response;
-        grpc::Status status = NRT_GRPC(stub_->shm_unmap, request, &response);
-        NRT_CHECK_LOG("shm_unmap", status, response);
-        if (status.ok() && 0 == response.status().code()) {
-            shm_map_done_ = false;
-        }
+        nrt::shm_map_response response;
+        grpc::Status status = NRT_GRPC(stub_->shm_map, request, &response);
+        NRT_CHECK_RETURN("shm_map", status, response);
+        grpc_names->push_back(name);
     }
-    if (nullptr != ptr_) {
-        int ret = munmap(ptr_, size_);
-        SYS_FAIL_LOG(ret < 0, "munmap");
-        if (ret >= 0) {
-            ptr_ = nullptr;
-        }
+    return Status::OK();
+}
+
+SharedMemoryManager::~SharedMemoryManager() {
+    for (const auto &name : input_grpc_names_) {
+        nrt_shm_unmap(name);
     }
-    if (shm_open_done_) {
-        int ret = shm_unlink(name_.c_str());
-        SYS_FAIL_LOG(ret < 0, "shm_unlink");
-        if (ret >= 0) {
-            shm_open_done_ = false;
-        }
+    input_grpc_names_.clear();
+    for (size_t idx = 0; idx < input_ptrs_.size(); ++idx) {
+        SYS_FAIL_LOG(munmap(input_ptrs_[idx], input_sizes_[idx]) < 0, "munmap");
     }
+    input_ptrs_.clear();
+    for (const auto &name : input_names_) {
+        SYS_FAIL_LOG(shm_unlink(name.c_str()) < 0, "shm_unlink");
+    }
+    input_names_.clear();
+    for (const auto &name : output_grpc_names_) {
+        nrt_shm_unmap(name);
+    }
+    output_grpc_names_.clear();
+    for (size_t idx = 0; idx < output_ptrs_.size(); ++idx) {
+        SYS_FAIL_LOG(munmap(output_ptrs_[idx], output_sizes_[idx]) < 0, "munmap");
+    }
+    output_ptrs_.clear();
+    for (const auto &name : output_names_) {
+        SYS_FAIL_LOG(shm_unlink(name.c_str()) < 0, "shm_unlink");
+    }
+    output_names_.clear();
+}
+
+void SharedMemoryManager::nrt_shm_unmap(const std::string &name) {
+    nrt::shm_unmap_request request;
+    request.set_path(name);
+    request.set_mmap_prot(PROT_READ | PROT_WRITE);
+    nrt::shm_unmap_response response;
+    grpc::Status status = NRT_GRPC(stub_->shm_unmap, request, &response);
+    NRT_CHECK_LOG("shm_unmap", status, response);
 }
 
 
@@ -321,6 +357,16 @@ void NeuronDevice::clear() {
         create_eg_done_ = false;
         VLOG(1) << "destroy_eg from NeuronDevice::clear";
     }
+}
+
+void NeuronDevice::register_executable(uint32_t nn_id) {
+    tensorflow::mutex_lock lock(mutex_eg_);
+    nn_id_set_.insert(nn_id);
+}
+
+void NeuronDevice::deregister_executable(uint32_t nn_id) {
+    tensorflow::mutex_lock lock(mutex_eg_);
+    nn_id_set_.erase(nn_id);
 }
 
 bool NeuronDevice::is_busy() {

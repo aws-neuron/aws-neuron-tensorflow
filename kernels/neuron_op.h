@@ -54,12 +54,10 @@ private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
     bool load_done_ = false;
-    bool use_shared_memory_ = false;
     bool ready_ = false;
     bool unloaded_ = false;
     bool enable_dynamic_batch_size_ = false;
-    std::vector<SharedMemory> input_shms_;
-    std::vector<SharedMemory> output_shms_;
+    SharedMemoryManager shm_;
     std::vector<size_t> input_tensor_sizes_;
     uint32_t max_num_infers_;
     static const int64 DEFAULT_MAX_NUM_INFER = 4;

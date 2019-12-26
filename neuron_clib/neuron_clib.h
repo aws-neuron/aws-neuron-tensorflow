@@ -61,21 +61,31 @@ inline Status nrt_error_status(const std::string &fn_name,
 }
 
 
-class SharedMemory {
+class SharedMemoryManager {
 public:
-    SharedMemory(size_t size) : size_(size) {}
-    Status initialize(const std::string &nrtd_address, uint32_t nn_id);
-    const std::string name() { return name_; }
-    const size_t size() { return size_; }
-    void *ptr() { return ptr_; }
-    void clear();
+    SharedMemoryManager() {}
+    ~SharedMemoryManager();
+    Status initialize(const std::string &nrtd_address, const uint32_t nn_id,
+                      const std::vector<size_t> &input_tensor_sizes,
+                      const std::vector<size_t> &output_tensor_sizes);
+    bool enabled_ = false;
+    std::vector<std::string> input_names_;
+    std::vector<void*> input_ptrs_;
+    std::vector<size_t> input_sizes_;
+    std::vector<std::string> output_names_;
+    std::vector<void*> output_ptrs_;
+    std::vector<size_t> output_sizes_;
 private:
+    Status init_vectors(std::vector<std::string> *names,
+                        std::vector<void*> *ptrs,
+                        std::vector<size_t> *sizes,
+                        std::vector<std::string> *grpc_names,
+                        const std::vector<size_t> &tensor_sizes,
+                        const uint32_t nn_id);
+    void nrt_shm_unmap(const std::string &name);
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
-    bool shm_open_done_ = false;
-    bool shm_map_done_ = false;
-    void *ptr_ = nullptr;
-    std::string name_ = "";
-    const size_t size_ = 0;
+    std::vector<std::string> input_grpc_names_;
+    std::vector<std::string> output_grpc_names_;
 };
 
 
@@ -87,8 +97,8 @@ public:
     uint32_t eg_id() { return eg_id_; };
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
-    void register_executable(uint32_t nn_id) { nn_id_set_.insert(nn_id); };
-    void deregister_executable(uint32_t nn_id) { nn_id_set_.erase(nn_id); };
+    void register_executable(uint32_t nn_id);
+    void deregister_executable(uint32_t nn_id);
     Status is_valid();
     bool is_busy();
     bool running(uint32_t nn_id);

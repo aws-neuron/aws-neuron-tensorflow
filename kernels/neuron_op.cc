@@ -72,14 +72,7 @@ Status NeuronOp::initialize() {
     );
     nrtd_address_ = global_neuron_device_manager.nrtd_address_;
     TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address_));
-
-    {
-        tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
-        Status status = load(model_config);
-        if (!status.ok()) {
-            return status;
-        }
-    }
+    TF_RETURN_IF_ERROR(load(model_config));
     VLOG(1) << "load: number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
@@ -111,12 +104,9 @@ Status NeuronOp::initialize() {
     // preallocate output tensors (not used by the default infer call)
     std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
     if (!nrt_shm_map.empty()) {
-        if (0 == nrtd_address_.find("unix:") && prepare_shared_memory().ok()) {
-            use_shared_memory_ = true;
-        } else {
+        if (!prepare_shared_memory().ok()) {
             LOG(WARNING) << "shared memory is requested but is not available; "
                          << "using regular grpc for transfering input/output tensors";
-            use_shared_memory_ = false;
         }
     }
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
@@ -259,24 +249,15 @@ Status NeuronOp::load(const AttrList &model_config) {
 }
 
 Status NeuronOp::prepare_shared_memory() {
-    for (size_t idx = 0; idx < input_tensor_sizes_.size(); ++idx) {
-        size_t shm_size = input_tensor_sizes_[idx];
-        input_shms_.emplace_back(shm_size);
-        TF_RETURN_IF_ERROR(input_shms_.back().initialize(nrtd_address_, nn_id_));
-        VLOG(1) << "input shared memory " << input_shms_.back().name()
-                << " ready at address " << input_shms_.back().ptr();
-    }
     AttrList &output_dtypes = def().attr().at("output_dtypes").list();
     AttrList &output_shapes = def().attr().at("output_shapes").list();
+    std::vector<size_t> output_tensor_sizes;
     for (size_t idx = 0; idx < output_dtypes.type_size(); ++idx) {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
-        size_t shm_size = temp_tensor.tensor_data().size();
-        output_shms_.emplace_back(shm_size);
-        TF_RETURN_IF_ERROR(output_shms_.back().initialize(nrtd_address_, nn_id_));
-        VLOG(1) << "output shared memory " << output_shms_.back().name()
-                << " ready at address " << output_shms_.back().ptr();
+        output_tensor_sizes.push_back(temp_tensor.tensor_data().size());
     }
-    return Status::OK();
+    return shm_.initialize(nrtd_address_, nn_id_, input_tensor_sizes_,
+                           output_tensor_sizes);
 }
 
 
@@ -284,6 +265,10 @@ NeuronOp::~NeuronOp() {
     VLOG(1) << "calling NeuronOp destructor";
     if (!unloaded_) {
         tensorflow::mutex_lock lock(mutex_model_);
+        if (unloaded_) {
+            VLOG(1) << "model is already unloaded";
+            return;
+        }
         if (nullptr == neuron_device_) {
             VLOG(1) << "neuron_device_ not available; not tearing down";
             return;
@@ -300,27 +285,19 @@ NeuronOp::~NeuronOp() {
                 NRT_CHECK_LOG("stop", status, response);
                 neuron_device_->set_running(NRT_INVALID_NN_ID);
             }
-
-            // unload
-            if (load_done_) {
-                nrt::unload_request request;
-                request.mutable_h_nn()->set_id(nn_id_);
-                nrt::unload_response response;
-                grpc::Status status = NRT_GRPC(stub_->unload, request, &response);
-                NRT_CHECK_LOG("unload", status, response);
-            }
-            neuron_device_->deregister_executable(nn_id_);
-            VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
-            VLOG(1) << "unload from NeuronOp::~NeuronOp";
-
-            // unmap all shared memories
-            for (auto &shm : input_shms_) {
-                shm.clear();
-            }
-            for (auto &shm : output_shms_) {
-                shm.clear();
-            }
         }
+
+        // unload
+        if (load_done_) {
+            nrt::unload_request request;
+            request.mutable_h_nn()->set_id(nn_id_);
+            nrt::unload_response response;
+            grpc::Status status = NRT_GRPC(stub_->unload, request, &response);
+            NRT_CHECK_LOG("unload", status, response);
+        }
+        neuron_device_->deregister_executable(nn_id_);
+        VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
+        VLOG(1) << "unload from NeuronOp::~NeuronOp";
         global_neuron_device_manager.clear_if_empty();
         VLOG(1) << "NeuronOp destructor done";
         ready_ = false;
@@ -657,7 +634,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }   // semaphore reservation queue goes out of scope
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
-    } else if (profile_enabled_ || use_shared_memory_) {
+    } else if (profile_enabled_ || shm_.enabled_) {
         VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         std::vector<Tensor*> output_tensors;
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
@@ -839,18 +816,18 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
                 "incorrect input tensor size ", tensor_data.size(), " found on ",
                 input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
         }
-        if (use_shared_memory_) {
-            infer_io->mutable_buf_shm()->set_path(input_shms_[idx].name());
-            std::memcpy(input_shms_[idx].ptr(), tensor_data.data(), tensor_data.size());
+        if (shm_.enabled_) {
+            infer_io->mutable_buf_shm()->set_path(shm_.input_names_[idx]);
+            std::memcpy(shm_.input_ptrs_[idx], tensor_data.data(), tensor_data.size());
         } else {
             infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
-    if (use_shared_memory_) {
+    if (shm_.enabled_) {
         for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
             nrt::infer_io *infer_io = request.add_shm_ofmap();
             infer_io->set_name(output_names.s(idx));
-            infer_io->mutable_buf_shm()->set_path(output_shms_[idx].name());
+            infer_io->mutable_buf_shm()->set_path(shm_.output_names_[idx]);
         }
     }
     request.mutable_h_nn()->set_id(nn_id_);
@@ -868,9 +845,10 @@ Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
     }
     NRT_CHECK_RETURN("infer", status, response);
 
-    if (use_shared_memory_) {
+    if (shm_.enabled_) {
         for (size_t idx = 0; idx < output_names.s_size(); ++idx) {
-            StringPiece out_tensor_raw((const char*)output_shms_[idx].ptr(), output_shms_[idx].size());
+            StringPiece out_tensor_raw((const char*)shm_.output_ptrs_[idx],
+                                       shm_.output_sizes_[idx]);
             Tensor *out_tensor = output_tensors->at(idx);
             TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
                                             "tensor_memcpy failure on tensor name: ",
