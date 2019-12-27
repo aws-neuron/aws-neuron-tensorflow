@@ -34,7 +34,7 @@ public:
 
 private:
     Status initialize();
-    Status load(const AttrList &model_config);
+    Status load(const uint32_t timeout, const uint32_t ninfer);
     Status prepare_shared_memory();
     Status start_model();
     void profile_dump_info();
@@ -59,11 +59,7 @@ private:
     SharedMemoryManager shm_;
     std::vector<size_t> input_tensor_sizes_;
     uint32_t max_num_infers_ = 5;
-    static const int64 DEFAULT_MAX_NUM_INFER = 4;
-    static const int64 NRTD_INSUFFICIENT_NUM_INFER = 1;
-    static const int64 NRTD_NUM_CPU_THREADS = 3;
     static const int64 INFER_SEM_MAX_CAPACITY = 2048;
-    static const int64 HARD_MAX_NUM_THREADS = 1024;
     xla::Semaphore infer_sem_;
     bool infer_sem_initialized_ = false;
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
