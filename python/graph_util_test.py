@@ -550,7 +550,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
 
 class TestSpecialOperator(unittest.TestCase):
 
-    def test_simple(self):
+    def test_conv2d_nchw(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [1, 3, 2, 2], name='input0')
@@ -579,7 +579,7 @@ class TestSpecialOperator(unittest.TestCase):
                 result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
                 np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
 
-    def test_explicit_paddings(self):
+    def test_conv2d_nchw_explicit_paddings(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [1, 3, 2, 2], name='input0')
@@ -601,6 +601,40 @@ class TestSpecialOperator(unittest.TestCase):
             result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
         if 'NEURON_RTD_ADDRESS' in os.environ:
             with tf.Session(graph=infer_graph0) as sess:
+                result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
+                np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
+
+    def test_maxpool_nchw(self):
+        self._body_pool_nchw(tf.nn.max_pool)
+
+    def test_avgpool_nchw(self):
+        self._body_pool_nchw(tf.nn.avg_pool)
+
+    def _body_pool_nchw(self, pool_func):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [1, 3, 2, 2], name='input0')
+            pool0 = pool_func(input0, [1, 1, 2, 2], strides=[1, 1, 1, 1], padding='VALID',
+                              data_format='NCHW', name='pool0')
+            relu0 = tf.nn.relu(pool0, name='relu0')
+            input0_nchw = np.random.uniform(-1, 1, size=input0.shape.as_list()).astype(np.float16)
+            infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+                sess, input_tensors=[input0], output_tensors=[relu0])
+            infer_graph1 = tf.neuron.graph_util.inference_graph_from_session(
+                sess, input_tensors=[input0], output_tensors=[relu0], compiler_timeout=0.1)
+        _assert_compiler_success(infer_graph0)
+        with tf.Session(graph=tf.Graph()) as sess_ref:
+            input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
+            pool0 = pool_func(input0, [1, 2, 2, 1], strides=[1, 1, 1, 1], padding='VALID',
+                              data_format='NHWC', name='pool0')
+            relu0 = tf.nn.relu(pool0, name='relu0')
+            result_ref_nhwc = sess_ref.run('relu0:0', {'input0:0': input0_nchw.transpose([0, 2, 3, 1])})
+            result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph0) as sess:
+                result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
+                np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
+            with tf.Session(graph=infer_graph1) as sess:
                 result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
                 np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
 

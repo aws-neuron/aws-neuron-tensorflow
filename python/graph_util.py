@@ -1137,33 +1137,47 @@ def _get_shapes(node, names_key, subgraph_shapes, subgraph):
 
 
 def nchw_to_nhwc(graph_def):
-    """Convert data formats of all Conv2D ops to NCHW and insert transposes
+    """Convert data formats of all Conv2D/MaxPool/AvgPool ops to NCHW and insert transposes
     """
     remove_node_names = set()
     node_rename_map = {}
     graph = _graph_def_to_graph(graph_def)
+    perm_to_nhwc = [0, 2, 3, 1]
+
+    def get_nhwc_attr(name):
+        attribute = op.get_attr(name)
+        if isinstance(attribute, list) and len(attribute) == 4:
+            return [attribute[idx] for idx in perm_to_nhwc]
+        else:
+            return attribute
+
     with graph.as_default():
+        func_map = {
+            'Conv2D': nn_ops.conv2d,
+            'MaxPool': nn_ops.max_pool,
+            'AvgPool': nn_ops.avg_pool,
+        }
         for op in graph.get_operations():
-            if op.type == 'Conv2D' and op.get_attr('data_format') == b'NCHW':
-                perm_to_nhwc = [0, 2, 3, 1]
-                dilations = op.get_attr('dilations')
-                if isinstance(dilations, list) and len(dilations) == 4:
-                    dilations = [dilations[idx] for idx in perm_to_nhwc]
-                padding = op.get_attr('padding')
-                strides = op.get_attr('strides')
-                if isinstance(strides, list) and len(strides) == 4:
-                    strides = [strides[idx] for idx in perm_to_nhwc]
-                if padding == b'EXPLICIT':
-                    explicit = op.get_attr('explicit_paddings')
-                    padding = [explicit[2*idx:2*idx+2] for idx in perm_to_nhwc]
-                input_nchw, filters = op.inputs[0:2]
+            if op.type in func_map and op.get_attr('data_format') == b'NCHW':
+                if op.type == 'Conv2D':
+                    padding = op.get_attr('padding')
+                    if padding == b'EXPLICIT':
+                        explicit = op.get_attr('explicit_paddings')
+                        padding = [explicit[2*idx:2*idx+2] for idx in perm_to_nhwc]
+                    kwargs = dict(filters=op.inputs[1], dilations=get_nhwc_attr('dilations'),
+                                  padding=padding, strides=get_nhwc_attr('strides'))
+                elif op.type in {'MaxPool', 'AvgPool'}:
+                    kwargs = dict(ksize=get_nhwc_attr('ksize'), padding=op.get_attr('padding'),
+                                  strides=get_nhwc_attr('strides'))
+                else:
+                    continue
+                input_nchw = op.inputs[0]
                 with ops.name_scope(op.name):
                     input_nhwc = array_ops.transpose(input_nchw, perm_to_nhwc)
-                    conv2d_nhwc = nn_ops.conv2d(input_nhwc, filters, strides=strides,
-                                                padding=padding, dilations=dilations)
-                    conv2d_nchw = array_ops.transpose(conv2d_nhwc, [0, 3, 1, 2])
+                    tensor_nhwc = func_map[op.type](input_nhwc, **kwargs)
+                    tensor_nchw = array_ops.transpose(tensor_nhwc, [0, 3, 1, 2])
                 remove_node_names.add(op.name)
-                node_rename_map[conv2d_nchw.op.name] = op.name
+                node_rename_map[tensor_nchw.op.name] = op.name
     temp_graph_def = graph.as_graph_def(add_shapes=True)
     graph_def = graph_pb2.GraphDef()
     graph_def.node.MergeFrom(
