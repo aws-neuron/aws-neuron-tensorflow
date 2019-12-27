@@ -13,6 +13,7 @@ cc_library(
     ],
     hdrs = ["neuron_clib.h"],
     deps = [
+        "//tensorflow/compiler/xla/python:semaphore",
         ":nmgr_service.grpc.o",
         "@grpc//:grpc++_codegen_base",
     ] + tf_custom_op_library_additional_deps(),

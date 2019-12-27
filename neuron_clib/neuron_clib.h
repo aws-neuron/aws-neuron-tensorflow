@@ -3,8 +3,12 @@
 #ifndef TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
 #define TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
 
+#include <queue>
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/mutex.h"
+#include "tensorflow/core/framework/attr_value.pb.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/compiler/xla/python/semaphore.h"
 #include "timestamps.h"
 #include "profiler.h"
 #include "nmgr_service.grpc.pb.h"
@@ -13,6 +17,9 @@
 namespace tensorflow {
 namespace neuron {
 
+
+typedef const AttrValue_ListValue AttrList;
+typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
 #define NRT_INVALID_NN_ID 0
 
@@ -97,17 +104,31 @@ public:
     Status initialize(const std::string &nrtd_address, int num_cores_req);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
+    Status infer(nrt::infer_response *response, Timestamps *timestamps,
+                 ProfilerInterface *profile, const uint32_t nn_id,
+                 AttrList &input_names, AttrList &output_names,
+                 const std::vector<const Tensor*> &input_tensors,
+                 const SharedMemoryManager &shm);
+    Status infer_post(uint64_t *cookie, SemResQueue *sem_res_queue,
+                      xla::Semaphore *infer_sem, Timestamps *timestamps,
+                      const uint32_t nn_id, AttrList &input_names,
+                      const std::vector<const Tensor*> &input_tensors);
+    Status infer_wait(nrt::infer_response *response, const uint64_t cookie);
     void unload(const uint32_t nn_id);
+    void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
+    Status infer_post_unsafe(uint64_t *cookie, Timestamps *timestamps,
+                             const uint32_t nn_id, AttrList &input_names,
+                             const std::vector<const Tensor*> &input_tensors);
     void clear();
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
-    Status is_valid();
+private:
+    Status start_model(const uint32_t nn_id);
     bool is_busy();
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
     uint32_t nn_get_current_running();
     tensorflow::mutex mutex_eg_;
-private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     bool create_eg_done_ = false;
     uint32_t eg_id_;
@@ -115,6 +136,7 @@ private:
     std::set<uint32_t> nn_id_set_;
     uint32_t num_cores_ = 0;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
+    std::string nrtd_address_ = "";
 };
 
 

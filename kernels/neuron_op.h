@@ -15,15 +15,11 @@
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
-#include "tensorflow/compiler/xla/python/semaphore.h"
 #include "tensorflow/python/neuron/neuron_clib/neuron_clib.h"
 
 
 namespace tensorflow {
 namespace neuron {
-
-
-typedef const AttrValue_ListValue AttrList;
 
 
 class NeuronOp : public OpKernel {
@@ -35,24 +31,15 @@ public:
 private:
     Status initialize();
     Status prepare_shared_memory();
-    Status start_model();
-    Status infer(std::vector<Tensor*> *output_tensors,
-                 const std::vector<const Tensor*> &input_tensors,
-                 Timestamps *timestamps);
-    Status infer_post(uint64_t *cookie,
-                      const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(nrt::infer_response *response, uint64_t cookie);
+    Status check_input_tensors(const std::vector<const Tensor*> &input_tensors);
     Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
                                const nrt::infer_response &response);
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
-    std::string nrtd_address_;
-    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
     bool ready_ = false;
     bool unloaded_ = false;
     bool enable_dynamic_batch_size_ = false;
-    SharedMemoryManager shm_;
     std::vector<size_t> input_tensor_sizes_;
     uint32_t max_num_infers_ = 5;
     static const int64 INFER_SEM_MAX_CAPACITY = 2048;
@@ -60,6 +47,7 @@ private:
     bool infer_sem_initialized_ = false;
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
+    SharedMemoryManager shm_;
 };
 
 

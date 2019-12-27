@@ -1,14 +1,12 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#include <sstream>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <grpcpp/grpcpp.h>
 #include "tensorflow/core/platform/env.h"
 #include "neuron_clib.h"
 #include "nmgr.pb.h"
+#include "nerr.pb.h"
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
@@ -294,7 +292,8 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
 }
 
 Status NeuronDevice::initialize(const std::string &nrtd_address, int num_cores_req) {
-    TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address));
+    nrtd_address_ = nrtd_address;
+    TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address_));
     nrt::create_eg_request request;
     if (num_cores_req >= 0) {
         request.set_nc_count((uint32_t)num_cores_req);
@@ -304,13 +303,13 @@ Status NeuronDevice::initialize(const std::string &nrtd_address, int num_cores_r
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
         std::string message(" is unavailable. Is neuron-rtd running?");
         std::string unix_prefix("unix:");
-        size_t start = nrtd_address.find(unix_prefix);
+        size_t start = nrtd_address_.find(unix_prefix);
         if (0 == start) {
             message += " Is socket ";
-            message += nrtd_address.substr(start + unix_prefix.length());
+            message += nrtd_address_.substr(start + unix_prefix.length());
             message += " writable?";
         }
-        return errors::Unavailable("grpc server ", nrtd_address, message);
+        return errors::Unavailable("grpc server ", nrtd_address_, message);
     }
     NRT_CHECK_RETURN("create_eg", status, response);
     num_cores_ = response.nc_count();
@@ -394,9 +393,106 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
-Status NeuronDevice::is_valid() {
-    return create_eg_done_ ? Status::OK()
-                           : errors::Internal("neuron_device is not initialized");
+Status NeuronDevice::infer(nrt::infer_response *response, Timestamps *timestamps,
+                           ProfilerInterface *profile, const uint32_t nn_id,
+                           AttrList &input_names, AttrList &output_names,
+                           const std::vector<const Tensor*> &input_tensors,
+                           const SharedMemoryManager &shm) {
+    tensorflow::mutex_lock lock(mutex_eg_);
+    TF_RETURN_IF_ERROR(start_model(nn_id));
+    if (profile->enabled_) profile->start_session(nrtd_address_, nn_id);
+    nrt::infer_request request;
+    for (int idx = 0; idx < input_names.s_size(); ++idx) {
+        nrt::infer_io *infer_io = request.add_ifmap();
+        infer_io->set_name(input_names.s(idx));
+        StringPiece tensor_data(input_tensors[idx]->tensor_data());
+        if (shm.enabled_) {
+            infer_io->mutable_buf_shm()->set_path(shm.input_names_[idx]);
+            std::memcpy(shm.input_ptrs_[idx], tensor_data.data(), tensor_data.size());
+        } else {
+            infer_io->set_buf(tensor_data.data(), tensor_data.size());
+        }
+    }
+    if (shm.enabled_) {
+        for (int idx = 0; idx < output_names.s_size(); ++idx) {
+            nrt::infer_io *infer_io = request.add_shm_ofmap();
+            infer_io->set_name(output_names.s(idx));
+            infer_io->mutable_buf_shm()->set_path(shm.output_names_[idx]);
+        }
+    }
+    request.mutable_h_nn()->set_id(nn_id);
+
+    // infer
+    timestamps->mark_above_nrtd_infer();
+    grpc::Status status = NRT_GRPC(stub_->infer, request, response);
+    timestamps->mark_below_nrtd_infer();
+    if (status.ok()) {
+        // ignore inf/nan errors
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
+            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
+        }
+    }
+    if (profile->enabled_) profile->stop_session();
+    NRT_CHECK_RETURN("infer", status, *response);
+    if (shm.enabled_) {
+        for (int idx = 0; idx < output_names.s_size(); ++idx) {
+            nrt::infer_io *infer_io = response->add_ofmap();
+            infer_io->set_name(output_names.s(idx));
+            infer_io->set_buf(shm.output_ptrs_[idx], shm.output_sizes_[idx]);
+        }
+    }
+    return Status::OK();
+}
+
+Status NeuronDevice::infer_post(uint64_t *cookie, SemResQueue *sem_res_queue,
+                                xla::Semaphore *infer_sem, Timestamps *timestamps,
+                                const uint32_t nn_id, AttrList &input_names,
+                                const std::vector<const Tensor*> &input_tensors) {
+    tensorflow::mutex_lock lock(mutex_eg_);
+    sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    return infer_post_unsafe(cookie, timestamps, nn_id, input_names, input_tensors);
+}
+
+void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
+    mutex_lock_queue->emplace(mutex_eg_);
+}
+
+Status NeuronDevice::infer_post_unsafe(uint64_t *cookie, Timestamps *timestamps,
+                                       const uint32_t nn_id, AttrList &input_names,
+                                       const std::vector<const Tensor*> &input_tensors) {
+    TF_RETURN_IF_ERROR(start_model(nn_id));
+    nrt::infer_request request;
+    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+        nrt::infer_io *infer_io = request.add_ifmap();
+        infer_io->set_name(input_names.s(idx));
+        StringPiece tensor_data(input_tensors[idx]->tensor_data());
+        infer_io->set_buf((void*)tensor_data.data(), tensor_data.size());
+    }
+    request.mutable_h_nn()->set_id(nn_id);
+
+    // infer
+    nrt::infer_post_response response;
+    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
+    grpc::Status status = NRT_GRPC(stub_->infer_post, request, &response);
+    NRT_CHECK_RETURN("infer_post", status, response);
+    *cookie = response.cookie();
+    return Status::OK();
+}
+
+Status NeuronDevice::infer_wait(nrt::infer_response *response, const uint64_t cookie) {
+    nrt::infer_wait_request request;
+    request.set_cookie(cookie);
+
+    // infer_wait
+    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, response);
+    if (status.ok()) {
+        // ignore inf/nan errors
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
+            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
+        }
+    }
+    NRT_CHECK_RETURN("infer_wait", status, *response);
+    return Status::OK();
 }
 
 void NeuronDevice::clear() {
@@ -431,6 +527,31 @@ void NeuronDevice::clear() {
         create_eg_done_ = false;
         VLOG(1) << "destroy_eg from NeuronDevice::clear";
     }
+}
+
+Status NeuronDevice::start_model(const uint32_t nn_id) {
+    if (!create_eg_done_) {
+        return errors::Internal("neuron_device is not initialized");
+    }
+    if (!running(nn_id) && is_busy()) {
+        // if nn_id is not running, stop the current running model
+        nrt::stop_request request;
+        request.mutable_h_nn()->set_id(nn_get_current_running());
+        nrt::stop_response response;
+        grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
+        NRT_CHECK_RETURN("stop", status, response);
+        set_running(NRT_INVALID_NN_ID);
+    }
+    if (!is_busy()) {
+        // if no model is running, start nn_id
+        nrt::start_request request;
+        request.mutable_h_nn()->set_id(nn_id);
+        nrt::start_response response;
+        grpc::Status status = NRT_GRPC(stub_->start, request, &response);
+        NRT_CHECK_RETURN("start", status, response);
+        set_running(nn_id);
+    }
+    return Status::OK();
 }
 
 bool NeuronDevice::is_busy() {
