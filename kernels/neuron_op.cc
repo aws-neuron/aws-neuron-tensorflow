@@ -23,7 +23,6 @@ namespace tensorflow {
 namespace neuron {
 
 
-static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 
 
@@ -164,7 +163,9 @@ Status NeuronOp::initialize() {
     TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address_));
     model_config.parse_timeout(model_config_attr);
     model_config.parse_ninfer(model_config_attr, neuron_device_);
-    TF_RETURN_IF_ERROR(load(model_config.timeout_, model_config.ninfer_));
+    StringPiece executable(def().attr().at("executable").s());
+    TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
+                                            model_config.ninfer_));
     VLOG(1) << "load: number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
@@ -224,53 +225,6 @@ Status NeuronOp::initialize() {
         VLOG(1) << "infer semaphore capacity " << infer_sem_capacity;
     }
     ready_ = true;
-    return Status::OK();
-}
-
-Status NeuronOp::load(const uint32_t timeout, const uint32_t ninfer) {
-    // load
-    grpc::ClientContext context;
-    nrt::load_response response;
-    std::unique_ptr<grpc::ClientWriter<nrt::load_request> > writer(
-        stub_->load(&context, &response));
-    nrt::load_request request;
-
-    #define WRITE_LOAD_REQUEST {                                                \
-        if (!writer->Write(request)) {                                          \
-            return errors::Internal("neuron-rtd load failure - broken stream"); \
-        }                                                                       \
-    }
-    // eg_id
-    request.mutable_h_eg()->set_id(neuron_device_->eg_id());
-    WRITE_LOAD_REQUEST;
-
-    // neff_size
-    size_t exec_total_size = def().attr().at("executable").s().size();
-    request.set_neff_size(exec_total_size);
-    WRITE_LOAD_REQUEST;
-
-    // model_params
-    nrt::model_params *model_params = request.mutable_model_params();
-    model_params->mutable_timeout()->set_data(timeout);
-    model_params->mutable_ninfer()->set_data(ninfer);
-    WRITE_LOAD_REQUEST;
-
-    // neff file content
-    StringPiece executable_view(def().attr().at("executable").s());
-    for (size_t pos = 0; pos < exec_total_size; pos += EXEC_MAX_CHUNK_SIZE) {
-        size_t remaining = exec_total_size - pos;
-        size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
-        StringPiece file_chunk = executable_view.substr(pos, chunk_size);
-        request.mutable_neff_chunk()->set_chunk(file_chunk.data(), chunk_size);
-        WRITE_LOAD_REQUEST;
-    }
-    if (!writer->WritesDone()) {
-        return errors::Internal("neuron-rtd load failure - broken stream");
-    }
-    grpc::Status status = writer->Finish();
-    NRT_CHECK_RETURN("load", status, response);
-    nn_id_ = response.h_nn().id();
-    neuron_device_->register_executable(nn_id_);
     return Status::OK();
 }
 

@@ -266,7 +266,6 @@ Status NeuronDeviceManager::clear_if_empty() {
 
 void NeuronDeviceManager::clear() {
     for (size_t idx = 0; idx < num_devices_; ++idx) {
-        tensorflow::mutex_lock lock(device_array_[idx].mutex_eg_);
         device_array_[idx].clear();
     }
     num_devices_ = 0;
@@ -321,6 +320,54 @@ Status NeuronDevice::initialize(const std::string &nrtd_address, int num_cores_r
     return Status::OK();
 }
 
+Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
+                          const uint32_t timeout, const uint32_t ninfer) {
+    // load
+    grpc::ClientContext context;
+    nrt::load_response response;
+    std::unique_ptr<grpc::ClientWriter<nrt::load_request> > writer(
+        stub_->load(&context, &response));
+    nrt::load_request request;
+
+    #define WRITE_LOAD_REQUEST {                                                \
+        if (!writer->Write(request)) {                                          \
+            return errors::Internal("neuron-rtd load failure - broken stream"); \
+        }                                                                       \
+    }
+    // eg_id
+    request.mutable_h_eg()->set_id(eg_id_);
+    WRITE_LOAD_REQUEST;
+
+    // neff_size
+    size_t exec_total_size = executable.size();
+    request.set_neff_size(exec_total_size);
+    WRITE_LOAD_REQUEST;
+
+    // model_params
+    nrt::model_params *model_params = request.mutable_model_params();
+    model_params->mutable_timeout()->set_data(timeout);
+    model_params->mutable_ninfer()->set_data(ninfer);
+    WRITE_LOAD_REQUEST;
+
+    // neff file content
+    for (size_t pos = 0; pos < exec_total_size; pos += EXEC_MAX_CHUNK_SIZE) {
+        size_t remaining = exec_total_size - pos;
+        size_t chunk_size = std::min(remaining, EXEC_MAX_CHUNK_SIZE);
+        StringPiece file_chunk = executable.substr(pos, chunk_size);
+        request.mutable_neff_chunk()->set_chunk(file_chunk.data(), chunk_size);
+        WRITE_LOAD_REQUEST;
+    }
+    if (!writer->WritesDone()) {
+        return errors::Internal("neuron-rtd load failure - broken stream");
+    }
+    grpc::Status status = writer->Finish();
+    NRT_CHECK_RETURN("load", status, response);
+    tensorflow::mutex_lock lock(mutex_eg_);
+    nn_id_set_.insert(response.h_nn().id());
+    *nn_id = response.h_nn().id();
+    return Status::OK();
+}
+
 void NeuronDevice::unload(const uint32_t nn_id) {
     {
         tensorflow::mutex_lock lock(mutex_eg_);
@@ -353,6 +400,7 @@ Status NeuronDevice::is_valid() {
 }
 
 void NeuronDevice::clear() {
+    tensorflow::mutex_lock lock(mutex_eg_);
     for (uint32_t nn_id : nn_id_set_) {
         // stop
         if (running(nn_id)) {
@@ -383,11 +431,6 @@ void NeuronDevice::clear() {
         create_eg_done_ = false;
         VLOG(1) << "destroy_eg from NeuronDevice::clear";
     }
-}
-
-void NeuronDevice::register_executable(uint32_t nn_id) {
-    tensorflow::mutex_lock lock(mutex_eg_);
-    nn_id_set_.insert(nn_id);
 }
 
 bool NeuronDevice::is_busy() {

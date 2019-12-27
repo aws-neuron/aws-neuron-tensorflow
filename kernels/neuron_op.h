@@ -34,7 +34,6 @@ public:
 
 private:
     Status initialize();
-    Status load(const uint32_t timeout, const uint32_t ninfer);
     Status prepare_shared_memory();
     Status start_model();
     void profile_dump_info();

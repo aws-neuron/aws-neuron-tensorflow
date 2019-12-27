@@ -93,12 +93,12 @@ class NeuronDevice {
 public:
     NeuronDevice() {};
     Status initialize(const std::string &nrtd_address, int num_cores_req);
+    Status load(uint32_t *nn_id, const StringPiece &executable,
+                const uint32_t timeout, const uint32_t ninfer);
     void unload(const uint32_t nn_id);
     void clear();
-    uint32_t eg_id() { return eg_id_; };
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
-    void register_executable(uint32_t nn_id);
     Status is_valid();
     bool is_busy();
     bool running(uint32_t nn_id);
@@ -112,6 +112,7 @@ private:
     uint32_t running_nn_id_;
     std::set<uint32_t> nn_id_set_;
     uint32_t num_cores_ = 0;
+    static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
 };
 
 
