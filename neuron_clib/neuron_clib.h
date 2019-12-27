@@ -6,6 +6,7 @@
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/mutex.h"
 #include "timestamps.h"
+#include "profiler.h"
 #include "nmgr_service.grpc.pb.h"
 
 

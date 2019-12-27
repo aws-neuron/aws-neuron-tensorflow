@@ -34,11 +34,9 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
     VLOG(1) << "calling NeuronOp constructor";
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
                 errors::InvalidArgument("neff is invalid"));
-    profile_dir_ = env_get("NEURON_PROFILE");
-    profile_enabled_ = !profile_dir_.empty();
-    if (profile_enabled_) {
-        profile_dump_info();
-    }
+    profile_.initialize(env_get("NEURON_PROFILE"), def().name());
+    if (profile_.enabled_) profile_.dump_info(def().attr().at("graph_def").s(),
+                                              def().attr().at("executable").s());
     VLOG(1) << "NeuronOp constructor done";
 }
 
@@ -591,7 +589,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }   // semaphore reservation queue goes out of scope
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
-    } else if (profile_enabled_ || shm_.enabled_) {
+    } else if (profile_.enabled_ || shm_.enabled_) {
         VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         std::vector<Tensor*> output_tensors;
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
@@ -604,9 +602,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
             OP_REQUIRES_OK(ctx, neuron_device_->is_valid());
             OP_REQUIRES_OK(ctx, start_model());
-            profile_start_session();
+            if (profile_.enabled_) profile_.start_session(nrtd_address_, nn_id_);
             Status status = infer(&output_tensors, input_tensors, &timestamps);
-            profile_stop_session();
+            if (profile_.enabled_) profile_.stop_session();
             OP_REQUIRES_OK(ctx, status);
         }   // unlock EG
         timestamps.mark_exit();
@@ -662,89 +660,6 @@ Status NeuronOp::start_model() {
         neuron_device_->set_running(nn_id_);
     }
     return Status::OK();
-}
-
-
-template<typename... Args>
-Status subprocess_run(Args... args) {
-    pid_t fork_pid;
-    SYS_FAIL_RETURN((fork_pid = fork()) < 0, "fork");
-    if (0 == fork_pid) {
-        execlp(args..., (char*)NULL);
-        LOG(ERROR) << "execlp failed";
-        _exit(1);
-    } else {
-        int status;
-        SYS_FAIL_RETURN(waitpid(fork_pid, &status, 0) < 0, "waitpid");
-        if (!(WIFEXITED(status) && 0 == WEXITSTATUS(status))) {
-            return errors::Internal("child process did not exit gracefully");
-        }
-    }
-    return Status::OK();
-}
-
-
-static std::string mangle_op_name(const std::string &op_name) {
-    std::string new_op_name(op_name);
-    for (size_t idx = 0; idx < new_op_name.length(); ++idx) {
-        if ('/' == new_op_name[idx]) {
-            new_op_name[idx] = '+';
-        }
-    }
-    return new_op_name;
-}
-
-
-void NeuronOp::profile_dump_info() {
-    std::string filename_base = profile_dir_ + "/" + mangle_op_name(def().name());
-    std::string filename_pb = filename_base + ".pb";
-    std::string filename_neff = filename_base + ".neff";
-    std::ofstream(filename_pb, std::ios::binary) << def().attr().at("graph_def").s();
-    std::ofstream(filename_neff, std::ios::binary) << def().attr().at("executable").s();
-}
-
-
-void NeuronOp::profile_start_session() {
-    if (profile_enabled_) {
-        std::string new_op_name = mangle_op_name(def().name());
-        std::ostringstream filename_stream;
-        filename_stream << profile_dir_ << "/" << new_op_name << "-"
-                        << nn_id_ << "-" << profile_session_id_ << ".ntff";
-        profile_session_filename_ = filename_stream.str();
-        std::ostringstream cmd_stream;
-        cmd_stream << "neuron-profile start-session -s " << profile_session_filename_
-                   << " -a " << nrtd_address_ << " " << nn_id_;
-        VLOG(1) << "Starting profiling session by " << cmd_stream.str();
-        std::ostringstream nn_id_stream;
-        nn_id_stream << nn_id_;
-        Status status = subprocess_run(
-            "neuron-profile", "neuron-profile", "start-session", "-s",
-            profile_session_filename_.c_str(), "-a", nrtd_address_.c_str(),
-            nn_id_stream.str().c_str());
-        if (!status.ok()) {
-            profile_session_filename_ = "";
-            LOG(WARNING) << "neuron-profile start-session failed. "
-                         << "Did you install aws-neuron-tools?";
-            return;
-        }
-        profile_session_id_++;
-    }
-}
-
-
-void NeuronOp::profile_stop_session() {
-    if (profile_enabled_ && !profile_session_filename_.empty()) {
-        std::ostringstream cmd_stream;
-        cmd_stream << "neuron-profile stop-session -s " << profile_session_filename_;
-        VLOG(1) << "Stopping profiling session by " << cmd_stream.str();
-        Status status = subprocess_run(
-            "neuron-profile", "neuron-profile", "stop-session", "-s",
-            profile_session_filename_.c_str());
-        if (!status.ok()) {
-            LOG(ERROR) << "neuron-profile stop-session failed";
-        }
-        profile_session_filename_ = "";
-    }
 }
 
 

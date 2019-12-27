@@ -36,9 +36,6 @@ private:
     Status initialize();
     Status prepare_shared_memory();
     Status start_model();
-    void profile_dump_info();
-    void profile_start_session();
-    void profile_stop_session();
     Status infer(std::vector<Tensor*> *output_tensors,
                  const std::vector<const Tensor*> &input_tensors,
                  Timestamps *timestamps);
@@ -62,10 +59,7 @@ private:
     xla::Semaphore infer_sem_;
     bool infer_sem_initialized_ = false;
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
-    int profile_session_id_ = 0;
-    bool profile_enabled_ = false;
-    std::string profile_dir_ = "";
-    std::string profile_session_filename_ = "";
+    ProfilerInterface profile_;
 };
 
 
