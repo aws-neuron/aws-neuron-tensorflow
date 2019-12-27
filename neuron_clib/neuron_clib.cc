@@ -321,6 +321,32 @@ Status NeuronDevice::initialize(const std::string &nrtd_address, int num_cores_r
     return Status::OK();
 }
 
+void NeuronDevice::unload(const uint32_t nn_id) {
+    {
+        tensorflow::mutex_lock lock(mutex_eg_);
+        nn_id_set_.erase(nn_id);
+        // stop
+        if (running(nn_id)) {
+            nrt::stop_request request;
+            request.mutable_h_nn()->set_id(nn_id);
+            nrt::stop_response response;
+            grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
+            NRT_CHECK_LOG("stop", status, response);
+            set_running(NRT_INVALID_NN_ID);
+        }
+    }
+
+    // unload
+    if (NRT_INVALID_NN_ID != nn_id) {
+        nrt::unload_request request;
+        request.mutable_h_nn()->set_id(nn_id);
+        nrt::unload_response response;
+        grpc::Status status = NRT_GRPC(stub_->unload, request, &response);
+        NRT_CHECK_LOG("unload", status, response);
+    }
+    VLOG(1) << "unload: number of NEFFs: " << num_executable();
+}
+
 Status NeuronDevice::is_valid() {
     return create_eg_done_ ? Status::OK()
                            : errors::Internal("neuron_device is not initialized");
@@ -362,11 +388,6 @@ void NeuronDevice::clear() {
 void NeuronDevice::register_executable(uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
     nn_id_set_.insert(nn_id);
-}
-
-void NeuronDevice::deregister_executable(uint32_t nn_id) {
-    tensorflow::mutex_lock lock(mutex_eg_);
-    nn_id_set_.erase(nn_id);
 }
 
 bool NeuronDevice::is_busy() {

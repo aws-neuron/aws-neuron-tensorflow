@@ -93,12 +93,12 @@ class NeuronDevice {
 public:
     NeuronDevice() {};
     Status initialize(const std::string &nrtd_address, int num_cores_req);
+    void unload(const uint32_t nn_id);
     void clear();
     uint32_t eg_id() { return eg_id_; };
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
     void register_executable(uint32_t nn_id);
-    void deregister_executable(uint32_t nn_id);
     Status is_valid();
     bool is_busy();
     bool running(uint32_t nn_id);

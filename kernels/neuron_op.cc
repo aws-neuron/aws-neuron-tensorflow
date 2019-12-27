@@ -243,7 +243,6 @@ Status NeuronOp::load(const AttrList &model_config) {
     grpc::Status status = writer->Finish();
     NRT_CHECK_RETURN("load", status, response);
     nn_id_ = response.h_nn().id();
-    load_done_ = true;
     neuron_device_->register_executable(nn_id_);
     return Status::OK();
 }
@@ -273,30 +272,7 @@ NeuronOp::~NeuronOp() {
             VLOG(1) << "neuron_device_ not available; not tearing down";
             return;
         }
-
-        {
-            tensorflow::mutex_lock lock(neuron_device_->mutex_eg_);
-            // stop
-            if (neuron_device_->running(nn_id_)) {
-                nrt::stop_request request;
-                request.mutable_h_nn()->set_id(nn_id_);
-                nrt::stop_response response;
-                grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
-                NRT_CHECK_LOG("stop", status, response);
-                neuron_device_->set_running(NRT_INVALID_NN_ID);
-            }
-        }
-
-        // unload
-        if (load_done_) {
-            nrt::unload_request request;
-            request.mutable_h_nn()->set_id(nn_id_);
-            nrt::unload_response response;
-            grpc::Status status = NRT_GRPC(stub_->unload, request, &response);
-            NRT_CHECK_LOG("unload", status, response);
-        }
-        neuron_device_->deregister_executable(nn_id_);
-        VLOG(1) << "unload: number of NEFFs: " << neuron_device_->num_executable();
+        neuron_device_->unload(nn_id_);
         VLOG(1) << "unload from NeuronOp::~NeuronOp";
         global_neuron_device_manager.clear_if_empty();
         VLOG(1) << "NeuronOp destructor done";

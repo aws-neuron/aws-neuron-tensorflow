@@ -53,13 +53,12 @@ private:
     std::string nrtd_address_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
-    bool load_done_ = false;
     bool ready_ = false;
     bool unloaded_ = false;
     bool enable_dynamic_batch_size_ = false;
     SharedMemoryManager shm_;
     std::vector<size_t> input_tensor_sizes_;
-    uint32_t max_num_infers_;
+    uint32_t max_num_infers_ = 5;
     static const int64 DEFAULT_MAX_NUM_INFER = 4;
     static const int64 NRTD_INSUFFICIENT_NUM_INFER = 1;
     static const int64 NRTD_NUM_CPU_THREADS = 3;
