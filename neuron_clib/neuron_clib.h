@@ -5,6 +5,7 @@
 
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/mutex.h"
+#include "timestamps.h"
 #include "nmgr_service.grpc.pb.h"
 
 
@@ -138,24 +139,6 @@ private:
     size_t device_index_ = 0;
     size_t num_devices_ = 0;
     bool ready_ = false;
-};
-
-
-class FALTimestamps {
-public:
-    void mark_enter() { enter_ = now(); };
-    void mark_above_nrtd_infer() { above_nrtd_infer_ = now(); };
-    void mark_below_nrtd_infer() { below_nrtd_infer_ = now(); };
-    void mark_exit() { exit_ = now(); };
-    std::string timing_string();
-private:
-    uint64 enter_ = 0;
-    uint64 above_nrtd_infer_ = 0;
-    uint64 below_nrtd_infer_ = 0;
-    uint64 exit_ = 0;
-
-    std::string time_unit_ = " us";
-    uint64 now();
 };
 
 

@@ -5,7 +5,7 @@ load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 
 cc_library(
     name = "neuron_clib",
-    srcs = ["neuron_clib.cc"],
+    srcs = ["neuron_clib.cc", "timestamps.h"],
     hdrs = ["neuron_clib.h"],
     deps = [
         ":nmgr_service.grpc.o",

@@ -41,7 +41,7 @@ private:
     void profile_stop_session();
     Status infer(std::vector<Tensor*> *output_tensors,
                  const std::vector<const Tensor*> &input_tensors,
-                 FALTimestamps *timestamps);
+                 Timestamps *timestamps);
     Status infer_post(uint64_t *cookie,
                       const std::vector<const Tensor*> &input_tensors);
     Status infer_wait(nrt::infer_response *response, uint64_t cookie);

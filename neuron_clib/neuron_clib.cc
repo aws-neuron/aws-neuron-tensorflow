@@ -450,33 +450,6 @@ void NeuronDevice::set_running(uint32_t nn_id) {
 }
 
 
-static std::string uint64_to_string(uint64 number) {
-    std::ostringstream oss;
-    oss << number;
-    return oss.str();
-}
-
-std::string FALTimestamps::timing_string() {
-    std::string result("NeuronOp enter timestamp: ");
-    result += uint64_to_string(enter_);
-    result += time_unit_;
-    result += ", preprocessing time ";
-    result += uint64_to_string(above_nrtd_infer_ - enter_);
-    result += time_unit_;
-    result += ", neuron-rtd infer time ";
-    result += uint64_to_string(below_nrtd_infer_ - above_nrtd_infer_);
-    result += time_unit_;
-    result += ", postprocessing time ";
-    result += uint64_to_string(exit_ - below_nrtd_infer_);
-    result += time_unit_;
-    return result;
-}
-
-uint64 FALTimestamps::now() {
-    return Env::Default()->NowMicros();
-}
-
-
 std::string env_get(const char *env_var, const char *default_env_var) {
     char *str = std::getenv(env_var);
     return str ? str : default_env_var;

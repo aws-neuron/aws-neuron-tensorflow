@@ -327,7 +327,7 @@ static Status tensor_memset(Tensor *tensor, int ch) {
 
 
 void NeuronOp::Compute(OpKernelContext *ctx) {
-    FALTimestamps timestamps;
+    Timestamps timestamps;
     timestamps.mark_enter();
 
     if (!ready_) {
@@ -750,7 +750,7 @@ void NeuronOp::profile_stop_session() {
 
 Status NeuronOp::infer(std::vector<Tensor*> *output_tensors,
                        const std::vector<const Tensor*> &input_tensors,
-                       FALTimestamps *timestamps) {
+                       Timestamps *timestamps) {
     if (!ready_) {
         return errors::FailedPrecondition("not ready for inference");
     }
