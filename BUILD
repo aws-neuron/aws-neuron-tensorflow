@@ -142,9 +142,10 @@ cc_library(
     name = "convert_graph",
     srcs = ["convert/convert_graph.cc"],
     hdrs = ["convert/convert_graph.h"],
+    copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         ":segment",
-		"//tensorflow/python/neuron:all_ops",
+        "//tensorflow/python/neuron:all_ops",
         "//tensorflow/core:core_cpu_headers_lib",
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",
@@ -155,12 +156,14 @@ cc_library(
 
 cc_library(
     name = "segment",
-    srcs = ["segment/segment.cc"],
-    hdrs = [
-        "segment/segment.h",
-        "segment/union_find.h",
+    srcs = [
+        "//tensorflow/compiler/tf2tensorrt:segment/segment.cc",
+        "//tensorflow/compiler/tf2tensorrt:segment/union_find.h",
     ],
-    linkstatic = 1,
+    hdrs = [
+        "//tensorflow/compiler/tf2tensorrt:segment/segment.h",
+    ],
+    copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         "//tensorflow/core:core",
         "//tensorflow/core:protos_all_cc",

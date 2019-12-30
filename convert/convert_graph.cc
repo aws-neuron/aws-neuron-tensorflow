@@ -24,33 +24,39 @@ limitations under the License.
 #include "tensorflow/core/platform/logging.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/platform/types.h"
+#include "tensorflow/compiler/tf2tensorrt/segment/segment.h"
 #include "tensorflow/python/neuron/convert/convert_graph.h"
-#include "tensorflow/python/neuron/segment/segment.h"
 
 
 namespace tensorflow {
 namespace kaena {
 namespace convert {
 
-using ::tensorflow::strings::StrAppend;
-using ::tensorflow::strings::StrCat;
 
-bool IsEIACandidate(const tensorflow::Node* node,
-                    const std::set<std::string>& op_whitelist,
-                    const std::set<std::string>& op_cpu,
-                    const std::set<std::string>& op_inferentia) {
-  bool isSourceorSink = node->IsSink() || node->IsSource();
-  bool isWhitelisted = op_whitelist.count(node->type_string());
-  bool isOnCPU = op_cpu.count(node->name());
-  bool isOnInferentia = op_inferentia.count(node->name());
-  return (isWhitelisted && !isSourceorSink && !isOnCPU) || isOnInferentia;
-}
+// Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
+// Helper class for the segmenter to determine whether an output edge from the
+// TRT segment is valid.
+class OutputEdgeValidator {
+ public:
+  // Return true if the specified edge is eligible to be an output edge of the
+  // TRT segment.
+  bool operator()(const Edge* out_edge) const {
+    if (out_edge->IsControlEdge()) return true;
+    if (out_edge->src()->type_string() == "Const") {
+      VLOG(1) << "--> Need to remove output node " << out_edge->src()->name()
+              << " which is a Const.";
+      return false;
+    }
+    return true;
+  }
+};
+
 
 // Helper function to split tensor and tensor spec (i.e conv:2 -> conv, 2)
 std::vector<string> split(string str, string token) {
   std::vector<string> result;
   while (str.size()) {
-    int index = str.find(token);
+    size_t index = str.find(token);
     if (index != string::npos) {
       result.push_back(str.substr(0, index));
       str = str.substr(index + token.size());
@@ -61,81 +67,6 @@ std::vector<string> split(string str, string token) {
     }
   }
   return result;
-}
-
-// Helper function
-static string EdgeIter(const Graph& g) {
-  std::vector<std::pair<int, int>> edges;
-  for (const Edge* e : g.edges()) {
-    edges.push_back(std::make_pair(e->src()->id(), e->dst()->id()));
-  }
-  std::sort(edges.begin(), edges.end());
-  string result;
-  for (auto& p : edges) {
-    strings::StrAppend(&result, p.first, "->", p.second, ";");
-  }
-  return result;
-}
-
-// Helper function
-Status MakePlaceholder(string name, Node* old_node, Node** new_node, Graph* g,
-                       DataType n_type, int output_index = 0)
-/*
- * Function to make a placeholder with specific attributes, Currently only
- * copies shape
- * Input:
- *  Name: of the place holder
- *  old_node: Original Node
- *  Graph g: graph to create nodes in
- *  n_type: Type of the placeholder
- *  output_index: which output we are creating the placeholder for.. Shouldn't
- * need this if no vector
- * Output:
- *  new_node: New node that will be created
- *
- *  Return:
- *    Status of Creation
- *
- */
-{
-  AttrSlice attrs = old_node->attrs();
-  TensorShape tensor_shape;
-  PartialTensorShape partial_shape;
-  std::vector<PartialTensorShape> v_partial_shape;
-  std::vector<TensorShape> v_tensor_shape;
-  Status s;
-  if ((GetNodeAttr(attrs, "shape", &tensor_shape).ok())) {
-    s = NodeBuilder(name, "Placeholder")
-            .Attr("shape", tensor_shape)
-            .Attr("dtype", n_type)
-            .Finalize(g, new_node);
-  } else if ((GetNodeAttr(attrs, "shape", &partial_shape).ok())) {
-    s = NodeBuilder(name, "Placeholder")
-            .Attr("shape", partial_shape)
-            .Attr("dtype", n_type)
-            .Finalize(g, new_node);
-  } else if ((GetNodeAttr(attrs, "output_shapes", &v_tensor_shape).ok())) {
-    s = NodeBuilder(name, "Placeholder")
-            .Attr("shape", v_tensor_shape[output_index])
-            .Attr("dtype", n_type)
-            .Finalize(g, new_node);
-  } else if ((GetNodeAttr(attrs, "output_shapes", &v_partial_shape).ok())) {
-    s = NodeBuilder(name, "Placeholder")
-            .Attr("shape", v_partial_shape[output_index])
-            .Attr("dtype", n_type)
-            .Finalize(g, new_node);
-  } else {
-    s = NodeBuilder(name, "Placeholder")
-            .Attr("dtype", n_type)
-            .Finalize(g, new_node);
-  }
-  if (new_node) {
-    VLOG(1) << (*new_node)->DebugString();
-  } else {
-    LOG(ERROR) << "MakePlaceholder failed. new_node is NULL";
-  }
-  TF_CHECK_OK(s);
-  return s;
 }
 
 // Helper function
@@ -200,87 +131,6 @@ tensorflow::Status BuildNodeMap(
   return tensorflow::Status::OK();
 }
 
-static void printDataTypeVector(std::vector<tensorflow::DataType>& dt_vec) {
-  VLOG(2) << "printing data type vector" << std::endl;
-  for (tensorflow::DataType dt : dt_vec) {
-    VLOG(2) << dt << std::endl;
-  }
-}
-
-static void printNodeOutVector(std::vector<NodeBuilder::NodeOut>& node_vec) {
-  for (NodeBuilder::NodeOut node : node_vec) {
-    VLOG(2) << node.name << std::endl;
-  }
-}
-
-static void printNameVector(std::vector<string>& name_vec) {
-  VLOG(2) << "printing name vector" << std::endl;
-  for (string name : name_vec) {
-    VLOG(2) << name << std::endl;
-  }
-}
-
-static void printNodes(const Graph& graph) {
-  VLOG(2) << "printing nodes" << std::endl;
-  for (Node* node : graph.nodes()) {
-    if (node) VLOG(2) << node->name() << std::endl;
-  }
-}
-
-static void printGraphDefNodes(const GraphDef& gdef) {
-  for (int i = 0; i < gdef.node_size(); i++) {
-    VLOG(2) << "node: " << gdef.node(i).name();
-  }
-}
-
-// helper function
-template <class T>
-bool IsPresentinMap(const T& map_list, const string& value) {
-  return (map_list.find(value) != map_list.end());
-}
-
-static void GetOutputInforamtion(const tensorflow::Graph& graph,
-                                 const std::set<int>& subgraph_node_ids,
-                                 std::vector<string>& output_names,
-                                 std::vector<tensorflow::DataType>& outT) {
-  for (unsigned int ii = 0; ii < output_names.size(); ii++) {
-    VLOG(2) << subgraph_node_ids.size() << " Looking for " << output_names[ii]
-            << "\n";
-    for (int node_id : subgraph_node_ids) {
-      tensorflow::Node* node = graph.FindNodeId(node_id);
-      string name = output_names[ii];
-      VLOG(2) << "curr node name:  " << node->name() << "\n";
-      if (name.compare(node->name()) == 0) {
-        Node* tmp;
-        // Add Node to input and copy types and things
-        outT.push_back(node->output_type(0));
-      }
-    }
-  }
-}
-
-string GetCommonNameScope(const string& op_name_a, const string& op_name_b) {
-  size_t last_scope_separator = 0;
-  for (size_t i = 0; i < std::min(op_name_a.size(), op_name_b.size()); ++i) {
-    if (op_name_a[i] != op_name_b[i]) {
-      break;
-    } else if (op_name_a[i] == '/') {
-      last_scope_separator = i + 1;
-    }
-  }
-  return op_name_a.substr(0, last_scope_separator);
-}
-
-static void printGraphEdges(Graph* graph) {
-  for (tensorflow::Edge* edge : graph->edges()) {
-    VLOG(2) << "edge " << edge->id() << ": " << edge->src()->name() << ":"
-            << edge->src_output() << " (" << edge->src()->op_def().name()
-            << ") -> " << edge->dst()->name() << ":" << edge->dst_input()
-            << " (" << edge->dst()->op_def().name() << ") "
-            << "Control Edge: " << edge->IsControlEdge();
-  }
-}
-
 // Helper function to return tensor_name and index in a vector
 // will return 0 if name doesn't contain ':' in name.
 std::vector<string> split_tensor(string out_tensor) {
@@ -296,7 +146,7 @@ std::vector<string> split_tensor(string out_tensor) {
 
 // This function creates subgraph graph def and adds to main graph.
 tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
-  string eop_name = StrCat("neuron_op_", s.eop_index);
+  string eop_name = tensorflow::strings::StrCat("neuron_op_", s.eop_index);
   VLOG(1) << "Start Node building ...." << eop_name;
 
   std::vector<string> input_names;
@@ -466,7 +316,6 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   }
 
   VLOG(2) << "EI subgraph graphdef: " << subgraph_graph_def.DebugString();
-  printGraphDefNodes(subgraph_graph_def);
 
   string in_graph_def_string = "";
   if (!subgraph_graph_def.SerializeToString(&in_graph_def_string)) {
@@ -577,7 +426,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     auto name = name_index.first;
     VLOG(1) << " indentity inputs: name:" << name;
     VLOG(1) << " max index: " << map_out_names_to_index[name];
-    for (int i = 0; i < main_graph_output_nodes[name].size(); ++i) {
+    for (size_t i = 0; i < main_graph_output_nodes[name].size(); ++i) {
       VLOG(1) << "start_index: " << start_index;
       identity_inputs.push_back(NodeBuilder::NodeOut(eia_node, start_index++));
     }
@@ -633,7 +482,7 @@ static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams* p) {
 tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams* params) {
   TF_RETURN_IF_ERROR(FillSubGraphEdgeSets(params));
   tensorflow::NodeDef eia_node_def;
-  tensorflow::Node* eia_node;
+  tensorflow::Node* eia_node = nullptr;
 
   SubGraphParams s(params->graph, params->subgraph_node_ids,
                    params->output_names, params->subgraph_outputs,
@@ -716,23 +565,23 @@ static tensorflow::Status ExcludeInputNodes(
 static tensorflow::Status ProcessSegments(
     tensorflow::Graph& graph, const std::vector<string>& output_names,
     std::unordered_map<string, tensorflow::Node*>& node_map,
-    tensorflow::kaena::segment::SegmentNodesVector& segments, int& eop_index,
+    tensorflow::tensorrt::segment::SegmentNodesVector& segments, int& eop_index,
     std::unordered_map<string, int>* eop_index_to_name_map, string model_id) {
   tensorflow::Status status = tensorflow::Status::OK();
 
-  for (const std::set<string>& subgraph_node_names : segments) {
+  for (const std::set<const Node*>& subgraph_node_names : segments) {
     std::set<int> subgraph_node_ids;
     std::stringstream oss;
-    for (const string& node_name : subgraph_node_names) {
-      oss << " " << node_name;
-      if (!IsPresentinMap(node_map, node_name)) {
+    for (const Node* node : subgraph_node_names) {
+      oss << " " << node->name();
+      if (node_map.find(node->name()) == node_map.end()) {
         string msg =
             "Failed to find node in the graph while creating "
             "processing segments !!!!";
         VLOG(1) << msg;
         return tensorflow::Status(tensorflow::error::Code::INTERNAL, msg);
       }
-      subgraph_node_ids.insert(node_map.at(node_name)->id());
+      subgraph_node_ids.insert(node_map.at(node->name())->id());
     }
     VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
     VLOG(2) << "Subgraph nodes" << oss.str();
@@ -759,23 +608,23 @@ static tensorflow::Status ProcessSegments(
 }
 
 void ReplaceLoopEIAOpsWithNodes(
-    std::set<std::string>& segment_nodes,
-    tensorflow::kaena::segment::SegmentNodesVector& loop_segments,
+    std::set<const Node*>& segment_nodes,
+    tensorflow::tensorrt::segment::SegmentNodesVector& loop_segments,
     std::unordered_map<string, int>* eop_index_to_name_map) {
   // Parse through all the segment nodes and if it contains op names "eop_x",
   // replace that with ops in loop_segments index 'x' ops.
-  std::set<std::string> internal_eop_ops;
+  std::set<const Node*> internal_eop_ops;
   std::set<int> eop_index_to_be_added;
-  for (auto node_name : segment_nodes) {
-    if (node_name.find("eop") != std::string::npos) {
-      internal_eop_ops.insert(node_name);
-      VLOG(2) << " eop op " << node_name;
+  for (auto node : segment_nodes) {
+    if (node->name().find("eop") != std::string::npos) {
+      internal_eop_ops.insert(node);
+      VLOG(2) << " eop op " << node->name();
       // loop_segments index will match the eop name index i.e 'x' in 'eop_x'
       // since we created eop_x while iterating through loop_segments
-      std::size_t found = node_name.find_last_of("_");
+      std::size_t found = node->name().find_last_of("_");
       // std::string parent_name = node_names.substr(0, found);
-      auto loop_segment_index = (*eop_index_to_name_map)[node_name.substr(
-          found + 1, node_name.size())];
+      auto loop_segment_index = (*eop_index_to_name_map)[node->name().substr(
+          found + 1, node->name().size())];
       eop_index_to_be_added.insert(loop_segment_index);
       VLOG(1) << " loop_segment index: " << loop_segment_index;
     }
@@ -799,8 +648,8 @@ void ReplaceLoopEIAOpsWithNodes(
 
 void PreProcessSegmentsForResources(
     tensorflow::Graph& graph,
-    tensorflow::kaena::segment::SegmentNodesVector& normal_segments,
-    tensorflow::kaena::segment::SegmentNodesVector& loop_segments,
+    tensorflow::tensorrt::segment::SegmentNodesVector& normal_segments,
+    tensorflow::tensorrt::segment::SegmentNodesVector& loop_segments,
     // uint& ops_kept_local,
     std::unordered_map<string, int>* eop_index_to_name_map) {
   /*
@@ -814,11 +663,11 @@ void PreProcessSegmentsForResources(
   std::unordered_map<string, tensorflow::Node*> node_map;
   BuildNodeMap(graph, &node_map);
   std::set<int> remove_segment_index;
-  for (auto idx = 0; idx < normal_segments.size(); idx++) {
-    std::set<std::string>& nodes_in_segment = normal_segments[idx];
+  for (auto idx = 0; idx < (int)normal_segments.size(); idx++) {
+    std::set<const Node*>& nodes_in_segment = normal_segments[idx];
     std::set<int> subgraph_node_ids;
-    for (auto node_name : nodes_in_segment) {
-      subgraph_node_ids.insert(node_map[node_name]->id());
+    for (auto node : nodes_in_segment) {
+      subgraph_node_ids.insert(node_map[node->name()]->id());
     }
 
     tensorflow::EdgeSet incoming_edges;
@@ -859,17 +708,6 @@ void PreProcessSegmentsForResources(
   }
 }
 
-bool HasAttr(const NodeDef& node, const string& attr_name) {
-  return node.attr().count(attr_name) > 0;
-}
-
-const string& GetStringAttr(const NodeDef& node, const string& attr_name) {
-  CHECK(HasAttr(node, attr_name));
-  const auto& attr = node.attr().at(attr_name);
-  CHECK_EQ(attr.value_case(), AttrValue::kS);
-  return attr.s();
-}
-
 // Performing :
 // 1. Clearing device info from all nodes
 // 2. Removing _class:loc attr from nodedef
@@ -908,169 +746,6 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
   return tensorflow::Status::OK();
 }
 
-// Check if all the loop ops are in whitelist. If not all are in whitelist
-// remove the remaining from the list.
-bool SanitizeWhiteListforLoopOps(std::set<std::string>* op_whitelist,
-                                 std::vector<string>* loop_ops_deleted) {
-  std::vector<string> loop_ops{"Enter",         "Merge",    "Switch",
-                               "NextIteration", "LoopCond", "Exit"};
-
-  bool IsAllLoopOpsWhiteListed = true;
-  for (auto ops : loop_ops) {
-    if (op_whitelist->find(ops) == op_whitelist->end()) {
-      IsAllLoopOpsWhiteListed = false;
-      break;
-    }
-  }
-
-  if (!IsAllLoopOpsWhiteListed) {
-    // Can't have only partial list of loop ops in whitelist, since they
-    // always need to run on one device. Removing from whitelist.
-    for (auto ops : loop_ops) {
-      if (op_whitelist->find(ops) != op_whitelist->end()) {
-        op_whitelist->erase(ops);
-        loop_ops_deleted->push_back(ops);
-      }
-    }
-  }
-
-  return IsAllLoopOpsWhiteListed;
-}
-
-// This does a DFS to find all the ops between EI ops.
-void FindCulpritOps(Node* curr_node, std::set<string>& culprit_ops,
-                    std::set<string> temp_list,
-                    const std::set<string>& input_names_set,
-                    const std::set<string>& output_names_set,
-                    std::set<string>& processed_nodes,
-                    const std::set<std::string>* op_whitelist,
-                    const std::set<std::string>* op_cpu,
-                    const std::set<std::string>* op_inferentia,
-                    bool start_collection) {
-  VLOG(1) << " FindCulpritOps: Processing node: " << curr_node->name()
-          << " op: " << curr_node->op_def().name();
-
-  auto op_name = curr_node->op_def().name();
-  auto node_name = curr_node->name();
-  // if we hit output node, then we will clear the temp_list, as these
-  // ops are not between EIA ops
-  if (output_names_set.count(node_name)) {
-    VLOG(1) << "FindCulpritOps : curr node: " << node_name
-            << " Is end node returning ..";
-    temp_list.clear();
-    return;
-  }
-
-  // if current node is an EIAOp or a processed node which is already a culprit
-  // node, and we have already seen EIA op in its ancestor, add all the ops
-  // collected to the final culprit_ops list.
-  if (op_name == "NeuronOp" ||
-      (processed_nodes.count(node_name) && culprit_ops.count(op_name))) {
-    if (start_collection) {
-      culprit_ops.insert(temp_list.begin(), temp_list.end());
-      temp_list.clear();
-    } else {
-      start_collection = true;
-    }
-  } else {
-    // if EIAOp seen before  and this op is not EIA candidate
-    // add this op to the temp_list.
-    if (start_collection && !IsEIACandidate(
-        curr_node, *op_whitelist, *op_cpu, *op_inferentia)) {
-      VLOG(1) << "FindCulpritOps: Inserting to list :" << curr_node->name()
-              << " Op: " << curr_node->op_def().name();
-      temp_list.insert(op_name);
-    }
-  }
-
-  // If node  _SOURCE/_SINK/Processed Node  then return.
-  if (curr_node->IsSource() || curr_node->IsSink() ||
-      processed_nodes.count(node_name) > 0) {
-    VLOG(1) << "FindCulpritOps: curr op: " << op_name
-            << " Is Source/Sink/Processed returning ..";
-    return;
-  }
-
-  // Processing all out edges
-  // if NextIteration node then , we shouldnt process outgoing nodes for this
-  // node, as this will cause cycles, but still mark it as Processed.
-  if (!curr_node->IsNextIteration()) {
-    for (auto edge : curr_node->out_edges()) {
-      Node* node = edge->dst();
-      FindCulpritOps(node, culprit_ops, temp_list, input_names_set,
-                     output_names_set, processed_nodes,
-                     op_whitelist, op_cpu, op_inferentia,
-                     start_collection);
-    }
-  }
-
-  processed_nodes.insert(curr_node->name());
-}
-
-// To find ops that are causing EI ops to break.
-std::set<string> GetOpsBetweenEIOps(tensorflow::Graph& graph,
-                                    const std::vector<string>& inputs,
-                                    const std::vector<string>& output_names,
-                                    const std::set<std::string>* op_whitelist,
-                                    const std::set<std::string>* op_cpu,
-                                    const std::set<std::string>* op_inferentia) {
-  std::unordered_map<string, tensorflow::Node*> node_map;
-  std::set<string> processed_nodes;
-
-  std::set<string> output_names_set(output_names.begin(), output_names.end());
-  std::set<string> input_names_set(inputs.begin(), inputs.end());
-  bool start_collection = false;
-
-  BuildNodeMap(graph, &node_map);
-  std::set<string> culprit_ops;
-  std::set<string> temp_list;
-
-  for (auto input_name : inputs) {
-    Node* start_node = node_map[input_name];
-    FindCulpritOps(start_node, culprit_ops, temp_list, input_names_set,
-                   output_names_set, processed_nodes,
-                   op_whitelist, op_cpu, op_inferentia,
-                   start_collection);
-  }
-
-  // Iterate through all the nodes, and find unprocessed nodes.
-  // If EIAop node,find nodes that might be connected and between other
-  // EI ops
-  // else add to new list , since we do not know if this will be processed
-  // while processing an unprocessed EI node.
-  temp_list.clear();
-  start_collection = false;
-  std::vector<Node*> possible_counted_nodes;
-  for (auto node : graph.op_nodes()) {
-    auto op_name = node->op_def().name();
-    if (processed_nodes.find(node->name()) == processed_nodes.end()) {
-      VLOG(1) << " GetOpsBetweenEIOps: Unprocessed nodes: " << op_name;
-      if (op_name == "NeuronOp") {
-        FindCulpritOps(node, culprit_ops, temp_list, input_names_set,
-                       output_names_set, processed_nodes,
-                       op_whitelist, op_cpu, op_inferentia,
-                       start_collection);
-      } else {
-        if (!(IsEIACandidate(node, *op_whitelist, *op_cpu, *op_inferentia))) {
-          possible_counted_nodes.push_back(node);
-        }
-      }
-    }
-  }
-
-  return culprit_ops;
-}
-
-// Returns total number of nodes in all segments.
-uint GetNumOfOpsInSegments(kaena::segment::SegmentNodesVector& segments) {
-  uint total_num_nodes_in_segments = 0;
-  for (auto s : segments) {
-    VLOG(2) << "size: " << s.size();
-    total_num_nodes_in_segments += s.size();
-  }
-  return total_num_nodes_in_segments;
-}
-
 // This function is the base function which does:
 // Step 1: Find EIA Segments.
 // Step 2: Calls functions to create EIA subgraphs.
@@ -1089,7 +764,7 @@ static tensorflow::Status BuildEIAOp(
   }
 
   // Segment the graph into subgraphs that can be converted to EIA op
-  tensorflow::kaena::segment::SegmentOptions segment_options;
+  tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
   VLOG(1) << "Building EI Op\n";
 
@@ -1107,14 +782,13 @@ static tensorflow::Status BuildEIAOp(
   TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
 
   segment_options.minimum_segment_size = minimum_segment_size;
-  uint total_nodes_original_graph = graph.num_nodes();
 
   std::unordered_map<string, int> eop_index_to_name_map;
 
   // ############################ STEP 1: #################################
   // Making a graph with  with only loops in EIA ops.
 
-  tensorflow::kaena::segment::SegmentNodesVector loop_segments;
+  tensorflow::tensorrt::segment::SegmentNodesVector loop_segments;
 
   tensorflow::Graph loop_graph(flib);
 
@@ -1122,41 +796,25 @@ static tensorflow::Status BuildEIAOp(
       tensorflow::GraphConstructorOptions(), in_graph_def, &loop_graph));
   int start_eop_index = 0;
 
-  std::vector<string> loop_ops_deleted;
-  bool IsAllLoopOpsWhiteListed =
-      SanitizeWhiteListforLoopOps(op_whitelist, &loop_ops_deleted);
-
   // Only do loops segmentation if all the ops in "loop_ops" list
   // are in whitelist.
-  std::set<string> loop_breaking_ops;
-  if (IsAllLoopOpsWhiteListed) {
-    TF_RETURN_IF_ERROR(tensorflow::kaena::segment::SegmentGraphForLoops(
-        in_graph_def, IsEIACandidate, &loop_segments,
-        segment_options.exclude_node_list, loop_breaking_ops,
-        op_whitelist, op_cpu, op_inferentia));
-    if (loop_segments.size() > 1) {
-      VLOG(1) << "MULTIPLE loop ei candidate conversion: "
-              << loop_segments.size();
-    }
-
-    // Process segments only if there are any loop segments.
-    if (loop_segments.size()) {
-      TF_RETURN_IF_ERROR(ProcessSegments(
-          loop_graph, tensor_output_names, node_map, loop_segments,
-          start_eop_index, &eop_index_to_name_map, model_id));
-    }
-  }
 
   // ###################  STEP 2 #########################################
   /// Once the loops are in the graph , we will use that graph to form normal
   /// segments. We will add eia to whitelist , so that they are engulfed if
   /// needed.
 
-  // Adding EIAOp to whitelist so that its consumed while forming eia ops
-  // The loop eia ops could  be consumed by another eia  segment.
-  // We will replace the loop eia op with all the nodes inside it , while
-  // forming the final graph
-  op_whitelist->insert("NeuronOp");
+  // Setup exclude_node_list
+  for (int i = 0; i < loop_graph.num_node_ids(); ++i) {
+    tensorflow::Node* node = loop_graph.FindNodeId(i);
+    bool is_source_or_sink = node->IsSink() || node->IsSource();
+    bool in_whitelist = op_whitelist->count(node->type_string());
+    bool no_fuse = op_cpu->count(node->name());
+    bool force_fuse = op_inferentia->count(node->name());
+    if (!((in_whitelist && !is_source_or_sink && !no_fuse) || force_fuse)) {
+        segment_options.exclude_node_list.insert(node->name());
+    }
+  }
 
   // All inout nodes to exclude list
   for (auto omit_node_name : inputs) {
@@ -1170,13 +828,17 @@ static tensorflow::Status BuildEIAOp(
     }
   }
 
-  tensorflow::kaena::segment::SegmentNodesVector normal_segments;
+  tensorflow::tensorrt::segment::SegmentNodesVector normal_segments;
   GraphDef graph_def_with_loops;
   loop_graph.ToGraphDef(&graph_def_with_loops);
 
-  TF_RETURN_IF_ERROR(tensorflow::kaena::segment::SegmentGraph(
-      graph_def_with_loops, IsEIACandidate, segment_options, &normal_segments,
-      op_whitelist, op_cpu, op_inferentia));
+  TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
+    &loop_graph,
+    [](const Node* node) { return Status::OK(); },
+    [](const Edge* edge) { return true; },
+    OutputEdgeValidator(),
+    segment_options,
+    &normal_segments));
   if (normal_segments.size() > 1) {
     VLOG(1) << "MULTIPLE ei candidate conversion: " << normal_segments.size();
   }
@@ -1184,10 +846,6 @@ static tensorflow::Status BuildEIAOp(
   if (normal_segments.size()) {
     PreProcessSegmentsForResources(loop_graph, normal_segments, loop_segments,
                                    &eop_index_to_name_map);
-
-    // Start processing final segments
-
-    // Now work on original graph to make the final eia graph.
     TF_RETURN_IF_ERROR(ProcessSegments(graph, tensor_output_names, node_map,
                                        normal_segments, start_eop_index,
                                        &eop_index_to_name_map, model_id));
@@ -1195,79 +853,8 @@ static tensorflow::Status BuildEIAOp(
 
   // ################### STEP 2 DONE #######################
 
-  // ##################### STEP 3 ############################
-
-  // On the new graph , we want to send all the nodes that is in white list
-  // and has data-format at NCHW, this is mostly needed for pooling ops for
-  // which NHWC is the only format supported on CPU
-  std::unordered_map<string, tensorflow::Node*> final_node_map;
-  TF_RETURN_IF_ERROR(BuildNodeMap(graph, &final_node_map));
-
-  tensorflow::kaena::segment::SegmentNodesVector one_node_NCHW_segments;
-
-  // we dont want to send input and output nodes in final graph, so adding
-  // them to an exclude list.
-  std::set<string> exclude_names_set(output_names.begin(), output_names.end());
-  exclude_names_set.insert(inputs.begin(), inputs.end());
-  for (auto node : graph.nodes()) {
-    auto node_def = node->def();
-    bool hasNCHW = false;
-    for (auto const& input_name : node_def.input()) {
-      for (const auto& attr : node_def.attr()) {
-        if (exclude_names_set.find(node->name()) == exclude_names_set.end() &&
-            IsEIACandidate(node, *op_whitelist, *op_cpu, *op_inferentia) &&
-            HasAttr(node_def, "data_format")) {
-          if (GetStringAttr(node_def, "data_format") == "NCHW") {
-            VLOG(1) << " Node with data format: " << node_def.name();
-            hasNCHW = true;
-          }
-        }
-      }
-    }
-
-    if (hasNCHW) {
-      VLOG(1) << "single node segment: " << node_def.name();
-      std::set<string> single_item_set = {node_def.name()};
-      one_node_NCHW_segments.push_back(single_item_set);
-    }
-  }
-
-  if (one_node_NCHW_segments.size()) {
-    // Still remove ei ops that take/outputs resources
-    PreProcessSegmentsForResources(graph, one_node_NCHW_segments, loop_segments,
-                                   &eop_index_to_name_map);
-
-    // Now work on original graph to make the final eia graph.
-    TF_RETURN_IF_ERROR(ProcessSegments(
-        graph, tensor_output_names, final_node_map, one_node_NCHW_segments,
-        start_eop_index, &eop_index_to_name_map, model_id));
-  }
-
-  // ################## STEP 3 DONE ##########################
-
-  // Reset whitelist. Not needed but doing for sanity.
-  op_whitelist->erase("NeuronOp");
-
-  // Loops ops can be removed from whitelist in 2 places:
-  // 1. SanitizeWhiteListforLoopOps()
-  // 2. segment.cc -> GetLoopSegments()
-  if (IsAllLoopOpsWhiteListed) {
-    op_whitelist->insert("Enter");
-    op_whitelist->insert("Merge");
-    op_whitelist->insert("LoopCond");
-    op_whitelist->insert("Exit");
-    op_whitelist->insert("Switch");
-    op_whitelist->insert("NextIteration");
-  } else {
-    for (auto ops : loop_ops_deleted) {
-      op_whitelist->insert(ops);
-    }
-  }
-
   graph.ToGraphDef(&new_graph_def);
-
   VLOG(2) << "new_graph_def: " << new_graph_def.DebugString();
-
   return tensorflow::Status::OK();
 }
 
@@ -1334,32 +921,9 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
   }
 
   uint64 start_convert_us = Env::Default()->NowMicros();
-
-  // Debug code
-  // VLOG(1) << "_______before______";
-  // tensorflow::FunctionLibraryDefinition
-  // flib(tensorflow::OpRegistry::Global(),
-  //                                            graph_def.library());
-  // tensorflow::Graph graph(flib);
-  // // TODO: check for error
-  // TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-  //     tensorflow::GraphConstructorOptions(), graph_def, &graph));
-  // printGraphEdges(&graph);
-  // VLOG(1) << "_______before______";
   status = CreateEiaGraphDef(graph_def, inputs, outputs, min_seg_size,
                              &op_whitelist, &op_cpu, &op_inferentia, new_graph_def);
   new_graph_def.SerializeToString(new_graph_def_str);
-  // Debug code
-  // VLOG(1) << "_______after______";
-  // tensorflow::FunctionLibraryDefinition
-  // flib(tensorflow::OpRegistry::Global(),
-  //                                            new_graph_def.library());
-  // tensorflow::Graph graph(flib);
-  // TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-  //     tensorflow::GraphConstructorOptions(), new_graph_def, &graph));
-  // printGraphEdges(&graph);
-  // VLOG(1) << "_______after______";
-
   uint64 convert_time_us = Env::Default()->NowMicros() - start_convert_us;
   VLOG(1) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
   return status;
