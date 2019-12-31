@@ -16,6 +16,7 @@ import subprocess
 import copy
 import collections
 from distutils import spawn
+from contextlib import contextmanager
 import reprlib
 import numpy
 from tensorflow.python.util.tf_export import tf_export
@@ -325,12 +326,10 @@ def inference_graph_from_session(
     # statistics on number of operations
     num_ops_original = len(sess.graph.get_operations())
     num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(compiled_graph)
-    verbosity = logging.get_verbosity()
-    logging.set_verbosity(logging.INFO)
-    logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
-    logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
-    logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
-    logging.set_verbosity(verbosity)
+    with logging_show_info():
+        logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
+        logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
+        logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
     return compiled_graph
 
 
@@ -451,6 +450,16 @@ def _output_ops(graph, output_names=None):
                    if all(not ts.consumers() for ts in op.outputs)}
     else:
         return {graph.get_tensor_by_name(name).op for name in output_names}
+
+
+@contextmanager
+def logging_show_info():
+    try:
+        verbosity = logging.get_verbosity()
+        logging.set_verbosity(logging.INFO)
+        yield
+    finally:
+        logging.set_verbosity(verbosity)
 
 
 def shape_inference(graph, shape_feed_dict, evaluated_map=None):
@@ -979,13 +988,11 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
         return None
     command, debug_logging, workdir_path = compiler
     logfile = os.path.join(workdir_path, 'graph_def.neuron-cc.log')
-    verbosity = logging.get_verbosity()
-    logging.set_verbosity(logging.INFO)
     info_string = 'fusing subgraph {} with neuron-cc'.format(node_name)
     if debug_logging:
         info_string = '{}; log file is at {}'.format(info_string, logfile)
-    logging.info(info_string)
-    logging.set_verbosity(verbosity)
+    with logging_show_info():
+        logging.info(info_string)
     with open(logfile, 'w') as logfd:
         proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
         returncode = _wait_compiler(proc, timeout)
