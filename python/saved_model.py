@@ -5,6 +5,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
 import argparse
 import json
 from tensorflow.python.util.tf_export import tf_export
@@ -254,3 +255,14 @@ def register_convert_parser(convert_subparsers):
         'and --input_exprs option.')
     parser.add_argument('--input_examples', type=str, default='', help=msg)
     parser.set_defaults(func=convert_to_inference_model_cli)
+
+
+if sys.argv[0].endswith('saved_model_cli'):
+    def convert_add_subparsers(*args, **kwargs):
+        parser = add_subparsers(*args, **kwargs)
+        if kwargs.get('title', None) == 'conversion methods':
+            register_convert_parser(parser)
+        return parser
+    if argparse.ArgumentParser.add_subparsers is not convert_add_subparsers:
+        add_subparsers = argparse.ArgumentParser.add_subparsers
+        argparse.ArgumentParser.add_subparsers = convert_add_subparsers
