@@ -17,7 +17,8 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops
 from tensorflow.python.eager.context import executing_eagerly
-from tensorflow.python.neuron.python.graph_util import normalize_operators, most_popular_namescope
+from tensorflow.python.neuron.python.graph_util import (
+    normalize_operators, most_popular_namescope, logging_show_info)
 
 
 _neuron_cc_input_name = 'graph_def.pb'
@@ -28,12 +29,12 @@ _neuron_executable_name = 'graph_def.neff'
 @tf_export('neuron.fuse')
 def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None,
          verbose=0, workdir=None, input_shapes=None, output_shapes=None,
-         dynamic_batch_size=False):
+         dynamic_batch_size=False, executable=None):
     if func is None:
         return partial(fuse, compiler_args=compiler_args, name=name, greedy=greedy,
                        timeout=timeout, verbose=verbose, workdir=workdir,
                        input_shapes=input_shapes, output_shapes=output_shapes,
-                       dynamic_batch_size=dynamic_batch_size)
+                       dynamic_batch_size=dynamic_batch_size, executable=executable)
     @wraps(func)
     def wrapper(*args, **kwargs):
         # need to import here; otherwise bazel sees @tf_export in gen_neuron_op
@@ -46,12 +47,6 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
         else:
             is_greedy = greedy
         inputs_mgr = TensorManager()
-        if workdir is None:
-            tempdir = tempfile.TemporaryDirectory()
-        else:
-            TempDir = collections.namedtuple('TempDir', 'name')
-            prefix = os.path.join(os.path.abspath(workdir), 'tmp')
-            tempdir = TempDir(tempfile.mkdtemp(prefix=prefix))
         inputs_mgr.track((args, kwargs))
         with session.Session(graph=ops.Graph()) as sess:
             inputs_mgr.build_placeholder_mapping()
@@ -69,43 +64,21 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
         outputs_mgr = TensorManager()
         outputs_mgr.track(func_outputs)
         outputs = outputs_mgr.tensors()
-        graph_def = normalize_operators(sess.graph.as_graph_def(add_shapes=True))
-        with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
-            serialized_graph_def = graph_def.SerializeToString()
-            f.write(serialized_graph_def)
-        neuron_cc = spawn.find_executable('neuron-cc')
         if input_shapes is not None:
             for ts, shape in zip(placeholders, input_shapes):
                 ts.set_shape(shape)
         if output_shapes is not None:
             for ts, shape in zip(outputs, output_shapes):
                 ts.set_shape(shape)
-        command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
-                   '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
-                   '--io-config', _io_config(placeholders, outputs)]
-        if compiler_args is not None:
-            command.extend(compiler_args)
-        if workdir is None:
-            if verbose:
-                popen_kwargs = {}
-            else:
-                popen_kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-            logfd = None
+        graph_def = normalize_operators(sess.graph.as_graph_def()).SerializeToString()
+        io_config = _io_config(placeholders, outputs)
+        if executable is None:
+            compiler, tempdir = neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose)
+            if not op_name:
+                op_name = None
+            executable_content = _get_executable(compiler, timeout, op_name) if is_greedy else ''
         else:
-            logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
-            logfd = open(logfile_path, 'w')
-            popen_kwargs = dict(stdout=logfd, stderr=logfd)
-            if verbose:
-                verbosity = logging.get_verbosity()
-                logging.set_verbosity(logging.INFO)
-                logging.info('Writing compiler logs to {}'.format(logfile_path))
-                logging.set_verbosity(verbosity)
-        proc = subprocess.Popen(command, cwd=tempdir.name, **popen_kwargs)
-        Compiler = collections.namedtuple('Compiler', 'proc logfd workdir command')
-        compiler = Compiler(proc, logfd, tempdir.name, subprocess.list2cmdline(command))
-        if not op_name:
-            op_name = None
-        executable = _get_executable(compiler, timeout, op_name) if is_greedy else ''
+            executable_content = executable
         if eager:
             try:
                 ops.enable_eager_execution()
@@ -114,7 +87,7 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
         batch_axis = 0 if dynamic_batch_size else -1
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
-                input_tensors=input_tensors, graph_def=serialized_graph_def,
+                input_tensors=input_tensors, graph_def=graph_def,
                 input_names=[ts.name for ts in placeholders],
                 input_shapes=[ts.shape for ts in placeholders],
                 input_batch_axis=[batch_axis for ts in placeholders],
@@ -122,9 +95,9 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
                 output_dtypes=[ts.dtype for ts in outputs],
                 output_shapes=[ts.shape for ts in outputs],
                 output_batch_axis=[batch_axis for ts in outputs],
-                executable=executable,
+                executable=executable_content,
             )
-        if not is_greedy:
+        if not is_greedy and executable is None:
             iop = output_tensors[0].op
             iop.neuron_workspace = tempdir  # keep tempdir object alive
             iop.neuron_wait = partial(neuron_wait, op=iop, compiler=compiler, timeout=timeout)
@@ -132,11 +105,45 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
                 session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
         inner_to_outer = {}
         for inner, outer in zip(outputs, output_tensors):
-            outer.set_shape(inner.shape)
+            if not dynamic_batch_size:
+                outer.set_shape(inner.shape)
             inner_to_outer[inner] = outer
         outputs_mgr.mapping = inner_to_outer
         return outputs_mgr.build(func_outputs)
     return wrapper
+
+
+def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose):
+    if workdir is None:
+        tempdir = tempfile.TemporaryDirectory()
+    else:
+        TempDir = collections.namedtuple('TempDir', 'name')
+        prefix = os.path.join(os.path.abspath(workdir), 'tmp')
+        tempdir = TempDir(tempfile.mkdtemp(prefix=prefix))
+    with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
+        f.write(graph_def)
+    neuron_cc = spawn.find_executable('neuron-cc')
+    command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
+               '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
+               '--io-config', io_config]
+    if compiler_args is not None:
+        command.extend(compiler_args)
+    if workdir is None:
+        if verbose:
+            popen_kwargs = {}
+        else:
+            popen_kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        logfd = None
+    else:
+        logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
+        logfd = open(logfile_path, 'w')
+        popen_kwargs = dict(stdout=logfd, stderr=logfd)
+        if verbose:
+            with logging_show_info():
+                logging.info('Writing compiler logs to {}'.format(logfile_path))
+    proc = subprocess.Popen(command, cwd=tempdir.name, **popen_kwargs)
+    Compiler = collections.namedtuple('Compiler', 'proc logfd workdir command')
+    return Compiler(proc, logfd, tempdir.name, subprocess.list2cmdline(command)), tempdir
 
 
 def neuron_wait(op, compiler, timeout):
@@ -151,7 +158,7 @@ def _get_executable(compiler, timeout, op_name):
     if compiler.logfd is not None:
         compiler.logfd.close()
     if compiler.proc.returncode != 0:
-        raise RuntimeError(
+        raise subprocess.SubprocessError(
             'Failed to compile op {} with command "{}"'.format(op_name, compiler.command))
     return open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb').read()
 
