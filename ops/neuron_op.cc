@@ -11,8 +11,53 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/core/framework/op.h"
+#include "tensorflow/core/framework/shape_inference.h"
+
 
 namespace tensorflow {
+
+static Status NeuronOpShape(shape_inference::InferenceContext *ctx) {
+    std::vector<int> input_batch_axis;
+    TF_RETURN_IF_ERROR(ctx->GetAttr("input_batch_axis", &input_batch_axis));
+    bool dynamic_batch_size = false;
+    for (auto &axis : input_batch_axis) {
+        if (-1 != axis) {
+            dynamic_batch_size = true;
+            break;
+        }
+    }
+    std::vector<PartialTensorShape> output_shapes;
+    TF_RETURN_IF_ERROR(ctx->GetAttr("output_shapes", &output_shapes));
+    if (output_shapes.size() != ctx->num_outputs()) {
+        VLOG(1) << "Found invalid NodeDef; skipping shape inference";
+        return Status::OK();
+    }
+    for (int idx = 0; idx < ctx->num_outputs(); ++idx) {
+        TensorShapeProto shape_proto;
+        output_shapes[idx].AsProto(&shape_proto);
+        if (dynamic_batch_size) {
+            if (idx >= input_batch_axis.size()) {
+                VLOG(1) << "input_batch_axis[" << idx << "] is an out-of-bound"
+                        << " access; falling back to fixed shape";
+            } else {
+                int axis = input_batch_axis[idx];
+                if (axis < 0 || axis >= shape_proto.dim_size()) {
+                    VLOG(1) << "input_batch_axis[" << idx << "] = " << axis
+                            << " goes out-of-bound for tensor " << idx
+                            << "'s shape; falling back to fixed shape";
+                } else {
+                    shape_proto.mutable_dim(axis)->set_size(
+                        shape_inference::InferenceContext::kUnknownDim);
+                }
+            }
+        }
+        PartialTensorShape shape(shape_proto);
+        shape_inference::ShapeHandle handle;
+        TF_RETURN_IF_ERROR(ctx->MakeShapeFromPartialTensorShape(shape, &handle));
+        ctx->set_output(idx, handle);
+    }
+    return Status::OK();
+}
 
 REGISTER_OP("NeuronOp")
     .SetIsStateful()
@@ -28,7 +73,9 @@ REGISTER_OP("NeuronOp")
     .Attr("output_batch_axis: list(int) = []")
     .Attr("model_config: list(int) = []")
     .Input("input_tensors: input_dtypes")
-    .Output("output_tensors: output_dtypes");
+    .Output("output_tensors: output_dtypes")
+    .SetShapeFn(NeuronOpShape);
+
 } // namespace tensorflow
 
 // model_config format:

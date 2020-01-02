@@ -103,12 +103,7 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
             iop.neuron_wait = partial(neuron_wait, op=iop, compiler=compiler, timeout=timeout)
             if not hasattr(session.BaseSession._do_run, 'neuron_decorated'):
                 session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
-        inner_to_outer = {}
-        for inner, outer in zip(outputs, output_tensors):
-            if not dynamic_batch_size:
-                outer.set_shape(inner.shape)
-            inner_to_outer[inner] = outer
-        outputs_mgr.mapping = inner_to_outer
+        outputs_mgr.mapping = {inner: outer for inner, outer in zip(outputs, output_tensors)}
         return outputs_mgr.build(func_outputs)
     return wrapper
 
