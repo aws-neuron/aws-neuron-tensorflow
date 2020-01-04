@@ -493,13 +493,16 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
     num_cycles = max(1, len([op for op in shaped_graph.get_operations()
                              if op.type in {'NextIteration', 'RefNextIteration'}]))
 
+    def npd(op):
+        return op.outputs[0].dtype.as_numpy_dtype
+
     # try to infer shapes through call_cpp_shape_fn and executing ops
     tensor_array_size_map = {}
     for _ in range(num_cycles):
         for op in shaped_graph.get_operations():
             if op.type == 'Shape' and op.inputs[0].shape.is_fully_defined():
                 evaluated_map[op.outputs[0].name] = numpy.array(
-                    op.inputs[0].shape.as_list()).astype(op.outputs[0].dtype.as_numpy_dtype)
+                    op.inputs[0].shape.as_list()).astype(npd(op))
             elif op.type == 'StridedSlice' and _is_evaluable(op, evaluated_map):
                 input_np, begin_arr, end_arr, strides_arr = [evaluated_map[ts.name]
                                                              for ts in op.inputs]
@@ -534,15 +537,22 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
                 evaluated_map[op.outputs[0].name] = tensor_array_size_map[op.inputs[0].op.name]
             elif op.type == 'Range' and _is_evaluable(op, evaluated_map):
                 start, limit, delta = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.arange(start, limit, delta).astype(op.outputs[0].dtype.as_numpy_dtype)
+                output_np = numpy.arange(start, limit, delta).astype(npd(op))
                 evaluated_map[op.outputs[0].name] = output_np
             elif op.type == 'Pack' and _is_evaluable(op, evaluated_map):
                 inputs_np = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.stack(inputs_np).astype(op.outputs[0].dtype.as_numpy_dtype)
+                output_np = numpy.stack(inputs_np, axis=op.get_attr('axis')).astype(npd(op))
+                evaluated_map[op.outputs[0].name] = output_np
+            elif op.type == 'Prod' and _is_evaluable(op, evaluated_map):
+                input_np, axis_np = [evaluated_map[ts.name] for ts in op.inputs]
+                if isinstance(axis_np, numpy.ndarray):
+                    axis_np = axis_np.ravel()[0]
+                keepdims = op.get_attr('keep_dims')
+                output_np = numpy.prod(input_np, axis_np, keepdims=keepdims).astype(npd(op))
                 evaluated_map[op.outputs[0].name] = output_np
             elif op.type == 'Mul' and _is_evaluable(op, evaluated_map):
                 input0_np, input1_np = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.asarray(input0_np * input1_np).astype(op.outputs[0].dtype.as_numpy_dtype)
+                output_np = numpy.asarray(input0_np * input1_np).astype(npd(op))
                 evaluated_map[op.outputs[0].name] = output_np
             elif (op.type == 'Reshape' and op.inputs[1].name in evaluated_map
                     and op.inputs[1].op.type != 'Const'):
@@ -562,7 +572,7 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
                 op.outputs[0].set_shape(output_shape)
             elif op.type == 'Fill' and _is_evaluable(op, evaluated_map):
                 dims_np, value_np = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.full(dims_np, value_np).astype(op.outputs[0].dtype.as_numpy_dtype)
+                output_np = numpy.full(dims_np, value_np).astype(npd(op))
                 evaluated_map[op.outputs[0].name] = output_np
                 op.outputs[0].set_shape(dims_np)
     return shaped_graph
@@ -871,9 +881,13 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     for node in _gd_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
-        io_config_json = _io_config(node, _get_subgraph(node), subgraph_shapes)
+        subgraph = _get_subgraph(node)
+        io_config_json = _io_config(node, subgraph, subgraph_shapes)
         if io_config_json is None:
             logging.warning('Not fusing subgraph {}: --io-config error'.format(node.name))
+            continue
+        if _get_shapes(node, 'output_names', subgraph_shapes, subgraph) is None:
+            logging.warning('Cannot infer tensor shapes for subgraph {}'.format(node.name))
             continue
         subgraph_def = _get_subgraph_def(node)
         if large_constants is not None:
