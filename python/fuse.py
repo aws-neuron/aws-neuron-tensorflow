@@ -15,7 +15,7 @@ from tensorflow.python.util import compat
 from tensorflow.core.framework import attr_value_pb2
 from tensorflow.python.client import session
 from tensorflow.python.framework import ops
-from tensorflow.python.ops import array_ops
+from tensorflow.python.ops import array_ops, variables
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.python.neuron.python.graph_util import (
     normalize_operators, most_popular_namescope, logging_show_info)
@@ -182,7 +182,7 @@ class TensorManager:
         self.new_op_names = set()
 
     def track(self, values):
-        if isinstance(values, ops.Tensor):
+        if isinstance(values, (ops.Tensor, variables.Variable)):
             self.mapping[values] = values
         elif isinstance(values, (list, tuple, set, frozenset)):
             for val in values:
@@ -208,7 +208,7 @@ class TensorManager:
             self.mapping[ts] = placeholder
 
     def build(self, values):
-        if isinstance(values, ops.Tensor):
+        if isinstance(values, (ops.Tensor, variables.Variable)):
             return self.mapping.get(values, values)
         elif isinstance(values, (tuple, frozenset)):
             return type(values)(self.build(val) for val in values)
