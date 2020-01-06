@@ -46,26 +46,26 @@ Status SharedMemoryManager::initialize(const std::string &nrtd_address,
                                        const std::vector<size_t> &input_tensor_sizes,
                                        const std::vector<size_t> &output_tensor_sizes) {
     TF_RETURN_IF_ERROR(init_stub(&stub_, nrtd_address));
-    TF_RETURN_IF_ERROR(init_vectors(&input_names_, &input_ptrs_, &input_sizes_,
-                                    &input_grpc_names_, input_tensor_sizes, nn_id));
-    TF_RETURN_IF_ERROR(init_vectors(&output_names_, &output_ptrs_, &output_sizes_,
-                                    &output_grpc_names_, output_tensor_sizes, nn_id));
-    for (size_t idx = 0; idx < input_names_.size(); ++idx) {
-        VLOG(1) << "input shared memory " << input_names_[idx]
-                << " ready at address " << input_ptrs_[idx];
+    TF_RETURN_IF_ERROR(init_vectors(&shm_.input_paths_, &shm_.input_ptrs_, &shm_.input_sizes_,
+                                    &nrt_input_paths_, input_tensor_sizes, nn_id));
+    TF_RETURN_IF_ERROR(init_vectors(&shm_.output_paths_, &shm_.output_ptrs_, &shm_.output_sizes_,
+                                    &nrt_output_paths_, output_tensor_sizes, nn_id));
+    for (size_t idx = 0; idx < shm_.input_paths_.size(); ++idx) {
+        VLOG(1) << "input shared memory " << shm_.input_paths_[idx]
+                << " ready at address " << shm_.input_ptrs_[idx];
     }
-    for (size_t idx = 0; idx < output_names_.size(); ++idx) {
-        VLOG(1) << "output shared memory " << output_names_[idx]
-                << " ready at address " << output_ptrs_[idx];
+    for (size_t idx = 0; idx < shm_.output_paths_.size(); ++idx) {
+        VLOG(1) << "output shared memory " << shm_.output_paths_[idx]
+                << " ready at address " << shm_.output_ptrs_[idx];
     }
-    enabled_ = true;
+    shm_.enabled_ = true;
     return Status::OK();
 }
 
 Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
                                          std::vector<void*> *ptrs,
                                          std::vector<size_t> *sizes,
-                                         std::vector<std::string> *grpc_names,
+                                         std::vector<std::string> *nrt_paths,
                                          const std::vector<size_t> &tensor_sizes,
                                          const uint32_t nn_id) {
     for (size_t size : tensor_sizes) {
@@ -87,36 +87,36 @@ Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
         nrt::shm_map_response response;
         grpc::Status status = NRT_GRPC(stub_->shm_map, request, &response);
         NRT_CHECK_RETURN("shm_map", status, response);
-        grpc_names->push_back(name);
+        nrt_paths->push_back(name);
     }
     return Status::OK();
 }
 
 SharedMemoryManager::~SharedMemoryManager() {
-    for (const auto &name : input_grpc_names_) {
+    for (const auto &name : nrt_input_paths_) {
         nrt_shm_unmap(name);
     }
-    input_grpc_names_.clear();
-    for (size_t idx = 0; idx < input_ptrs_.size(); ++idx) {
-        SYS_FAIL_LOG(munmap(input_ptrs_[idx], input_sizes_[idx]) < 0, "munmap");
+    nrt_input_paths_.clear();
+    for (size_t idx = 0; idx < shm_.input_ptrs_.size(); ++idx) {
+        SYS_FAIL_LOG(munmap(shm_.input_ptrs_[idx], shm_.input_sizes_[idx]) < 0, "munmap");
     }
-    input_ptrs_.clear();
-    for (const auto &name : input_names_) {
+    shm_.input_ptrs_.clear();
+    for (const auto &name : shm_.input_paths_) {
         SYS_FAIL_LOG(shm_unlink(name.c_str()) < 0, "shm_unlink");
     }
-    input_names_.clear();
-    for (const auto &name : output_grpc_names_) {
+    shm_.input_paths_.clear();
+    for (const auto &name : nrt_output_paths_) {
         nrt_shm_unmap(name);
     }
-    output_grpc_names_.clear();
-    for (size_t idx = 0; idx < output_ptrs_.size(); ++idx) {
-        SYS_FAIL_LOG(munmap(output_ptrs_[idx], output_sizes_[idx]) < 0, "munmap");
+    nrt_output_paths_.clear();
+    for (size_t idx = 0; idx < shm_.output_ptrs_.size(); ++idx) {
+        SYS_FAIL_LOG(munmap(shm_.output_ptrs_[idx], shm_.output_sizes_[idx]) < 0, "munmap");
     }
-    output_ptrs_.clear();
-    for (const auto &name : output_names_) {
+    shm_.output_ptrs_.clear();
+    for (const auto &name : shm_.output_paths_) {
         SYS_FAIL_LOG(shm_unlink(name.c_str()) < 0, "shm_unlink");
     }
-    output_names_.clear();
+    shm_.output_paths_.clear();
 }
 
 void SharedMemoryManager::nrt_shm_unmap(const std::string &name) {
@@ -397,7 +397,7 @@ Status NeuronDevice::infer(std::vector<Tensor*> *output_tensors, Timestamps *tim
                            ProfilerInterface *profile, const uint32_t nn_id,
                            AttrList &input_names, AttrList &output_names,
                            const std::vector<const Tensor*> &input_tensors,
-                           const SharedMemoryManager &shm) {
+                           const SharedMemory &shm) {
     tensorflow::mutex_lock lock(mutex_eg_);
     TF_RETURN_IF_ERROR(start_model(nn_id));
     if (profile->enabled_) profile->start_session(nrtd_address_, nn_id);
@@ -407,7 +407,7 @@ Status NeuronDevice::infer(std::vector<Tensor*> *output_tensors, Timestamps *tim
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (shm.enabled_) {
-            infer_io->mutable_buf_shm()->set_path(shm.input_names_[idx]);
+            infer_io->mutable_buf_shm()->set_path(shm.input_paths_[idx]);
             std::memcpy(shm.input_ptrs_[idx], tensor_data.data(), tensor_data.size());
         } else {
             infer_io->set_buf(tensor_data.data(), tensor_data.size());
@@ -417,7 +417,7 @@ Status NeuronDevice::infer(std::vector<Tensor*> *output_tensors, Timestamps *tim
         for (int idx = 0; idx < output_names.s_size(); ++idx) {
             nrt::infer_io *infer_io = request.add_shm_ofmap();
             infer_io->set_name(output_names.s(idx));
-            infer_io->mutable_buf_shm()->set_path(shm.output_names_[idx]);
+            infer_io->mutable_buf_shm()->set_path(shm.output_paths_[idx]);
         }
     }
     request.mutable_h_nn()->set_id(nn_id);

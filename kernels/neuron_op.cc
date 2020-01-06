@@ -225,8 +225,8 @@ Status NeuronOp::prepare_shared_memory() {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
         output_tensor_sizes.push_back(temp_tensor.tensor_data().size());
     }
-    return shm_.initialize(global_neuron_device_manager.nrtd_address_, nn_id_,
-                           input_tensor_sizes_, output_tensor_sizes);
+    return shm_mgr_.initialize(global_neuron_device_manager.nrtd_address_, nn_id_,
+                               input_tensor_sizes_, output_tensor_sizes);
 }
 
 NeuronOp::~NeuronOp() {
@@ -516,7 +516,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }   // semaphore reservation queue goes out of scope
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
-    } else if (profile_.enabled_ || shm_.enabled_) {
+    } else if (profile_.enabled_ || shm_mgr_.shm_.enabled_) {
         VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors;
@@ -528,7 +528,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         OP_REQUIRES_OK(ctx, neuron_device_->infer(&output_tensors, &timestamps,
                                                   &profile_, nn_id_,
                                                   input_names, output_names,
-                                                  input_tensors, shm_));
+                                                  input_tensors, shm_mgr_.shm_));
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     } else {

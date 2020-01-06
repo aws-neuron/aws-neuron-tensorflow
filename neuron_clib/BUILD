@@ -12,6 +12,7 @@ cc_library(
         "profiler.cc",
         "tensor_util.h",
         "tensor_util.cc",
+        "shared_memory.h",
     ],
     hdrs = ["neuron_clib.h"],
     deps = [

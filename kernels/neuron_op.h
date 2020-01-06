@@ -45,7 +45,7 @@ private:
     bool infer_sem_initialized_ = false;
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
-    SharedMemoryManager shm_;
+    SharedMemoryManager shm_mgr_;
 };
 
 

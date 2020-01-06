@@ -9,6 +9,7 @@
 #include "timestamps.h"
 #include "profiler.h"
 #include "tensor_util.h"
+#include "shared_memory.h"
 #include "nmgr_service.grpc.pb.h"
 
 
@@ -74,24 +75,18 @@ public:
     Status initialize(const std::string &nrtd_address, const uint32_t nn_id,
                       const std::vector<size_t> &input_tensor_sizes,
                       const std::vector<size_t> &output_tensor_sizes);
-    bool enabled_ = false;
-    std::vector<std::string> input_names_;
-    std::vector<void*> input_ptrs_;
-    std::vector<size_t> input_sizes_;
-    std::vector<std::string> output_names_;
-    std::vector<void*> output_ptrs_;
-    std::vector<size_t> output_sizes_;
+    SharedMemory shm_;
 private:
     Status init_vectors(std::vector<std::string> *names,
                         std::vector<void*> *ptrs,
                         std::vector<size_t> *sizes,
-                        std::vector<std::string> *grpc_names,
+                        std::vector<std::string> *nrt_paths,
                         const std::vector<size_t> &tensor_sizes,
                         const uint32_t nn_id);
     void nrt_shm_unmap(const std::string &name);
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
-    std::vector<std::string> input_grpc_names_;
-    std::vector<std::string> output_grpc_names_;
+    std::vector<std::string> nrt_input_paths_;
+    std::vector<std::string> nrt_output_paths_;
 };
 
 
@@ -105,7 +100,7 @@ public:
                  ProfilerInterface *profile, const uint32_t nn_id,
                  AttrList &input_names, AttrList &output_names,
                  const std::vector<const Tensor*> &input_tensors,
-                 const SharedMemoryManager &shm);
+                 const SharedMemory &shm);
     Status infer_post(uint64_t *cookie, SemResQueue *sem_res_queue,
                       xla::Semaphore *infer_sem, Timestamps *timestamps,
                       const uint32_t nn_id, AttrList &input_names,
