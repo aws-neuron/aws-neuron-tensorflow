@@ -393,7 +393,7 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
-Status NeuronDevice::infer(nrt::infer_response *response, Timestamps *timestamps,
+Status NeuronDevice::infer(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
                            ProfilerInterface *profile, const uint32_t nn_id,
                            AttrList &input_names, AttrList &output_names,
                            const std::vector<const Tensor*> &input_tensors,
@@ -421,26 +421,28 @@ Status NeuronDevice::infer(nrt::infer_response *response, Timestamps *timestamps
         }
     }
     request.mutable_h_nn()->set_id(nn_id);
+    nrt::infer_response response;
 
     // infer
     timestamps->mark_above_nrtd_infer();
-    grpc::Status status = NRT_GRPC(stub_->infer, request, response);
+    grpc::Status status = NRT_GRPC(stub_->infer, request, &response);
     timestamps->mark_below_nrtd_infer();
     if (status.ok()) {
         // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
-            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
+            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
     if (profile->enabled_) profile->stop_session();
-    NRT_CHECK_RETURN("infer", status, *response);
+    NRT_CHECK_RETURN("infer", status, response);
     if (shm.enabled_) {
         for (int idx = 0; idx < output_names.s_size(); ++idx) {
-            nrt::infer_io *infer_io = response->add_ofmap();
+            nrt::infer_io *infer_io = response.add_ofmap();
             infer_io->set_name(output_names.s(idx));
             infer_io->set_buf(shm.output_ptrs_[idx], shm.output_sizes_[idx]);
         }
     }
+    TF_RETURN_IF_ERROR(copy_output_tensors(output_tensors, response, output_names));
     return Status::OK();
 }
 
@@ -479,19 +481,24 @@ Status NeuronDevice::infer_post_unsafe(uint64_t *cookie, Timestamps *timestamps,
     return Status::OK();
 }
 
-Status NeuronDevice::infer_wait(nrt::infer_response *response, const uint64_t cookie) {
+Status NeuronDevice::infer_wait(std::vector<Tensor*> *output_tensors,
+                                Timestamps *timestamps,
+                                const uint64_t cookie, AttrList &output_names) {
     nrt::infer_wait_request request;
+    nrt::infer_response response;
     request.set_cookie(cookie);
 
     // infer_wait
-    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, response);
+    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, &response);
+    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
     if (status.ok()) {
         // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
-            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
+            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
-    NRT_CHECK_RETURN("infer_wait", status, *response);
+    NRT_CHECK_RETURN("infer_wait", status, response);
+    TF_RETURN_IF_ERROR(copy_output_tensors(output_tensors, response, output_names));
     return Status::OK();
 }
 
@@ -570,6 +577,32 @@ void NeuronDevice::set_running(uint32_t nn_id) {
     running_nn_id_ = nn_id;
 }
 
+Status NeuronDevice::copy_output_tensors(std::vector<Tensor*> *output_tensors,
+                                         const nrt::infer_response &response,
+                                         AttrList &output_names) {
+    // set output tensors
+    std::vector<StringPiece> raw_output_tensors;
+    std::unordered_map<std::string, StringPiece> map_name_raw;
+    for (const auto &infer_io : response.ofmap()) {
+        map_name_raw.emplace(infer_io.name(), infer_io.buf());
+    }
+    for (auto idx = 0; idx < output_names.s_size(); ++idx) {
+        if (map_name_raw.find(output_names.s(idx)) == map_name_raw.end()) {
+            return errors::Internal("tensor name", output_names.s(idx),
+                                    " not found in infer_response.ofmap()");
+        }
+        raw_output_tensors.push_back(map_name_raw[output_names.s(idx)]);
+    }
+    for (auto idx = 0; idx < output_names.s_size(); ++idx) {
+        StringPiece out_tensor_raw = raw_output_tensors[idx];
+        Tensor *out_tensor = output_tensors->at(idx);
+        TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
+                                        "tensor_memcpy failure on tensor name: ",
+                                        output_names.s(idx));
+    }
+    return Status::OK();
+}
+
 
 std::string env_get(const char *env_var, const char *default_env_var) {
     char *str = std::getenv(env_var);
@@ -600,6 +633,41 @@ Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
     *stub = nrt::nmgr_v1::NewStub(channel);
     if (!(*stub)) {
         return errors::Unavailable("cannot create stub");
+    }
+    return Status::OK();
+}
+
+Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size) {
+    if (memcpy_size < 0 ? source.size() != tensor->tensor_data().size()
+                        : memcpy_size > (int64)tensor->tensor_data().size()) {
+        return errors::OutOfRange(
+            "unexpected tensor size in tensor_memcpy, source size: ",
+            source.size(), ", target size: ", tensor->tensor_data().size());
+    }
+    if (memcpy_size < 0) {
+        memcpy_size = source.size();
+    }
+    #define CASE_MEMCPY_TENSOR(TF_DataType, TTYPE) {            \
+        case (TF_DataType):                                     \
+            std::memcpy(tensor->unaligned_flat<TTYPE>().data(), \
+                        source.data(), memcpy_size);            \
+        break;                                                  \
+    }
+    switch (tensor->dtype()) {
+        CASE_MEMCPY_TENSOR(DT_HALF,     Eigen::half);
+        CASE_MEMCPY_TENSOR(DT_BFLOAT16, tensorflow::bfloat16);
+        CASE_MEMCPY_TENSOR(DT_FLOAT,    float);
+        CASE_MEMCPY_TENSOR(DT_UINT8,    tensorflow::uint8);
+        CASE_MEMCPY_TENSOR(DT_INT8,     tensorflow::int8);
+        CASE_MEMCPY_TENSOR(DT_UINT16,   tensorflow::uint16);
+        CASE_MEMCPY_TENSOR(DT_INT16,    tensorflow::int16);
+        CASE_MEMCPY_TENSOR(DT_UINT32,   tensorflow::uint32);
+        CASE_MEMCPY_TENSOR(DT_INT32,    tensorflow::int32);
+        CASE_MEMCPY_TENSOR(DT_QUINT8,   tensorflow::quint8);
+        CASE_MEMCPY_TENSOR(DT_QUINT16,  tensorflow::quint16);
+        CASE_MEMCPY_TENSOR(DT_QINT32,   tensorflow::qint32);
+    default:
+        return errors::InvalidArgument("tensor->dtype() is unsupported");
     }
     return Status::OK();
 }

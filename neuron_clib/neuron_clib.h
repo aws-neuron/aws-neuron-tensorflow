@@ -104,7 +104,7 @@ public:
     Status initialize(const std::string &nrtd_address, int num_cores_req);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
-    Status infer(nrt::infer_response *response, Timestamps *timestamps,
+    Status infer(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
                  ProfilerInterface *profile, const uint32_t nn_id,
                  AttrList &input_names, AttrList &output_names,
                  const std::vector<const Tensor*> &input_tensors,
@@ -113,7 +113,9 @@ public:
                       xla::Semaphore *infer_sem, Timestamps *timestamps,
                       const uint32_t nn_id, AttrList &input_names,
                       const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(nrt::infer_response *response, const uint64_t cookie);
+    Status infer_wait(std::vector<Tensor*> *output_tensors,
+                      Timestamps *timestamps,
+                      const uint64_t cookie, AttrList &output_names);
     void unload(const uint32_t nn_id);
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
     Status infer_post_unsafe(uint64_t *cookie, Timestamps *timestamps,
@@ -128,6 +130,9 @@ private:
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
     uint32_t nn_get_current_running();
+    Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
+                               const nrt::infer_response &response,
+                               AttrList &output_names);
     tensorflow::mutex mutex_eg_;
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     bool create_eg_done_ = false;
@@ -169,6 +174,7 @@ std::string env_get(const char *env_var, const char *default_env_var="");
 int stoi_no_throw(const std::string &str);
 Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
                  const std::string &nrtd_address);
+Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
 
 
 }  // namespace neuron

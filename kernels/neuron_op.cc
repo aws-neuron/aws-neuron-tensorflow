@@ -253,42 +253,6 @@ NeuronOp::~NeuronOp() {
 }
 
 
-static Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size=-1) {
-    if (memcpy_size < 0 ? source.size() != tensor->tensor_data().size()
-                        : memcpy_size > tensor->tensor_data().size()) {
-        return errors::OutOfRange(
-            "unexpected tensor size in tensor_memcpy, source size: ",
-            source.size(), ", target size: ", tensor->tensor_data().size());
-    }
-    if (memcpy_size < 0) {
-        memcpy_size = source.size();
-    }
-    #define CASE_MEMCPY_TENSOR(TF_DataType, TTYPE) {            \
-        case (TF_DataType):                                     \
-            std::memcpy(tensor->unaligned_flat<TTYPE>().data(), \
-                        source.data(), memcpy_size);            \
-        break;                                                  \
-    }
-    switch (tensor->dtype()) {
-        CASE_MEMCPY_TENSOR(DT_HALF,     Eigen::half);
-        CASE_MEMCPY_TENSOR(DT_BFLOAT16, tensorflow::bfloat16);
-        CASE_MEMCPY_TENSOR(DT_FLOAT,    float);
-        CASE_MEMCPY_TENSOR(DT_UINT8,    tensorflow::uint8);
-        CASE_MEMCPY_TENSOR(DT_INT8,     tensorflow::int8);
-        CASE_MEMCPY_TENSOR(DT_UINT16,   tensorflow::uint16);
-        CASE_MEMCPY_TENSOR(DT_INT16,    tensorflow::int16);
-        CASE_MEMCPY_TENSOR(DT_UINT32,   tensorflow::uint32);
-        CASE_MEMCPY_TENSOR(DT_INT32,    tensorflow::int32);
-        CASE_MEMCPY_TENSOR(DT_QUINT8,   tensorflow::quint8);
-        CASE_MEMCPY_TENSOR(DT_QUINT16,  tensorflow::quint16);
-        CASE_MEMCPY_TENSOR(DT_QINT32,   tensorflow::qint32);
-    default:
-        return errors::InvalidArgument("tensor->dtype() is unsupported");
-    }
-    return Status::OK();
-}
-
-
 static Status tensor_memset(Tensor *tensor, int ch) {
     #define CASE_MEMSET_TENSOR(TF_DataType, TTYPE) {            \
         case (TF_DataType):                                     \
@@ -517,9 +481,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     batch_idx_queue.pop();
                     int64_t dim0_start = wait_batch_idx * k_batch_size;
                     int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
-                    nrt::infer_response response;
-                    OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&response, wait_cookie));
-                    OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
+                    OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
+                        &output_tensors, nullptr, wait_cookie, output_names));
                     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                         if (is_batch_output_tensors[idx]) {
                             StringPiece k_data = temp_outputs[idx].tensor_data();
@@ -540,7 +503,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }   // unlock device
 
             // wait for remaining ones in the queue
-            for (int64_t dummy_idx = 0; dummy_idx < num_batches; ++dummy_idx) {
+            for (int64_t wait_bidx = 0; wait_bidx < window_size; ++wait_bidx) {
                 if (cookie_queue.empty() || batch_idx_queue.empty()) {
                     break;
                 }
@@ -565,10 +528,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 batch_idx_queue.pop();
                 int64_t dim0_start = wait_batch_idx * k_batch_size;
                 int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
-                nrt::infer_response response;
-                OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&response, wait_cookie));
+                OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
+                    &output_tensors,
+                    (window_size - 1) == wait_bidx ? &timestamps : nullptr,
+                    wait_cookie, output_names));
                 sem_res_queue.pop();
-                OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
                 for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                     if (is_batch_output_tensors[idx]) {
                         StringPiece k_data = temp_outputs[idx].tensor_data();
@@ -579,7 +543,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                 }
             }
-            timestamps.mark_below_nrtd_infer();
         }   // semaphore reservation queue goes out of scope
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
@@ -587,23 +550,20 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors;
-        nrt::infer_response response;
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             output_tensors.emplace_back();
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
-        OP_REQUIRES_OK(ctx, neuron_device_->infer(&response, &timestamps,
+        OP_REQUIRES_OK(ctx, neuron_device_->infer(&output_tensors, &timestamps,
                                                   &profile_, nn_id_,
                                                   input_names, output_names,
                                                   input_tensors, shm_));
-        OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     } else {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors;
-        nrt::infer_response response;
         {
             SemResQueue sem_res_queue;
             uint64_t cookie;
@@ -616,10 +576,10 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                          &output_tensors[idx]));
             }
-            OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&response, cookie));
+            OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
+                &output_tensors, &timestamps, cookie, output_names));
             timestamps.mark_below_nrtd_infer();
         }
-        OP_REQUIRES_OK(ctx, copy_output_tensors(&output_tensors, response));
         timestamps.mark_exit();
         VLOG(1) << timestamps.timing_string();
     }
@@ -639,32 +599,6 @@ Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_ten
                 "incorrect input tensor size ", tensor_data_size, " found on ",
                 input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
         }
-    }
-    return Status::OK();
-}
-
-Status NeuronOp::copy_output_tensors(std::vector<Tensor*> *output_tensors,
-                                     const nrt::infer_response &response) {
-    // set output tensors
-    std::vector<StringPiece> raw_output_tensors;
-    std::unordered_map<std::string, StringPiece> map_name_raw;
-    for (const auto &infer_io : response.ofmap()) {
-        map_name_raw.emplace(infer_io.name(), infer_io.buf());
-    }
-    AttrList &output_names = def().attr().at("output_names").list();
-    for (auto idx = 0; idx < output_names.s_size(); ++idx) {
-        if (map_name_raw.find(output_names.s(idx)) == map_name_raw.end()) {
-            return errors::Internal("tensor name", output_names.s(idx),
-                                    " not found in infer_response.ofmap()");
-        }
-        raw_output_tensors.push_back(map_name_raw[output_names.s(idx)]);
-    }
-    for (auto idx = 0; idx < output_names.s_size(); ++idx) {
-        StringPiece out_tensor_raw = raw_output_tensors[idx];
-        Tensor *out_tensor = output_tensors->at(idx);
-        TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
-                                        "tensor_memcpy failure on tensor name: ",
-                                        output_names.s(idx));
     }
     return Status::OK();
 }

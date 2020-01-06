@@ -32,8 +32,6 @@ private:
     Status initialize();
     Status prepare_shared_memory();
     Status check_input_tensors(const std::vector<const Tensor*> &input_tensors);
-    Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
-                               const nrt::infer_response &response);
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
