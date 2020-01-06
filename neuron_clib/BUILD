@@ -10,6 +10,8 @@ cc_library(
         "timestamps.h",
         "profiler.h",
         "profiler.cc",
+        "tensor_util.h",
+        "tensor_util.cc",
     ],
     hdrs = ["neuron_clib.h"],
     deps = [

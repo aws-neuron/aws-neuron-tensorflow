@@ -23,18 +23,6 @@ static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized ba
 extern NeuronDeviceManager global_neuron_device_manager;
 
 
-NeuronOp::NeuronOp(OpKernelConstruction *ctx)
-        : OpKernel(ctx), infer_sem_(INFER_SEM_MAX_CAPACITY) {
-    VLOG(1) << "calling NeuronOp constructor";
-    OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
-                errors::InvalidArgument("neff is invalid"));
-    profile_.initialize(env_get("NEURON_PROFILE"), def().name());
-    if (profile_.enabled_) profile_.dump_info(def().attr().at("graph_def").s(),
-                                              def().attr().at("executable").s());
-    VLOG(1) << "NeuronOp constructor done";
-}
-
-
 class NeuronModelConfig {
 public:
     void parse_opt_device_size(AttrList &model_config) {
@@ -143,6 +131,17 @@ private:
 };
 
 
+NeuronOp::NeuronOp(OpKernelConstruction *ctx)
+        : OpKernel(ctx), infer_sem_(INFER_SEM_MAX_CAPACITY) {
+    VLOG(1) << "calling NeuronOp constructor";
+    OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
+                errors::InvalidArgument("neff is invalid"));
+    profile_.initialize(env_get("NEURON_PROFILE"), def().name());
+    if (profile_.enabled_) profile_.dump_info(def().attr().at("graph_def").s(),
+                                              def().attr().at("executable").s());
+    VLOG(1) << "NeuronOp constructor done";
+}
+
 Status NeuronOp::initialize() {
     AttrList &model_config_attr = def().attr().at("model_config").list();
     NeuronModelConfig model_config;
@@ -230,7 +229,6 @@ Status NeuronOp::prepare_shared_memory() {
                            input_tensor_sizes_, output_tensor_sizes);
 }
 
-
 NeuronOp::~NeuronOp() {
     VLOG(1) << "calling NeuronOp destructor";
     if (!unloaded_) {
@@ -251,34 +249,6 @@ NeuronOp::~NeuronOp() {
         unloaded_ = true;
     }
 }
-
-
-static Status tensor_memset(Tensor *tensor, int ch) {
-    #define CASE_MEMSET_TENSOR(TF_DataType, TTYPE) {            \
-        case (TF_DataType):                                     \
-            std::memset(tensor->unaligned_flat<TTYPE>().data(), \
-                        ch, tensor->tensor_data().size());      \
-        break;                                                  \
-    }
-    switch (tensor->dtype()) {
-        CASE_MEMSET_TENSOR(DT_HALF,     Eigen::half);
-        CASE_MEMSET_TENSOR(DT_BFLOAT16, tensorflow::bfloat16);
-        CASE_MEMSET_TENSOR(DT_FLOAT,    float);
-        CASE_MEMSET_TENSOR(DT_UINT8,    tensorflow::uint8);
-        CASE_MEMSET_TENSOR(DT_INT8,     tensorflow::int8);
-        CASE_MEMSET_TENSOR(DT_UINT16,   tensorflow::uint16);
-        CASE_MEMSET_TENSOR(DT_INT16,    tensorflow::int16);
-        CASE_MEMSET_TENSOR(DT_UINT32,   tensorflow::uint32);
-        CASE_MEMSET_TENSOR(DT_INT32,    tensorflow::int32);
-        CASE_MEMSET_TENSOR(DT_QUINT8,   tensorflow::quint8);
-        CASE_MEMSET_TENSOR(DT_QUINT16,  tensorflow::quint16);
-        CASE_MEMSET_TENSOR(DT_QINT32,   tensorflow::qint32);
-    default:
-        return errors::InvalidArgument("tensor->dtype() is unsupported");
-    }
-    return Status::OK();
-}
-
 
 void NeuronOp::Compute(OpKernelContext *ctx) {
     Timestamps timestamps;

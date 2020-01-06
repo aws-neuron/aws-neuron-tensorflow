@@ -637,41 +637,6 @@ Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
     return Status::OK();
 }
 
-Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size) {
-    if (memcpy_size < 0 ? source.size() != tensor->tensor_data().size()
-                        : memcpy_size > (int64)tensor->tensor_data().size()) {
-        return errors::OutOfRange(
-            "unexpected tensor size in tensor_memcpy, source size: ",
-            source.size(), ", target size: ", tensor->tensor_data().size());
-    }
-    if (memcpy_size < 0) {
-        memcpy_size = source.size();
-    }
-    #define CASE_MEMCPY_TENSOR(TF_DataType, TTYPE) {            \
-        case (TF_DataType):                                     \
-            std::memcpy(tensor->unaligned_flat<TTYPE>().data(), \
-                        source.data(), memcpy_size);            \
-        break;                                                  \
-    }
-    switch (tensor->dtype()) {
-        CASE_MEMCPY_TENSOR(DT_HALF,     Eigen::half);
-        CASE_MEMCPY_TENSOR(DT_BFLOAT16, tensorflow::bfloat16);
-        CASE_MEMCPY_TENSOR(DT_FLOAT,    float);
-        CASE_MEMCPY_TENSOR(DT_UINT8,    tensorflow::uint8);
-        CASE_MEMCPY_TENSOR(DT_INT8,     tensorflow::int8);
-        CASE_MEMCPY_TENSOR(DT_UINT16,   tensorflow::uint16);
-        CASE_MEMCPY_TENSOR(DT_INT16,    tensorflow::int16);
-        CASE_MEMCPY_TENSOR(DT_UINT32,   tensorflow::uint32);
-        CASE_MEMCPY_TENSOR(DT_INT32,    tensorflow::int32);
-        CASE_MEMCPY_TENSOR(DT_QUINT8,   tensorflow::quint8);
-        CASE_MEMCPY_TENSOR(DT_QUINT16,  tensorflow::quint16);
-        CASE_MEMCPY_TENSOR(DT_QINT32,   tensorflow::qint32);
-    default:
-        return errors::InvalidArgument("tensor->dtype() is unsupported");
-    }
-    return Status::OK();
-}
-
 
 }  // namespace neuron
 }  // namespace tensorflow

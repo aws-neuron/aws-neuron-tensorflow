@@ -4,13 +4,11 @@
 #define TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
 
 #include <queue>
-#include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/mutex.h"
-#include "tensorflow/core/framework/attr_value.pb.h"
-#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/compiler/xla/python/semaphore.h"
 #include "timestamps.h"
 #include "profiler.h"
+#include "tensor_util.h"
 #include "nmgr_service.grpc.pb.h"
 
 
@@ -18,7 +16,6 @@ namespace tensorflow {
 namespace neuron {
 
 
-typedef const AttrValue_ListValue AttrList;
 typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
 #define NRT_INVALID_NN_ID 0
@@ -174,7 +171,6 @@ std::string env_get(const char *env_var, const char *default_env_var="");
 int stoi_no_throw(const std::string &str);
 Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
                  const std::string &nrtd_address);
-Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
 
 
 }  // namespace neuron
