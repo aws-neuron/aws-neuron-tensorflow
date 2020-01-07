@@ -13,6 +13,8 @@ cc_library(
         "tensor_util.h",
         "tensor_util.cc",
         "shared_memory.h",
+        "runtime_grpc.h",
+        "runtime_grpc.cc",
     ],
     hdrs = ["neuron_clib.h"],
     deps = [

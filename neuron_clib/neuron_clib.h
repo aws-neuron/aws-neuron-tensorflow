@@ -10,7 +10,7 @@
 #include "profiler.h"
 #include "tensor_util.h"
 #include "shared_memory.h"
-#include "nmgr_service.grpc.pb.h"
+#include "runtime_grpc.h"
 
 
 namespace tensorflow {
@@ -20,30 +20,6 @@ namespace neuron {
 typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
 #define NRT_INVALID_NN_ID 0
-
-#define NRT_GRPC(func, request, response) ({                    \
-    grpc::Status status;                                        \
-    grpc::ClientContext context;                                \
-    status = (func)(&context, (request), (response));           \
-    if (grpc::StatusCode::UNAVAILABLE == status.error_code()) { \
-        grpc::ClientContext context;                            \
-        status = (func)(&context, (request), (response));       \
-    }                                                           \
-    status;                                                     \
-})
-
-#define NRT_CHECK_RETURN(fn_name, status, response) {                       \
-    if (!((status).ok() && 0 == (response).status().code())) {              \
-        return nrt_error_status((fn_name), (status), (response).status());  \
-    }                                                                       \
-}
-
-#define NRT_CHECK_LOG(fn_name, status, response) {                      \
-    if (!((status).ok() && 0 == (response).status().code())) {          \
-        LOG(ERROR) << nrt_error_status(                                 \
-            (fn_name), (status), (response).status()).error_message();  \
-    }                                                                   \
-}
 
 #define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
     if (failure_expr) {                                                     \
@@ -55,16 +31,6 @@ typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
     if (failure_expr) {                                             \
         LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
     }                                                               \
-}
-
-inline Status nrt_error_status(const std::string &fn_name,
-                               const grpc::Status &status,
-                               const nrt::status &nrt_status) {
-    return errors::Internal(
-        "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
-        ", error message \"", status.error_message(), "\"; nrt status code ",
-        nrt_status.code(), ", details \"", nrt_status.details(), "\""
-    );
 }
 
 
@@ -83,8 +49,7 @@ private:
                         std::vector<std::string> *nrt_paths,
                         const std::vector<size_t> &tensor_sizes,
                         const uint32_t nn_id);
-    void nrt_shm_unmap(const std::string &name);
-    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
+    RuntimeGRPC runtime_;
     std::vector<std::string> nrt_input_paths_;
     std::vector<std::string> nrt_output_paths_;
 };
@@ -93,7 +58,7 @@ private:
 class NeuronDevice {
 public:
     NeuronDevice() {};
-    Status initialize(const std::string &nrtd_address, int num_cores_req);
+    Status initialize(const std::string &nrtd_address, const int num_cores_req);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
     Status infer(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
@@ -122,11 +87,8 @@ private:
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
     uint32_t nn_get_current_running();
-    Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
-                               const nrt::infer_response &response,
-                               AttrList &output_names);
     tensorflow::mutex mutex_eg_;
-    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
+    RuntimeGRPC runtime_;
     bool create_eg_done_ = false;
     uint32_t eg_id_;
     uint32_t running_nn_id_;
@@ -152,7 +114,6 @@ private:
     Status init_devices(const std::vector<int> &num_cores_req_vector);
     Status initialize(int64_t opt_device_size);
     tensorflow::mutex global_mutex_;
-    std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const int DEFAULT_NUM_CORES = -1;  // any negative number
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     bool path_set_ = false;
@@ -164,8 +125,6 @@ private:
 
 std::string env_get(const char *env_var, const char *default_env_var="");
 int stoi_no_throw(const std::string &str);
-Status init_stub(std::unique_ptr<nrt::nmgr_v1::Stub> *stub,
-                 const std::string &nrtd_address);
 
 
 }  // namespace neuron
