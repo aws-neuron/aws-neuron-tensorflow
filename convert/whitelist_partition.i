@@ -26,17 +26,17 @@ limitations under the License.
 
 %{
 string WhitelistPartition(string &graph_def, string &inputs, string &outputs,
-                          string &op_whitelist, string &op_cpu, string &op_inferentia,
+                          string &op_whitelist, string &no_fuse_ops, string &force_fuse_ops,
                           int minimum_segment_size) {
     tensorflow::Status status;
     string new_graph_def;
-    status = tensorflow::kaena::convert::ConvertGraphDefToEIA(
+    status = tensorflow::neuron::convert::ConvertGraphDefToEIA(
         &new_graph_def, graph_def, inputs, outputs,
-        op_whitelist, op_cpu, op_inferentia, minimum_segment_size);
+        op_whitelist, no_fuse_ops, force_fuse_ops, minimum_segment_size);
     return new_graph_def;
 }
 %}
 
 string WhitelistPartition(string graph_def, string inputs, string outputs,
-                          string op_whitelist, string op_cpu, string op_inferentia,
+                          string op_whitelist, string no_fuse_ops, string force_fuse_ops,
                           int minimum_segment_size);

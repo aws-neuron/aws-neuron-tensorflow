@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_CONTRIB_KAENA_CONVERT_GRAPH_H_
-#define TENSORFLOW_CONTRIB_KAENA_CONVERT_GRAPH_H_
+#ifndef TENSORFLOW_NEURON_CONVERT_GRAPH_H_
+#define TENSORFLOW_NEURON_CONVERT_GRAPH_H_
 
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/framework/graph_def_util.h"
@@ -26,7 +26,7 @@ limitations under the License.
 #include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
-namespace kaena {
+namespace neuron {
 namespace convert {
 
 const int FP32MODE = 0;
@@ -99,11 +99,11 @@ struct ConvertGraphParams {
 
 Status ConvertGraphDefToEIA(string *new_graph_def, const string &graph_def,
                             const string &inputs, const string &outputs,
-                            const string &op_whitelist, const string &op_cpu,
-                            const string &op_inferentia, const int min_seg_size);
+                            const string &op_whitelist, const string &no_fuse_ops,
+                            const string &force_fuse_ops, const int min_seg_size);
 
 }  // namespace convert
-}  // namespace kaena
+}  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_CONTRIB_KAENA_CONVERT_GRAPH_H_
+#endif  // TENSORFLOW_NEURON_CONVERT_GRAPH_H_

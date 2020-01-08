@@ -29,7 +29,7 @@ limitations under the License.
 
 
 namespace tensorflow {
-namespace kaena {
+namespace neuron {
 namespace convert {
 
 
@@ -754,7 +754,7 @@ static tensorflow::Status BuildEIAOp(
     const std::vector<string>& tensor_output_names,
     tensorflow::GraphDef& new_graph_def, const int minimum_segment_size,
     std::set<std::string>* op_whitelist,
-    std::set<std::string>* op_cpu, std::set<std::string>* op_inferentia) {
+    std::set<std::string>* no_fuse_ops, std::set<std::string>* force_fuse_ops) {
   string model_id("");
 
   // For storing just names without tensor
@@ -809,8 +809,8 @@ static tensorflow::Status BuildEIAOp(
     tensorflow::Node* node = loop_graph.FindNodeId(i);
     bool is_source_or_sink = node->IsSink() || node->IsSource();
     bool in_whitelist = op_whitelist->count(node->type_string());
-    bool no_fuse = op_cpu->count(node->name());
-    bool force_fuse = op_inferentia->count(node->name());
+    bool no_fuse = no_fuse_ops->count(node->name());
+    bool force_fuse = force_fuse_ops->count(node->name());
     if (!((in_whitelist && !is_source_or_sink && !no_fuse) || force_fuse)) {
         segment_options.exclude_node_list.insert(node->name());
     }
@@ -863,8 +863,8 @@ static Status CreateEiaGraphDef(GraphDef& in_graph_def,
                                 const std::vector<string>& outputs,
                                 const int minimum_segment_size,
                                 std::set<std::string>* op_whitelist,
-                                std::set<std::string>* op_cpu,
-                                std::set<std::string>* op_inferentia,
+                                std::set<std::string>* no_fuse_ops,
+                                std::set<std::string>* force_fuse_ops,
                                 GraphDef& new_graph_def) {
   OpRegistryInterface* op_registry = OpRegistry::Global();
   // Add default attributes to all nodes in the graph def, This
@@ -872,7 +872,7 @@ static Status CreateEiaGraphDef(GraphDef& in_graph_def,
   TF_CHECK_OK(AddDefaultAttrsToGraphDef(&in_graph_def, *op_registry, 0, true));
 
   return BuildEIAOp(in_graph_def, inputs, outputs, new_graph_def,
-                    minimum_segment_size, op_whitelist, op_cpu, op_inferentia);
+                    minimum_segment_size, op_whitelist, no_fuse_ops, force_fuse_ops);
 }
 
 // This is the first function that gets called from python (eia_convert)
@@ -882,8 +882,8 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
                             const string &inputs_str,
                             const string &outputs_str,
                             const string &op_whitelist_str,
-                            const string &op_cpu_str,
-                            const string &op_inferentia_str,
+                            const string &no_fuse_ops_str,
+                            const string &force_fuse_ops_str,
                             const int min_seg_size) {
   tensorflow::Status status = tensorflow::Status::OK();
 
@@ -906,15 +906,15 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
   for (const auto& name : temp.s()) {
     op_whitelist.insert(name);
   }
-  std::set<std::string> op_cpu;
-  temp.ParseFromString(op_cpu_str);
+  std::set<std::string> no_fuse_ops;
+  temp.ParseFromString(no_fuse_ops_str);
   for (const auto& name : temp.s()) {
-    op_cpu.insert(name);
+    no_fuse_ops.insert(name);
   }
-  std::set<std::string> op_inferentia;
-  temp.ParseFromString(op_inferentia_str);
+  std::set<std::string> force_fuse_ops;
+  temp.ParseFromString(force_fuse_ops_str);
   for (const auto& name : temp.s()) {
-    op_inferentia.insert(name);
+    force_fuse_ops.insert(name);
   }
   if (min_seg_size < 1) {
     return tensorflow::errors::InvalidArgument("min_seg_size >= 1 required");
@@ -922,7 +922,7 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
 
   uint64 start_convert_us = Env::Default()->NowMicros();
   status = CreateEiaGraphDef(graph_def, inputs, outputs, min_seg_size,
-                             &op_whitelist, &op_cpu, &op_inferentia, new_graph_def);
+                             &op_whitelist, &no_fuse_ops, &force_fuse_ops, new_graph_def);
   new_graph_def.SerializeToString(new_graph_def_str);
   uint64 convert_time_us = Env::Default()->NowMicros() - start_convert_us;
   VLOG(1) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
@@ -930,5 +930,5 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
 }
 
 }  // namespace convert
-}  // namespace kaena
+}  // namespace neuron
 }  // namespace tensorflow
