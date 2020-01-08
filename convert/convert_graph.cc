@@ -145,8 +145,8 @@ std::vector<string> split_tensor(string out_tensor) {
 }
 
 // This function creates subgraph graph def and adds to main graph.
-tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
-  string eop_name = tensorflow::strings::StrCat("neuron_op_", s.eop_index);
+tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
+  string eop_name = tensorflow::strings::StrCat("neuron_op_", sg_params.eop_index);
   VLOG(1) << "Start Node building ...." << eop_name;
 
   std::vector<string> input_names;
@@ -167,7 +167,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   // of graph to map i.e list output_names : A:1, A: 3, B:0 => map: A->3, B->0
   std::unordered_map<string, int> map_out_names_to_index;
 
-  for (auto out_tensor : s.output_names) {
+  for (auto out_tensor : sg_params.output_names) {
     auto tensor_vec = split_tensor(out_tensor);
     map_out_names_to_index[tensor_vec[0]] = std::max(
         map_out_names_to_index[tensor_vec[0]], std::stoi(tensor_vec[1]));
@@ -175,7 +175,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
 
   // Adding placeholder for all incoming edges, since
   // placeholders do not need to specify inputs.
-  for (auto incoming_edge : s.subgraph_incoming_edges) {
+  for (auto incoming_edge : sg_params.subgraph_incoming_edges) {
     if (incoming_edge->IsControlEdge()) {
       VLOG(2) << "Control edge: src-> " << incoming_edge->src()->name()
               << " dst-> " << incoming_edge->dst()->name();
@@ -217,15 +217,15 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     int inside_node_id = incoming_edge->dst()->id();
     int inside_node_index = incoming_edge->dst_input();
 
-    tensorflow::Node* inside_node = s.graph.FindNodeId(inside_node_id);
-    tensorflow::Node* outside_node = s.graph.FindNodeId(outside_node_id);
+    tensorflow::Node* inside_node = sg_params.graph.FindNodeId(inside_node_id);
+    tensorflow::Node* outside_node = sg_params.graph.FindNodeId(outside_node_id);
 
     VLOG(2) << "edge->  src:" << outside_node->name()
             << " idx: " << outside_node_index << " dst:" << inside_node->name()
             << " idx: " << inside_node_index;
 
     NodeDef placeholder_def;
-    auto placeholder_name = s.graph.NewName(
+    auto placeholder_name = sg_params.graph.NewName(
       outside_node->name() + std::to_string(outside_node_index));
     std::vector<PartialTensorShape> v_partial_shape;
     input_dtypes.push_back(outside_node->output_type(outside_node_index));
@@ -279,8 +279,8 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
   }
 
   // Adding all the interior nodes to the list.
-  for (auto node_id : s.subgraph_node_ids) {
-    tensorflow::Node* node = s.graph.FindNodeId(node_id);
+  for (auto node_id : sg_params.subgraph_node_ids) {
+    tensorflow::Node* node = sg_params.graph.FindNodeId(node_id);
     // this is to handle main graph output nodes in this segment.
     // filling map of (tensor_name , vector(dtype)) i.e A ->DT_FLOAT,->INT8
     // dtype order will match the the index.
@@ -324,14 +324,14 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
 
   // Gather output metadata
   VLOG(2) << "eia op: " << eop_name
-          << " s.output_inds: " << s.output_inds.size();
+          << " sg_params.output_inds: " << sg_params.output_inds.size();
   std::vector<string> ei_node_output_names;
   std::vector<tensorflow::DataType> ei_node_output_dtypes;
   std::vector<PartialTensorShape> ei_node_output_shapes;
-  for (const std::pair<int, int>& output : s.output_inds) {
+  for (const std::pair<int, int>& output : sg_params.output_inds) {
     int node_id = output.first;
     int output_idx = output.second;
-    tensorflow::Node* node = s.graph.FindNodeId(node_id);
+    tensorflow::Node* node = sg_params.graph.FindNodeId(node_id);
     string op_name = node->name();
     string tensor_name = op_name;
 
@@ -388,15 +388,8 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
           << hasher(hash_string) << "Hex Rep" << hex_string;
 
   eop_name = "neuron_op_" + hex_string;
+  sg_params.eop_index_to_name_map->insert({hex_string, sg_params.eop_index});
 
-  s.eop_index_to_name_map->insert({hex_string, s.eop_index});
-
-  // Debug code to dump all subgraphs.
-  // string out_graph =
-  //     "/home/ubuntu/subgraphs/" + std::to_string(s.eop_index) + ".pb";
-  // WriteBinaryProto(Env::Default(), out_graph, subgraph_graph_def);
-
-  // todo: need ei_node_output_shapes to construct output tensors until krtd has shapes
   Node* eia_node;
   TF_CHECK_OK(NodeBuilder(eop_name, "NeuronOp")
                   .Input(input_nodes)
@@ -408,15 +401,15 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
                   .Attr("output_dtypes", ei_node_output_dtypes)
                   .Attr("output_shapes", ei_node_output_shapes)
                   .Attr("_output_shapes", ei_node_output_shapes)
-                  .Finalize(&s.graph, &eia_node));
+                  .Finalize(&sg_params.graph, &eia_node));
 
-  s.eia_node = eia_node;
+  sg_params.eia_node = eia_node;
 
   // Creating identityN node corresponding to any output nodes(if any) in this
   // subgraph
   // start_index is the index of ei op output to which IdentityN node should be
   // connected to.
-  auto start_index = s.output_inds.size();
+  auto start_index = sg_params.output_inds.size();
   VLOG(1) << "start_index: " << start_index;
   std::vector<tensorflow::NodeBuilder::NodeOut> identity_inputs;
 
@@ -433,7 +426,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams& s) {
     Node* node;
     TF_CHECK_OK(NodeBuilder(name, "IdentityN")
                     .Input(identity_inputs)
-                    .Finalize(&s.graph, &node));
+                    .Finalize(&sg_params.graph, &node));
     VLOG(1) << " New output IdentityN node: " << node->def().DebugString();
   }
 
@@ -457,43 +450,43 @@ std::unordered_map<string, std::vector<int>> BuildTensorNameMap(
 }
 
 // This fills the ConvertGraphParams struct.
-static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams* p) {
-  GetSubGraphIncomingEdges(p->graph, p->subgraph_node_ids,
-                           &p->subgraph_incoming_edges);
+static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams *params) {
+  GetSubGraphIncomingEdges(params->graph, params->subgraph_node_ids,
+                           &params->subgraph_incoming_edges);
 
-  auto output_name_to_index_map = BuildTensorNameMap(p->output_names);
+  auto output_name_to_index_map = BuildTensorNameMap(params->output_names);
   std::set<std::pair<int, int>> subgraph_outputs_set;
   // Collect outputs referenced from output_names
-  GetSubGraphOutgoingEdges(p->graph, p->subgraph_node_ids,
-                           &p->subgraph_outgoing_edges);
-  for (const tensorflow::Edge* edge : p->subgraph_outgoing_edges) {
+  GetSubGraphOutgoingEdges(params->graph, params->subgraph_node_ids,
+                           &params->subgraph_outgoing_edges);
+  for (const tensorflow::Edge* edge : params->subgraph_outgoing_edges) {
     if (!edge->IsControlEdge())
       subgraph_outputs_set.insert({edge->src()->id(), edge->src_output()});
   }
-  p->subgraph_outputs.reserve(subgraph_outputs_set.size());
-  p->subgraph_outputs.insert(p->subgraph_outputs.begin(),
-                             subgraph_outputs_set.begin(),
-                             subgraph_outputs_set.end());
+  params->subgraph_outputs.reserve(subgraph_outputs_set.size());
+  params->subgraph_outputs.insert(params->subgraph_outputs.begin(),
+                                  subgraph_outputs_set.begin(),
+                                  subgraph_outputs_set.end());
   return tensorflow::Status::OK();
 }
 
 // Sets up structs for creating subgraph.
 // Also, rewires new eia node to the graph. Removes old nodes.
-tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams* params) {
+tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams *params) {
   TF_RETURN_IF_ERROR(FillSubGraphEdgeSets(params));
   tensorflow::NodeDef eia_node_def;
   tensorflow::Node* eia_node = nullptr;
 
-  SubGraphParams s(params->graph, params->subgraph_node_ids,
-                   params->output_names, params->subgraph_outputs,
-                   params->subgraph_incoming_edges, eia_node, params->eop_count,
-                   params->eop_index_to_name_map);
+  SubGraphParams sg_params(params->graph, params->subgraph_node_ids,
+                           params->output_names, params->subgraph_outputs,
+                           params->subgraph_incoming_edges, eia_node, params->eop_count,
+                           params->eop_index_to_name_map);
 
-  TF_RETURN_IF_ERROR(ConvertSubGraphToEIANodeDef(s));
+  TF_RETURN_IF_ERROR(ConvertSubGraphToEIANodeDef(sg_params));
 
   tensorflow::Status status;
-  eia_node_def = s.eia_node->def();
-  eia_node = s.eia_node;
+  eia_node_def = sg_params.eia_node->def();
+  eia_node = sg_params.eia_node;
 
   // AddNode does not wire edges.
   // Re-map incoming edges to use the new eia node instead of the orig subgraph
@@ -585,9 +578,9 @@ static tensorflow::Status ProcessSegments(
     VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
     VLOG(2) << "Subgraph nodes" << oss.str();
 
-    ConvertGraphParams p(graph, output_names, subgraph_node_ids,
-                         eop_index++, eop_index_to_name_map);
-    tensorflow::Status status = ConvertSubGraphToEIA(&p);
+    ConvertGraphParams params(graph, output_names, subgraph_node_ids,
+                              eop_index++, eop_index_to_name_map);
+    tensorflow::Status status = ConvertSubGraphToEIA(&params);
     if (status != tensorflow::Status::OK()) {
       LOG(WARNING) << "subgraph conversion error for subgraph_index:"
                    << eop_index - 1 << " due to: \"" << status.ToString()
