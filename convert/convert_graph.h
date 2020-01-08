@@ -16,14 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_CONVERT_GRAPH_H_
 #define TENSORFLOW_NEURON_CONVERT_GRAPH_H_
 
-#include "tensorflow/core/framework/graph.pb.h"
-#include "tensorflow/core/framework/graph_def_util.h"
 #include "tensorflow/core/graph/graph.h"
-#include "tensorflow/core/graph/graph_constructor.h"
-#include "tensorflow/core/graph/node_builder.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/lib/random/random.h"
-#include "tensorflow/core/platform/types.h"
 
 namespace tensorflow {
 namespace neuron {

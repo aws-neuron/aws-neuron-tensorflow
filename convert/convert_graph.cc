@@ -13,17 +13,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/framework/attr_value.pb.h"
-#include "tensorflow/core/graph/algorithm.h"
+#include "tensorflow/core/framework/graph_def_util.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/graph_constructor.h"
 #include "tensorflow/core/graph/node_builder.h"
-#include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/hash/hash.h"
-#include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/logging.h"
-#include "tensorflow/core/platform/macros.h"
-#include "tensorflow/core/platform/types.h"
 #include "tensorflow/compiler/tf2tensorrt/segment/segment.h"
 #include "tensorflow/python/neuron/convert/convert_graph.h"
 
@@ -499,8 +493,6 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
     subgraph_edge_to_input_map.insert({params->subgraph_inputs.at(i), i});
   }
   for (const tensorflow::Edge *edge : params->subgraph_incoming_edges) {
-    // std::pair<int, int> old_src = {edge->src()->id(), edge->src_output()};
-    // int new_src_output = subgraph_edge_to_input_map.at(old_src);
     if (edge->IsControlEdge()) {
       params->graph->AddControlEdge(edge->src(), neuron_node);
     }
@@ -597,7 +589,6 @@ void PreProcessSegmentsForResources(
     tensorflow::Graph &graph,
     tensorflow::tensorrt::segment::SegmentNodesVector &normal_segments,
     tensorflow::tensorrt::segment::SegmentNodesVector &loop_segments,
-    // uint& ops_kept_local,
     std::unordered_map<string, int> *neuron_op_index_to_name_map) {
   /*
   For each segment:
@@ -680,12 +671,7 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
     }
   }
 
-  // Debug code
-  // string final_out_graph = "/tmp/startgraph.pb";
-  // WriteBinaryProto(Env::Default(), final_out_graph, in_graph_def);
-
   VLOG(2) << in_graph_def.DebugString();
-
   return tensorflow::Status::OK();
 }
 
