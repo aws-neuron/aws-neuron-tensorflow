@@ -592,45 +592,6 @@ static tensorflow::Status ProcessSegments(
   return status;
 }
 
-void ReplaceLoopEIAOpsWithNodes(
-    std::set<const Node*>& segment_nodes,
-    tensorflow::tensorrt::segment::SegmentNodesVector& loop_segments,
-    std::unordered_map<string, int>* eop_index_to_name_map) {
-  // Parse through all the segment nodes and if it contains op names "eop_x",
-  // replace that with ops in loop_segments index 'x' ops.
-  std::set<const Node*> internal_eop_ops;
-  std::set<int> eop_index_to_be_added;
-  for (auto node : segment_nodes) {
-    if (node->name().find("eop") != std::string::npos) {
-      internal_eop_ops.insert(node);
-      VLOG(2) << " eop op " << node->name();
-      // loop_segments index will match the eop name index i.e 'x' in 'eop_x'
-      // since we created eop_x while iterating through loop_segments
-      std::size_t found = node->name().find_last_of("_");
-      // std::string parent_name = node_names.substr(0, found);
-      auto loop_segment_index = (*eop_index_to_name_map)[node->name().substr(
-          found + 1, node->name().size())];
-      eop_index_to_be_added.insert(loop_segment_index);
-      VLOG(1) << " loop_segment index: " << loop_segment_index;
-    }
-  }
-
-  // removing eia ops from current segment.
-  for (auto name : internal_eop_ops) {
-    segment_nodes.erase(name);
-  }
-
-  // Adding all the nodes for corresponding eia ops to current segment.
-  for (auto eop_idx : eop_index_to_be_added) {
-    segment_nodes.insert(loop_segments[eop_idx].begin(),
-                         loop_segments[eop_idx].end());
-  }
-
-  // // clearing storage:
-  // internal_eop_ops.clear();
-  // eop_index_to_be_added.clear();
-}
-
 void PreProcessSegmentsForResources(
     tensorflow::Graph& graph,
     tensorflow::tensorrt::segment::SegmentNodesVector& normal_segments,
@@ -677,10 +638,6 @@ void PreProcessSegmentsForResources(
         break;
       }
     }
-
-    // Replace any eia op in segment to its corresponding nodes
-    ReplaceLoopEIAOpsWithNodes(nodes_in_segment, loop_segments,
-                               eop_index_to_name_map);
   }
 
   // Removing segment from segemnt list.
@@ -796,7 +753,7 @@ static tensorflow::Status BuildEIAOp(
     bool no_fuse = no_fuse_ops->count(node->name());
     bool force_fuse = force_fuse_ops->count(node->name());
     if (!((in_whitelist && !is_source_or_sink && !no_fuse) || force_fuse)) {
-        segment_options.exclude_node_list.insert(node->name());
+      segment_options.exclude_node_list.insert(node->name());
     }
   }
 
