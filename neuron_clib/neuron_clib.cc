@@ -299,6 +299,10 @@ Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
 void NeuronDevice::unload(const uint32_t nn_id) {
     {
         tensorflow::mutex_lock lock(mutex_eg_);
+        if (!nn_id_set_.count(nn_id)) {
+            VLOG(1) << "model " << nn_id << " is not loaded";
+            return;
+        }
         nn_id_set_.erase(nn_id);
         // stop
         if (running(nn_id)) {

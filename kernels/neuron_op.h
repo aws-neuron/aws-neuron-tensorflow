@@ -36,7 +36,6 @@ private:
     NeuronDevice *neuron_device_ = nullptr;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
     bool ready_ = false;
-    bool unloaded_ = false;
     bool enable_dynamic_batch_size_ = false;
     std::vector<size_t> input_tensor_sizes_;
     uint32_t max_num_infers_ = 5;

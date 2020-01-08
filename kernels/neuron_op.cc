@@ -143,6 +143,11 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
 }
 
 Status NeuronOp::initialize() {
+    tensorflow::mutex_lock lock(mutex_model_);
+    if (ready_) {
+        VLOG(1) << "NeuronOp is already initialized";
+        return Status::OK();
+    }
     AttrList &model_config_attr = def().attr().at("model_config").list();
     NeuronModelConfig model_config;
     model_config.parse_opt_device_size(model_config_attr);
@@ -231,35 +236,21 @@ Status NeuronOp::prepare_shared_memory() {
 
 NeuronOp::~NeuronOp() {
     VLOG(1) << "calling NeuronOp destructor";
-    if (!unloaded_) {
-        tensorflow::mutex_lock lock(mutex_model_);
-        if (unloaded_) {
-            VLOG(1) << "model is already unloaded";
-            return;
-        }
-        if (nullptr == neuron_device_) {
-            VLOG(1) << "neuron_device_ not available; not tearing down";
-            return;
-        }
-        neuron_device_->unload(nn_id_);
-        VLOG(1) << "unload from NeuronOp::~NeuronOp";
-        global_neuron_device_manager.clear_if_empty();
-        VLOG(1) << "NeuronOp destructor done";
-        ready_ = false;
-        unloaded_ = true;
+    tensorflow::mutex_lock lock(mutex_model_);
+    if (nullptr == neuron_device_) {
+        VLOG(1) << "neuron_device_ not available; not tearing down";
+        return;
     }
+    neuron_device_->unload(nn_id_);
+    VLOG(1) << "unload from NeuronOp::~NeuronOp";
+    global_neuron_device_manager.clear_if_empty();
+    VLOG(1) << "NeuronOp destructor done";
 }
 
 void NeuronOp::Compute(OpKernelContext *ctx) {
     Timestamps timestamps;
     timestamps.mark_enter();
-
-    if (!ready_) {
-        tensorflow::mutex_lock lock(mutex_model_);
-        if (!ready_) {
-            OP_REQUIRES_OK(ctx, initialize());
-        }
-    }
+    OP_REQUIRES_OK(ctx, initialize());
 
     AttrList &input_names = def().attr().at("input_names").list();
     AttrList &output_shapes = def().attr().at("output_shapes").list();
