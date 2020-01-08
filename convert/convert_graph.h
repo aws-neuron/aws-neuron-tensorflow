@@ -37,10 +37,10 @@ struct SubGraphParams {
                  tensorflow::EdgeSet &incoming_edges,
                  tensorflow::Node *constructed_eia_node, const int eop_ind,
                  std::unordered_map<string, int> *eop_index_to_name_map)
-      : graph(inp_graph),
-        subgraph_node_ids(subgraph_node_id_numbers),
-        output_names(output_node_names),
-        output_inds(output_indices),
+      : graph(&inp_graph),
+        subgraph_node_ids(&subgraph_node_id_numbers),
+        output_names(&output_node_names),
+        output_inds(&output_indices),
         eia_node(constructed_eia_node),
         eop_index(eop_ind),
         eop_index_to_name_map(eop_index_to_name_map) {
@@ -49,32 +49,31 @@ struct SubGraphParams {
     }
   }
 
-  tensorflow::Graph &graph;
-  const std::vector<string> &output_names;
-  const std::set<int> &subgraph_node_ids;
-  const std::vector<std::pair<int, int> > &output_inds; // {node_id, output_idx}
+  tensorflow::Graph *graph;
+  const std::vector<string> *output_names;
+  const std::set<int> *subgraph_node_ids;
+  const std::vector<std::pair<int, int> > *output_inds; // {node_id, output_idx}
   std::vector<const tensorflow::Edge*> subgraph_incoming_edges;
   tensorflow::Node *eia_node;
   const int eop_index;
   std::unordered_map<string, int> *eop_index_to_name_map;
 };
 
-// TODO(sami): convert references to pointers
 struct ConvertGraphParams {
   ConvertGraphParams(tensorflow::Graph &inp_graph,
                      const std::vector<string> &output_node_names,
                      const std::set<int> &subgraph_node_id_numbers,
                      int eop_index,
                      std::unordered_map<string, int> *eop_index_to_name_map)
-      : graph(inp_graph),
-        output_names(output_node_names),
-        subgraph_node_ids(subgraph_node_id_numbers),
+      : graph(&inp_graph),
+        output_names(&output_node_names),
+        subgraph_node_ids(&subgraph_node_id_numbers),
         eop_index_to_name_map(eop_index_to_name_map),
         eop_count(eop_index) {}
 
-  tensorflow::Graph &graph;
-  const std::vector<string> &output_names;
-  const std::set<int> &subgraph_node_ids;
+  tensorflow::Graph *graph;
+  const std::vector<string> *output_names;
+  const std::set<int> *subgraph_node_ids;
   std::vector<std::pair<int, int> > subgraph_inputs;
   std::vector<std::pair<int, int> > subgraph_outputs;
   tensorflow::EdgeSet subgraph_incoming_edges;
