@@ -30,7 +30,7 @@ string WhitelistPartition(string &graph_def, string &inputs, string &outputs,
                           int minimum_segment_size) {
     tensorflow::Status status;
     string new_graph_def;
-    status = tensorflow::neuron::convert::ConvertGraphDefToEIA(
+    status = tensorflow::neuron::convert::ConvertGraphDefToNeuron(
         &new_graph_def, graph_def, inputs, outputs,
         op_whitelist, no_fuse_ops, force_fuse_ops, minimum_segment_size);
     return new_graph_def;

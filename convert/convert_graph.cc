@@ -145,9 +145,9 @@ std::vector<string> split_tensor(string out_tensor) {
 }
 
 // This function creates subgraph graph def and adds to main graph.
-tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
-  string eop_name = tensorflow::strings::StrCat("neuron_op_", sg_params.eop_index);
-  VLOG(1) << "Start Node building ...." << eop_name;
+tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
+  string neuron_op_name = tensorflow::strings::StrCat("neuron_op_", sg_params.neuron_op_index);
+  VLOG(1) << "Start Node building ...." << neuron_op_name;
 
   std::vector<string> input_names;
   std::vector<tensorflow::DataType> input_dtypes;
@@ -181,7 +181,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
               << " dst-> " << incoming_edge->dst()->name();
 
       // Need to remove this input from the node. Control edges incoming to
-      // the subgraph should point to eia op directly. The inputs in nodes
+      // the subgraph should point to Neuron op directly. The inputs in nodes
       // taking control edges from outside should be removed.
       NodeDef inside_node_def;
       std::vector<string> input_list;
@@ -257,7 +257,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
     VLOG(2) << "Input node def:" << inside_node_def.DebugString();
     VLOG(2) << " Place holder def :" << placeholder_def.DebugString();
 
-    // for creating EIA op node,storing:
+    // for creating Neuron op node, storing:
     // input_names -> Attr(input_names) -> name of input nodes inside subgraph
     input_names.push_back(placeholder_name + ":0");
 
@@ -300,7 +300,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
         DataType tensor_dtype = node->output_type(tensor_index);
         main_graph_output_nodes[node->name()].push_back(tensor_dtype);
         main_graph_output_shapes[node->name()].push_back(v_partial_shape[tensor_index]);
-        VLOG(1) << " ConvertSubGraphToEIANodeDef node: making pair: ("
+        VLOG(1) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
                 << node->name() << " , " << tensor_dtype << " )";
       }
     }
@@ -315,7 +315,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
     (*subgraph_graph_def.add_node()) = it->second;
   }
 
-  VLOG(2) << "EI subgraph graphdef: " << subgraph_graph_def.DebugString();
+  VLOG(2) << "Neuron subgraph graphdef: " << subgraph_graph_def.DebugString();
 
   string in_graph_def_string = "";
   if (!subgraph_graph_def.SerializeToString(&in_graph_def_string)) {
@@ -323,11 +323,11 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
   }
 
   // Gather output metadata
-  VLOG(2) << "eia op: " << eop_name
+  VLOG(2) << "Neuron op: " << neuron_op_name
           << " sg_params.output_inds: " << sg_params.output_inds->size();
-  std::vector<string> ei_node_output_names;
-  std::vector<tensorflow::DataType> ei_node_output_dtypes;
-  std::vector<PartialTensorShape> ei_node_output_shapes;
+  std::vector<string> neuron_node_output_names;
+  std::vector<tensorflow::DataType> neuron_node_output_dtypes;
+  std::vector<PartialTensorShape> neuron_node_output_shapes;
   for (const std::pair<int, int>& output : *sg_params.output_inds) {
     int node_id = output.first;
     int output_idx = output.second;
@@ -338,16 +338,16 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
     VLOG(2) << "op_name: " << op_name;
     tensorflow::strings::StrAppend(&tensor_name, ":", output_idx);
     VLOG(2) << "Output tensor name: " << tensor_name;
-    ei_node_output_names.push_back(tensor_name);
+    neuron_node_output_names.push_back(tensor_name);
 
     tensorflow::DataType tf_dtype = node->output_type(output_idx);
-    ei_node_output_dtypes.push_back(tf_dtype);
+    neuron_node_output_dtypes.push_back(tf_dtype);
 
     std::vector<PartialTensorShape> v_partial_shape;
     if (GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
-      ei_node_output_shapes.push_back(v_partial_shape[output_idx]);
+      neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
     } else {
-      ei_node_output_shapes.push_back(PartialTensorShape());
+      neuron_node_output_shapes.emplace_back();
     }
   }
 
@@ -359,11 +359,11 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
     auto dtype = name_type.second;
     for (auto dtype : name_type.second) {
       VLOG(1) << "tensorname: " << name << " dtype: " << dtype;
-      ei_node_output_names.push_back(name + ":" + std::to_string(counter++));
-      ei_node_output_dtypes.push_back(dtype);
+      neuron_node_output_names.push_back(name + ":" + std::to_string(counter++));
+      neuron_node_output_dtypes.push_back(dtype);
     }
     for (auto shape : main_graph_output_shapes[name]) {
-      ei_node_output_shapes.push_back(shape);
+      neuron_node_output_shapes.push_back(shape);
     }
   }
 
@@ -374,10 +374,10 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
   for (auto const& s : input_names) {
     hash_string += s;
   }
-  for (auto const& s : ei_node_output_names) {
+  for (auto const& s : neuron_node_output_names) {
     hash_string += s;
   }
-  for (auto const& s : ei_node_output_dtypes) {
+  for (auto const& s : neuron_node_output_dtypes) {
     hash_string += s;
   }
   std::stringstream stream;
@@ -387,27 +387,27 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
   VLOG(2) << "String to be hashed " << hash_string << "Hashed String "
           << hasher(hash_string) << "Hex Rep" << hex_string;
 
-  eop_name = "neuron_op_" + hex_string;
-  sg_params.eop_index_to_name_map->insert({hex_string, sg_params.eop_index});
+  neuron_op_name = "neuron_op_" + hex_string;
+  sg_params.neuron_op_index_to_name_map->insert({hex_string, sg_params.neuron_op_index});
 
-  Node* eia_node;
-  TF_CHECK_OK(NodeBuilder(eop_name, "NeuronOp")
+  Node *neuron_node;
+  TF_CHECK_OK(NodeBuilder(neuron_op_name, "NeuronOp")
                   .Input(input_nodes)
                   .Attr("graph_def", in_graph_def_string)
                   .Attr("input_names", input_names)
                   .Attr("input_dtypes", input_dtypes)
                   .Attr("input_shapes", input_shapes)
-                  .Attr("output_names", ei_node_output_names)
-                  .Attr("output_dtypes", ei_node_output_dtypes)
-                  .Attr("output_shapes", ei_node_output_shapes)
-                  .Attr("_output_shapes", ei_node_output_shapes)
-                  .Finalize(sg_params.graph, &eia_node));
+                  .Attr("output_names", neuron_node_output_names)
+                  .Attr("output_dtypes", neuron_node_output_dtypes)
+                  .Attr("output_shapes", neuron_node_output_shapes)
+                  .Attr("_output_shapes", neuron_node_output_shapes)
+                  .Finalize(sg_params.graph, &neuron_node));
 
-  sg_params.eia_node = eia_node;
+  sg_params.neuron_node = neuron_node;
 
   // Creating identityN node corresponding to any output nodes(if any) in this
   // subgraph
-  // start_index is the index of ei op output to which IdentityN node should be
+  // start_index is the index of Neuron op output to which IdentityN node should be
   // connected to.
   auto start_index = sg_params.output_inds->size();
   VLOG(1) << "start_index: " << start_index;
@@ -421,7 +421,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
     VLOG(1) << " max index: " << map_out_names_to_index[name];
     for (size_t i = 0; i < main_graph_output_nodes[name].size(); ++i) {
       VLOG(1) << "start_index: " << start_index;
-      identity_inputs.push_back(NodeBuilder::NodeOut(eia_node, start_index++));
+      identity_inputs.push_back(NodeBuilder::NodeOut(neuron_node, start_index++));
     }
     Node* node;
     TF_CHECK_OK(NodeBuilder(name, "IdentityN")
@@ -431,7 +431,7 @@ tensorflow::Status ConvertSubGraphToEIANodeDef(SubGraphParams &sg_params) {
   }
 
   VLOG(1) << "Created new node ..............";
-  VLOG(2) << " new node: " << eia_node->def().DebugString();
+  VLOG(2) << " new node: " << neuron_node->def().DebugString();
 
   return tensorflow::Status::OK();
 }
@@ -471,25 +471,26 @@ static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams *params) {
 }
 
 // Sets up structs for creating subgraph.
-// Also, rewires new eia node to the graph. Removes old nodes.
-tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams *params) {
+// Also, rewires new Neuron node to the graph. Removes old nodes.
+tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
   TF_RETURN_IF_ERROR(FillSubGraphEdgeSets(params));
-  tensorflow::NodeDef eia_node_def;
-  tensorflow::Node* eia_node = nullptr;
+  tensorflow::NodeDef neuron_node_def;
+  tensorflow::Node *neuron_node = nullptr;
 
   SubGraphParams sg_params(*params->graph, *params->subgraph_node_ids,
                            *params->output_names, params->subgraph_outputs,
-                           params->subgraph_incoming_edges, eia_node, params->eop_count,
-                           params->eop_index_to_name_map);
+                           params->subgraph_incoming_edges, neuron_node,
+                           params->neuron_op_count,
+                           params->neuron_op_index_to_name_map);
 
-  TF_RETURN_IF_ERROR(ConvertSubGraphToEIANodeDef(sg_params));
+  TF_RETURN_IF_ERROR(ConvertSubGraphToNeuronNodeDef(sg_params));
 
   tensorflow::Status status;
-  eia_node_def = sg_params.eia_node->def();
-  eia_node = sg_params.eia_node;
+  neuron_node_def = sg_params.neuron_node->def();
+  neuron_node = sg_params.neuron_node;
 
   // AddNode does not wire edges.
-  // Re-map incoming edges to use the new eia node instead of the orig subgraph
+  // Re-map incoming edges to use the new Neuron node instead of the orig subgraph
   std::map<std::pair<int, int>, int> subgraph_edge_to_input_map;
   VLOG(2) << "subgraph_edge_to_input_map: ";
   for (size_t i = 0; i < params->subgraph_inputs.size(); ++i) {
@@ -497,36 +498,36 @@ tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams *params) {
             << params->subgraph_inputs.at(i).second << " i " << i;
     subgraph_edge_to_input_map.insert({params->subgraph_inputs.at(i), i});
   }
-  for (const tensorflow::Edge* edge : params->subgraph_incoming_edges) {
+  for (const tensorflow::Edge *edge : params->subgraph_incoming_edges) {
     // std::pair<int, int> old_src = {edge->src()->id(), edge->src_output()};
     // int new_src_output = subgraph_edge_to_input_map.at(old_src);
     if (edge->IsControlEdge()) {
-      params->graph->AddControlEdge(edge->src(), eia_node);
+      params->graph->AddControlEdge(edge->src(), neuron_node);
     }
     params->graph->RemoveEdge(edge);
   }
 
-  VLOG(2) << "new wiring edges: " << eia_node->in_edges().size();
-  for (const tensorflow::Edge* edge : eia_node->in_edges()) {
+  VLOG(2) << "new wiring edges: " << neuron_node->in_edges().size();
+  for (const tensorflow::Edge *edge : neuron_node->in_edges()) {
     VLOG(2) << edge->src()->name() << " port: " << edge->src_output();
   }
 
   TF_RETURN_IF_ERROR(status);
 
-  // Re-map outgoing edges to use the new eia node instead of the orig subgraph
+  // Re-map outgoing edges to use the new Neuron node instead of the orig subgraph
   std::map<std::pair<int, int>, int> subgraph_edge_to_output_map;
   for (size_t i = 0; i < params->subgraph_outputs.size(); ++i) {
     subgraph_edge_to_output_map.insert({params->subgraph_outputs.at(i), i});
   }
   TF_RETURN_IF_ERROR(status);
-  for (const tensorflow::Edge* edge : params->subgraph_outgoing_edges) {
+  for (const tensorflow::Edge *edge : params->subgraph_outgoing_edges) {
     if (edge->IsControlEdge()) {
-      params->graph->AddControlEdge(eia_node, edge->dst());
+      params->graph->AddControlEdge(neuron_node, edge->dst());
     } else {
       std::pair<int, int> old_src = {edge->src()->id(), edge->src_output()};
       int new_src_output = subgraph_edge_to_output_map.at(old_src);
       TF_RETURN_IF_ERROR(params->graph->UpdateEdge(
-          eia_node, new_src_output, edge->dst(), edge->dst_input()));
+          neuron_node, new_src_output, edge->dst(), edge->dst_input()));
     }
   }
 
@@ -553,18 +554,18 @@ static tensorflow::Status ExcludeInputNodes(
   return tensorflow::Status::OK();
 }
 
-// Takes all the segment and modifies input graph to have eia ops.
+// Takes all the segment and modifies input graph to have Neuron ops.
 static tensorflow::Status ProcessSegments(
-    tensorflow::Graph& graph, const std::vector<string>& output_names,
-    std::unordered_map<string, tensorflow::Node*>& node_map,
-    tensorflow::tensorrt::segment::SegmentNodesVector& segments, int& eop_index,
-    std::unordered_map<string, int>* eop_index_to_name_map) {
+    tensorflow::Graph &graph, const std::vector<string> &output_names,
+    std::unordered_map<string, tensorflow::Node*> &node_map,
+    tensorflow::tensorrt::segment::SegmentNodesVector &segments, int &neuron_op_index,
+    std::unordered_map<string, int> *neuron_op_index_to_name_map) {
   tensorflow::Status status = tensorflow::Status::OK();
 
   for (const std::set<const Node*>& subgraph_node_names : segments) {
     std::set<int> subgraph_node_ids;
     std::stringstream oss;
-    for (const Node* node : subgraph_node_names) {
+    for (const Node *node : subgraph_node_names) {
       oss << " " << node->name();
       if (node_map.find(node->name()) == node_map.end()) {
         string msg =
@@ -579,11 +580,11 @@ static tensorflow::Status ProcessSegments(
     VLOG(2) << "Subgraph nodes" << oss.str();
 
     ConvertGraphParams params(graph, output_names, subgraph_node_ids,
-                              eop_index++, eop_index_to_name_map);
-    tensorflow::Status status = ConvertSubGraphToEIA(&params);
+                              neuron_op_index++, neuron_op_index_to_name_map);
+    tensorflow::Status status = ConvertSubGraphToNeuron(&params);
     if (status != tensorflow::Status::OK()) {
       LOG(WARNING) << "subgraph conversion error for subgraph_index:"
-                   << eop_index - 1 << " due to: \"" << status.ToString()
+                   << neuron_op_index - 1 << " due to: \"" << status.ToString()
                    << "\" SKIPPING......( " << subgraph_node_names.size()
                    << " nodes)";
     }
@@ -593,24 +594,24 @@ static tensorflow::Status ProcessSegments(
 }
 
 void PreProcessSegmentsForResources(
-    tensorflow::Graph& graph,
-    tensorflow::tensorrt::segment::SegmentNodesVector& normal_segments,
-    tensorflow::tensorrt::segment::SegmentNodesVector& loop_segments,
+    tensorflow::Graph &graph,
+    tensorflow::tensorrt::segment::SegmentNodesVector &normal_segments,
+    tensorflow::tensorrt::segment::SegmentNodesVector &loop_segments,
     // uint& ops_kept_local,
-    std::unordered_map<string, int>* eop_index_to_name_map) {
+    std::unordered_map<string, int> *neuron_op_index_to_name_map) {
   /*
   For each segment:
     1. If a resouce is input or output of segment, add segment to remove list.
-    2. Replace any eia ops that is inside the segment with actual nodes. This is
+    2. Replace any Neuron ops that is inside the segment with actual nodes. This is
     happens coz we we are currently doing segmentation on graph that might have
-    loops inside eia ops.
+    loops inside Neuron ops.
     3. Remove all segments in remove list from segment list.
   */
   std::unordered_map<string, tensorflow::Node*> node_map;
   BuildNodeMap(graph, &node_map);
   std::set<int> remove_segment_index;
   for (auto idx = 0; idx < (int)normal_segments.size(); idx++) {
-    std::set<const Node*>& nodes_in_segment = normal_segments[idx];
+    std::set<const Node*> &nodes_in_segment = normal_segments[idx];
     std::set<int> subgraph_node_ids;
     for (auto node : nodes_in_segment) {
       subgraph_node_ids.insert(node_map[node->name()]->id());
@@ -621,7 +622,7 @@ void PreProcessSegmentsForResources(
     GetSubGraphIncomingEdges(graph, subgraph_node_ids, &incoming_edges);
     GetSubGraphOutgoingEdges(graph, subgraph_node_ids, &outgoing_edges);
 
-    for (const tensorflow::Edge* edge : incoming_edges) {
+    for (const tensorflow::Edge *edge : incoming_edges) {
       if (edge->dst()->input_type(edge->dst_input()) == DT_RESOURCE) {
         VLOG(1) << "incoming edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
@@ -630,7 +631,7 @@ void PreProcessSegmentsForResources(
       }
     }
 
-    for (const tensorflow::Edge* edge : outgoing_edges) {
+    for (const tensorflow::Edge *edge : outgoing_edges) {
       if (edge->src()->output_type(edge->src_output()) == DT_RESOURCE) {
         VLOG(1) << "outgoing edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
@@ -689,9 +690,9 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
 }
 
 // This function is the base function which does:
-// Step 1: Find EIA Segments.
-// Step 2: Calls functions to create EIA subgraphs.
-static tensorflow::Status BuildEIAOp(
+// Step 1: Find Neuron Segments.
+// Step 2: Calls functions to create Neuron subgraphs.
+static tensorflow::Status BuildNeuronOp(
     GraphDef& in_graph_def, const std::vector<string>& inputs,
     const std::vector<string>& tensor_output_names,
     tensorflow::GraphDef& new_graph_def, const int minimum_segment_size,
@@ -704,10 +705,10 @@ static tensorflow::Status BuildEIAOp(
     output_names.push_back(split(name, ":")[0]);
   }
 
-  // Segment the graph into subgraphs that can be converted to EIA op
+  // Segment the graph into subgraphs that can be converted to Neuron op
   tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
-  VLOG(1) << "Building EI Op\n";
+  VLOG(1) << "Building Neuron Op\n";
 
   // Creating Identity node for all output nodes.
   TF_RETURN_IF_ERROR(PreProcessingGraphDef(tensor_output_names, in_graph_def));
@@ -724,10 +725,10 @@ static tensorflow::Status BuildEIAOp(
 
   segment_options.minimum_segment_size = minimum_segment_size;
 
-  std::unordered_map<string, int> eop_index_to_name_map;
+  std::unordered_map<string, int> neuron_op_index_to_name_map;
 
   // ############################ STEP 1: #################################
-  // Making a graph with  with only loops in EIA ops.
+  // Making a graph with  with only loops in Neuron ops.
 
   tensorflow::tensorrt::segment::SegmentNodesVector loop_segments;
 
@@ -735,14 +736,14 @@ static tensorflow::Status BuildEIAOp(
 
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
       tensorflow::GraphConstructorOptions(), in_graph_def, &loop_graph));
-  int start_eop_index = 0;
+  int start_neuron_op_index = 0;
 
   // Only do loops segmentation if all the ops in "loop_ops" list
   // are in whitelist.
 
   // ###################  STEP 2 #########################################
   /// Once the loops are in the graph , we will use that graph to form normal
-  /// segments. We will add eia to whitelist , so that they are engulfed if
+  /// segments. We will add NeuronOp to whitelist , so that they are engulfed if
   /// needed.
 
   // Setup exclude_node_list
@@ -781,15 +782,15 @@ static tensorflow::Status BuildEIAOp(
     segment_options,
     &normal_segments));
   if (normal_segments.size() > 1) {
-    VLOG(1) << "MULTIPLE ei candidate conversion: " << normal_segments.size();
+    VLOG(1) << "MULTIPLE Neuron candidate conversion: " << normal_segments.size();
   }
 
   if (normal_segments.size()) {
     PreProcessSegmentsForResources(loop_graph, normal_segments, loop_segments,
-                                   &eop_index_to_name_map);
+                                   &neuron_op_index_to_name_map);
     TF_RETURN_IF_ERROR(ProcessSegments(graph, tensor_output_names, node_map,
-                                       normal_segments, start_eop_index,
-                                       &eop_index_to_name_map));
+                                       normal_segments, start_neuron_op_index,
+                                       &neuron_op_index_to_name_map));
   }
 
   // ################### STEP 2 DONE #######################
@@ -799,35 +800,33 @@ static tensorflow::Status BuildEIAOp(
   return tensorflow::Status::OK();
 }
 
-static Status CreateEiaGraphDef(GraphDef& in_graph_def,
-                                const std::vector<string>& inputs,
-                                const std::vector<string>& outputs,
-                                const int minimum_segment_size,
-                                std::set<std::string>* op_whitelist,
-                                std::set<std::string>* no_fuse_ops,
-                                std::set<std::string>* force_fuse_ops,
-                                GraphDef& new_graph_def) {
-  OpRegistryInterface* op_registry = OpRegistry::Global();
+static Status CreateNeuronGraphDef(GraphDef &in_graph_def,
+                                   const std::vector<string> &inputs,
+                                   const std::vector<string> &outputs,
+                                   const int minimum_segment_size,
+                                   std::set<std::string> *op_whitelist,
+                                   std::set<std::string> *no_fuse_ops,
+                                   std::set<std::string> *force_fuse_ops,
+                                   GraphDef &new_graph_def) {
+  OpRegistryInterface *op_registry = OpRegistry::Global();
   // Add default attributes to all nodes in the graph def, This
   // should solve the index_type problem for faster rcnn
   TF_CHECK_OK(AddDefaultAttrsToGraphDef(&in_graph_def, *op_registry, 0, true));
 
-  return BuildEIAOp(in_graph_def, inputs, outputs, new_graph_def,
-                    minimum_segment_size, op_whitelist, no_fuse_ops, force_fuse_ops);
+  return BuildNeuronOp(in_graph_def, inputs, outputs, new_graph_def,
+                       minimum_segment_size, op_whitelist, no_fuse_ops, force_fuse_ops);
 }
 
-// This is the first function that gets called from python (eia_convert)
-// linked through swig file eia_conversion.i
-Status ConvertGraphDefToEIA(string *new_graph_def_str,
-                            const string &graph_def_str,
-                            const string &inputs_str,
-                            const string &outputs_str,
-                            const string &op_whitelist_str,
-                            const string &no_fuse_ops_str,
-                            const string &force_fuse_ops_str,
-                            const int min_seg_size) {
-  tensorflow::Status status = tensorflow::Status::OK();
-
+// This is the first function that gets called from python (whitelist_partition)
+// linked through swig file whitelist_partition.i
+Status ConvertGraphDefToNeuron(string *new_graph_def_str,
+                               const string &graph_def_str,
+                               const string &inputs_str,
+                               const string &outputs_str,
+                               const string &op_whitelist_str,
+                               const string &no_fuse_ops_str,
+                               const string &force_fuse_ops_str,
+                               const int min_seg_size) {
   tensorflow::GraphDef graph_def, new_graph_def;
   graph_def.ParseFromString(graph_def_str);
   std::vector<string> inputs;
@@ -862,8 +861,9 @@ Status ConvertGraphDefToEIA(string *new_graph_def_str,
   }
 
   uint64 start_convert_us = Env::Default()->NowMicros();
-  status = CreateEiaGraphDef(graph_def, inputs, outputs, min_seg_size,
-                             &op_whitelist, &no_fuse_ops, &force_fuse_ops, new_graph_def);
+  Status status = CreateNeuronGraphDef(graph_def, inputs, outputs, min_seg_size,
+                                       &op_whitelist, &no_fuse_ops, &force_fuse_ops,
+                                       new_graph_def);
   new_graph_def.SerializeToString(new_graph_def_str);
   uint64 convert_time_us = Env::Default()->NowMicros() - start_convert_us;
   VLOG(1) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
