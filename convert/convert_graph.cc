@@ -487,8 +487,7 @@ tensorflow::Status ConvertSubGraphToEIA(ConvertGraphParams* params) {
   SubGraphParams s(params->graph, params->subgraph_node_ids,
                    params->output_names, params->subgraph_outputs,
                    params->subgraph_incoming_edges, eia_node, params->eop_count,
-                   params->eop_index_to_name_map, params->p_model_id,
-                   params->precision_mode);
+                   params->eop_index_to_name_map);
 
   TF_RETURN_IF_ERROR(ConvertSubGraphToEIANodeDef(s));
 
@@ -566,7 +565,7 @@ static tensorflow::Status ProcessSegments(
     tensorflow::Graph& graph, const std::vector<string>& output_names,
     std::unordered_map<string, tensorflow::Node*>& node_map,
     tensorflow::tensorrt::segment::SegmentNodesVector& segments, int& eop_index,
-    std::unordered_map<string, int>* eop_index_to_name_map, string model_id) {
+    std::unordered_map<string, int>* eop_index_to_name_map) {
   tensorflow::Status status = tensorflow::Status::OK();
 
   for (const std::set<const Node*>& subgraph_node_names : segments) {
@@ -585,22 +584,15 @@ static tensorflow::Status ProcessSegments(
     }
     VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
     VLOG(2) << "Subgraph nodes" << oss.str();
-    // defaulting to FP32 , this var is not used right now.
-    int precision_mode = FP32MODE;
 
-    ConvertGraphParams p(graph, output_names, subgraph_node_ids, precision_mode,
-                         eop_index++, eop_index_to_name_map, model_id);
-
-    if (precision_mode == FP16MODE) {
-      // TODO: Can be used to convert to FP16 possibly later.
-    } else {
-      tensorflow::Status status = ConvertSubGraphToEIA(&p);
-      if (status != tensorflow::Status::OK()) {
-        LOG(WARNING) << "subgraph conversion error for subgraph_index:"
-                     << eop_index - 1 << " due to: \"" << status.ToString()
-                     << "\" SKIPPING......( " << subgraph_node_names.size()
-                     << " nodes)";
-      }
+    ConvertGraphParams p(graph, output_names, subgraph_node_ids,
+                         eop_index++, eop_index_to_name_map);
+    tensorflow::Status status = ConvertSubGraphToEIA(&p);
+    if (status != tensorflow::Status::OK()) {
+      LOG(WARNING) << "subgraph conversion error for subgraph_index:"
+                   << eop_index - 1 << " due to: \"" << status.ToString()
+                   << "\" SKIPPING......( " << subgraph_node_names.size()
+                   << " nodes)";
     }
   }
 
@@ -755,7 +747,6 @@ static tensorflow::Status BuildEIAOp(
     tensorflow::GraphDef& new_graph_def, const int minimum_segment_size,
     std::set<std::string>* op_whitelist,
     std::set<std::string>* no_fuse_ops, std::set<std::string>* force_fuse_ops) {
-  string model_id("");
 
   // For storing just names without tensor
   std::vector<string> output_names;
@@ -848,7 +839,7 @@ static tensorflow::Status BuildEIAOp(
                                    &eop_index_to_name_map);
     TF_RETURN_IF_ERROR(ProcessSegments(graph, tensor_output_names, node_map,
                                        normal_segments, start_eop_index,
-                                       &eop_index_to_name_map, model_id));
+                                       &eop_index_to_name_map));
   }
 
   // ################### STEP 2 DONE #######################
