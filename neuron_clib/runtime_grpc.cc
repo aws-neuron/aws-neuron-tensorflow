@@ -158,7 +158,7 @@ Status RuntimeGRPC::infer(std::vector<Tensor*> *output_tensors, Timestamps *time
     return Status::OK();
 }
 
-Status RuntimeGRPC::infer_post(uint64_t *cookie, Timestamps *timestamps,
+Status RuntimeGRPC::infer_post(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
                                const uint32_t nn_id, AttrList &input_names,
                                const std::vector<const Tensor*> &input_tensors) {
     nrt::infer_request request;
@@ -175,16 +175,16 @@ Status RuntimeGRPC::infer_post(uint64_t *cookie, Timestamps *timestamps,
     if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
     grpc::Status status = NRT_GRPC(stub_->infer_post, request, &response);
     NRT_CHECK_RETURN("infer_post", status, response);
-    *cookie = response.cookie();
+    nmgr_outputs->cookie = response.cookie();
     return Status::OK();
 }
 
 Status RuntimeGRPC::infer_wait(std::vector<Tensor*> *output_tensors,
                                Timestamps *timestamps,
-                               const uint64_t cookie, AttrList &output_names) {
+                               const NMGROutputs &nmgr_outputs, AttrList &output_names) {
     nrt::infer_wait_request request;
     nrt::infer_response response;
-    request.set_cookie(cookie);
+    request.set_cookie(nmgr_outputs.cookie);
 
     // infer_wait
     grpc::Status status = NRT_GRPC(stub_->infer_wait, request, &response);

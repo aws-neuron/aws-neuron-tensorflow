@@ -39,6 +39,24 @@ inline Status nrt_error_status(const std::string &fn_name,
     );
 }
 
+class NMGROutputs {
+public:
+    NMGROutputs() {};
+    Status initialize(std::vector<Tensor*> *output_tensors,
+                      const uint32_t nn_id, AttrList &output_names) {
+        return Status::OK();
+    }
+    ~NMGROutputs() {};
+    NMGROutputs(const NMGROutputs &nmgr_outputs) {
+        cookie = nmgr_outputs.cookie;
+    }
+    NMGROutputs &operator=(const NMGROutputs &nmgr_outputs) {
+        cookie = nmgr_outputs.cookie;
+        return *this;
+    }
+    uint64_t cookie = 0;
+};
+
 class RuntimeGRPC {
 public:
     RuntimeGRPC() {};
@@ -52,12 +70,11 @@ public:
                  AttrList &input_names, AttrList &output_names,
                  const std::vector<const Tensor*> &input_tensors,
                  const SharedMemory &shm);
-    Status infer_post(uint64_t *cookie, Timestamps *timestamps,
+    Status infer_post(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
                       const uint32_t nn_id, AttrList &input_names,
                       const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(std::vector<Tensor*> *output_tensors,
-                      Timestamps *timestamps,
-                      const uint64_t cookie, AttrList &output_names);
+    Status infer_wait(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
+                      const NMGROutputs &nmgr_outputs, AttrList &output_names);
     Status stop(const uint32_t nn_id);
     Status unload(const uint32_t nn_id);
     Status destroy_eg(const uint32_t eg_id);

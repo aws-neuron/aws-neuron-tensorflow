@@ -376,7 +376,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
         int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
         window_size = std::min(window_size, num_batches);
-        std::queue<uint64_t> cookie_queue;
+        std::queue<NMGROutputs> nmgr_outputs_queue;
         std::queue<int64_t> batch_idx_queue;
         int64_t post_bidx = 0;
         {   // scope of semaphore reservation queue
@@ -393,13 +393,14 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_neuron_input_tensors[post_bidx][idx] : input_tensors[idx];
                     }
                     OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
-                    uint64_t post_cookie;
-                    sem_res_queue.push(infer_sem_.ScopedAcquire(1));
-                    OP_REQUIRES_OK(ctx, neuron_device_->infer_post_unsafe(
-                        &post_cookie, 0 == post_bidx ? &timestamps : nullptr,
-                        nn_id_, input_names, sliced_inputs));
-                    cookie_queue.push(post_cookie);
+                    nmgr_outputs_queue.emplace();
                     batch_idx_queue.push(post_bidx);
+                    sem_res_queue.push(infer_sem_.ScopedAcquire(1));
+                    OP_REQUIRES_OK(ctx, nmgr_outputs_queue.back().initialize(
+                        nullptr, nn_id_, output_names));
+                    OP_REQUIRES_OK(ctx, neuron_device_->infer_post_unsafe(
+                        &nmgr_outputs_queue.back(), 0 == post_bidx ? &timestamps : nullptr,
+                        nn_id_, input_names, sliced_inputs));
                 }
 
                 // wait one and post one
@@ -425,14 +426,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         output_tensors[idx] = is_batch_output_tensors[idx] ?
                             &temp_outputs[idx] : batch_output_tensors[idx];
                     }
-                    uint64_t wait_cookie = cookie_queue.front();
                     int64_t wait_batch_idx = batch_idx_queue.front();
-                    cookie_queue.pop();
-                    batch_idx_queue.pop();
                     int64_t dim0_start = wait_batch_idx * k_batch_size;
                     int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
                     OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
-                        &output_tensors, nullptr, wait_cookie, output_names));
+                        &output_tensors, nullptr, nmgr_outputs_queue.front(), output_names));
+                    nmgr_outputs_queue.pop();
+                    batch_idx_queue.pop();
                     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                         if (is_batch_output_tensors[idx]) {
                             StringPiece k_data = temp_outputs[idx].tensor_data();
@@ -444,17 +444,18 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
 
                     // post next one
-                    uint64_t post_cookie;
-                    OP_REQUIRES_OK(ctx, neuron_device_->infer_post_unsafe(
-                        &post_cookie, nullptr, nn_id_, input_names, sliced_inputs));
-                    cookie_queue.push(post_cookie);
+                    nmgr_outputs_queue.emplace();
                     batch_idx_queue.push(post_bidx);
+                    OP_REQUIRES_OK(ctx, nmgr_outputs_queue.back().initialize(
+                        nullptr, nn_id_, output_names));
+                    OP_REQUIRES_OK(ctx, neuron_device_->infer_post_unsafe(
+                        &nmgr_outputs_queue.back(), nullptr, nn_id_, input_names, sliced_inputs));
                 }
             }   // unlock device
 
             // wait for remaining ones in the queue
             for (int64_t wait_bidx = 0; wait_bidx < window_size; ++wait_bidx) {
-                if (cookie_queue.empty() || batch_idx_queue.empty()) {
+                if (nmgr_outputs_queue.empty() || batch_idx_queue.empty()) {
                     break;
                 }
                 std::vector<Tensor> temp_outputs(output_dtypes.type_size());
@@ -470,16 +471,15 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     output_tensors[idx] = is_batch_output_tensors[idx] ?
                         &temp_outputs[idx] : batch_output_tensors[idx];
                 }
-                uint64_t wait_cookie = cookie_queue.front();
                 int64_t wait_batch_idx = batch_idx_queue.front();
-                cookie_queue.pop();
-                batch_idx_queue.pop();
                 int64_t dim0_start = wait_batch_idx * k_batch_size;
                 int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
                 Timestamps *wait_timestamps = (window_size - 1) == wait_bidx ?
                     &timestamps : nullptr;
                 OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
-                    &output_tensors, wait_timestamps, wait_cookie, output_names));
+                    &output_tensors, wait_timestamps, nmgr_outputs_queue.front(), output_names));
+                nmgr_outputs_queue.pop();
+                batch_idx_queue.pop();
                 sem_res_queue.pop();
                 for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
                     if (is_batch_output_tensors[idx]) {
@@ -492,8 +492,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 }
             }
         }   // semaphore reservation queue goes out of scope
-        timestamps.mark_exit();
-        VLOG(1) << timestamps.timing_string();
     } else if (profile_.enabled_ || shm_mgr_.shm_.enabled_) {
         VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
@@ -506,29 +504,26 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                                                   &profile_, nn_id_,
                                                   input_names, output_names,
                                                   input_tensors, shm_mgr_.shm_));
-        timestamps.mark_exit();
-        VLOG(1) << timestamps.timing_string();
     } else {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors(ctx->num_outputs());
+        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+            OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
+                                                     &output_tensors[idx]));
+        }
         {
             SemResQueue sem_res_queue;
-            uint64_t cookie;
-            OP_REQUIRES_OK(ctx, neuron_device_->infer_post(&cookie, &sem_res_queue,
-                                                           &infer_sem_, &timestamps,
-                                                           nn_id_, input_names,
-                                                           input_tensors));
-            for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
-                                                         &output_tensors[idx]));
-            }
+            NMGROutputs nmgr_outputs;
+            OP_REQUIRES_OK(ctx, nmgr_outputs.initialize(&output_tensors, nn_id_, output_names));
+            OP_REQUIRES_OK(ctx, neuron_device_->infer_post(
+                &nmgr_outputs, &sem_res_queue, &infer_sem_, &timestamps,
+                nn_id_, input_names, input_tensors));
             OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
-                &output_tensors, &timestamps, cookie, output_names));
-            timestamps.mark_below_nrtd_infer();
+                &output_tensors, &timestamps, nmgr_outputs, output_names));
         }
-        timestamps.mark_exit();
-        VLOG(1) << timestamps.timing_string();
     }
+    timestamps.mark_exit();
+    VLOG(1) << timestamps.timing_string();
 }
 
 Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_tensors) {

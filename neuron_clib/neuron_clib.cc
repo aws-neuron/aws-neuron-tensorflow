@@ -332,30 +332,29 @@ Status NeuronDevice::infer(std::vector<Tensor*> *output_tensors, Timestamps *tim
     return status;
 }
 
-Status NeuronDevice::infer_post(uint64_t *cookie, SemResQueue *sem_res_queue,
+Status NeuronDevice::infer_post(NMGROutputs *nmgr_outputs, SemResQueue *sem_res_queue,
                                 xla::Semaphore *infer_sem, Timestamps *timestamps,
                                 const uint32_t nn_id, AttrList &input_names,
                                 const std::vector<const Tensor*> &input_tensors) {
     tensorflow::mutex_lock lock(mutex_eg_);
     sem_res_queue->push(infer_sem->ScopedAcquire(1));
-    return infer_post_unsafe(cookie, timestamps, nn_id, input_names, input_tensors);
+    return infer_post_unsafe(nmgr_outputs, timestamps, nn_id, input_names, input_tensors);
 }
 
 void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
     mutex_lock_queue->emplace(mutex_eg_);
 }
 
-Status NeuronDevice::infer_post_unsafe(uint64_t *cookie, Timestamps *timestamps,
+Status NeuronDevice::infer_post_unsafe(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
                                        const uint32_t nn_id, AttrList &input_names,
                                        const std::vector<const Tensor*> &input_tensors) {
     TF_RETURN_IF_ERROR(start_model(nn_id));
-    return runtime_.infer_post(cookie, timestamps, nn_id, input_names, input_tensors);
+    return runtime_.infer_post(nmgr_outputs, timestamps, nn_id, input_names, input_tensors);
 }
 
-Status NeuronDevice::infer_wait(std::vector<Tensor*> *output_tensors,
-                                Timestamps *timestamps,
-                                const uint64_t cookie, AttrList &output_names) {
-    return runtime_.infer_wait(output_tensors, timestamps, cookie, output_names);
+Status NeuronDevice::infer_wait(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
+                                const NMGROutputs &nmgr_outputs, AttrList &output_names) {
+    return runtime_.infer_wait(output_tensors, timestamps, nmgr_outputs, output_names);
 }
 
 void NeuronDevice::clear() {
