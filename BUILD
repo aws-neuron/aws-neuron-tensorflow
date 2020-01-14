@@ -1,7 +1,6 @@
-package(default_visibility = ["//tensorflow:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 load("//tensorflow:tensorflow.bzl", "tf_copts")
-load("//tensorflow:tensorflow.bzl", "tf_py_wrap_cc")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_wrapper_py")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
@@ -21,25 +20,13 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
-tf_py_wrap_cc(
-    name = "whitelist_partition_swig",
-    srcs = ["convert/whitelist_partition.i"],
-    copts = tf_copts(),
-    deps = [
-        ":convert_graph",
-        ":neuron_op_kernel",
-        "//tensorflow/c:tf_status_helper",
-        "//third_party/python_runtime:headers",
-    ],
-)
-
 py_library(
     name = "graph_util_py",
     srcs = [
         "python/graph_util.py",
     ],
     srcs_version = "PY2AND3",
-    deps = [":whitelist_partition_swig"],
+    deps = ["//tensorflow/python/neuron/convert:whitelist_partition_swig"],
 )
 
 py_library(
@@ -113,7 +100,7 @@ cc_library(
     visibility = ["//visibility:public"],
     deps = [
         "//tensorflow/core:protos_all_cc",
-        ":neuron_clib",
+        "//tensorflow/python/neuron/neuron_clib:neuron_clib",
     ] + tf_custom_op_library_additional_deps(),
     alwayslink = 1,
 )
@@ -136,44 +123,6 @@ tf_custom_op_py_library(
     srcs_version = "PY2AND3",
     visibility = ["//visibility:public"],
     deps = ["//tensorflow/python:framework_for_generated_wrappers"]
-)
-
-cc_library(
-    name = "convert_graph",
-    srcs = ["convert/convert_graph.cc"],
-    hdrs = ["convert/convert_graph.h"],
-    copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
-    deps = [
-        ":segment",
-        "//tensorflow/python/neuron:all_ops",
-        "//tensorflow/core:core_cpu_headers_lib",
-        "//tensorflow/core:framework_headers_lib",
-        "//tensorflow/core:lib",
-        ":neuron_clib",
-    ],
-    visibility = ["//visibility:public"],
-)
-
-cc_library(
-    name = "segment",
-    srcs = [
-        "//tensorflow/compiler/tf2tensorrt:segment/segment.cc",
-        "//tensorflow/compiler/tf2tensorrt:segment/union_find.h",
-    ],
-    hdrs = [
-        "//tensorflow/compiler/tf2tensorrt:segment/segment.h",
-    ],
-    copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
-    deps = [
-        "//tensorflow/core:core",
-        "//tensorflow/core:protos_all_cc",
-        "@com_google_protobuf//:protobuf_headers",
-    ],
-)
-
-cc_library(
-    name = "neuron_clib",
-    deps = ["//tensorflow/python/neuron/neuron_clib:neuron_clib"],
 )
 
 py_library(
