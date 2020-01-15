@@ -18,7 +18,7 @@ limitations under the License.
 #include "tensorflow/core/graph/graph_constructor.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/hash/hash.h"
-#include "tensorflow/compiler/tf2tensorrt/segment/segment.h"
+#include "tensorflow/python/neuron/convert/segment.h"
 #include "tensorflow/python/neuron/convert/convert_graph.h"
 
 

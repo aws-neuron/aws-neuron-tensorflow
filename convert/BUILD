@@ -30,14 +30,33 @@ cc_library(
     visibility = ["//visibility:public"],
 )
 
-cc_library(
-    name = "segment",
+genrule(
+    name = 'hacked_tf2tensorrt_segment',
     srcs = [
+        "//tensorflow/compiler/tf2tensorrt:segment/segment.h",
         "//tensorflow/compiler/tf2tensorrt:segment/segment.cc",
         "//tensorflow/compiler/tf2tensorrt:segment/union_find.h",
     ],
+    outs = ['segment.h', "segment.cc", "union_find.h"],
+    cmd = """
+        cp $(location //tensorflow/compiler/tf2tensorrt:segment/segment.h) $(@D)/segment.h
+        cp $(location //tensorflow/compiler/tf2tensorrt:segment/segment.cc) $(@D)/segment.cc
+        sed -i 's/tensorflow\/compiler\/tf2tensorrt\/segment\///g' $(@D)/segment.cc
+        sed -i 's/not converted to TensorRT/not compiled by neuron-cc/g' $(@D)/segment.cc
+        sed -i 's/docs.nvidia.com\/deeplearning/github.com\/aws\/aws-neuron-sdk/g' $(@D)/segment.cc
+        sed -i 's/\/frameworks\/tf-trt-user-guide\/index.html#supported-ops/\/blob\/master\/release-notes\/neuron-cc-ops\/neuron-cc-ops-tensorflow.md/g' $(@D)/segment.cc
+        cp $(location //tensorflow/compiler/tf2tensorrt:segment/union_find.h) $(@D)/union_find.h
+    """,
+)
+
+cc_library(
+    name = "segment",
+    srcs = [
+        "segment.cc",
+        "union_find.h",
+    ],
     hdrs = [
-        "//tensorflow/compiler/tf2tensorrt:segment/segment.h",
+        "segment.h",
     ],
     copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
