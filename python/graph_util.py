@@ -30,7 +30,7 @@ from tensorflow.python.framework import importer
 from tensorflow.python.framework import graph_util_impl as tf_graph_util
 from tensorflow.python.framework import errors
 from tensorflow.python.framework.common_shapes import call_cpp_shape_fn
-from tensorflow.python.framework.tensor_shape import TensorShape, dimension_value
+from tensorflow.python.framework import tensor_shape
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
 from tensorflow.core.framework import graph_pb2
@@ -191,7 +191,7 @@ def inference_graph_from_session(
             if gd_dtype in gd_tf_dtype_map and gd_tf_dtype_map[gd_dtype].is_numpy_compatible:
                 tensor_name = '{}:0'.format(node.name)
                 np_dtype = gd_np_dtype_map[gd_dtype]
-                shape = TensorShape(gd_tensor.tensor_shape).as_list()
+                shape = tensor_shape.TensorShape(gd_tensor.tensor_shape).as_list()
                 tensor_content = gd_tensor.tensor_content
                 if tensor_content:
                     const_np = numpy.frombuffer(tensor_content, dtype=np_dtype).reshape(shape)
@@ -568,7 +568,7 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
             _infer_shape(op)
             if op.type == 'TensorArrayGatherV3' and op.inputs[1].name in evaluated_map:
                 output_shape = [evaluated_map[op.inputs[1].name].size]
-                output_shape.extend(TensorShape(op.get_attr('element_shape')).as_list())
+                output_shape.extend(tensor_shape.TensorShape(op.get_attr('element_shape')).as_list())
                 op.outputs[0].set_shape(output_shape)
             elif op.type == 'Fill' and _is_evaluable(op, evaluated_map):
                 dims_np, value_np = [evaluated_map[ts.name] for ts in op.inputs]
@@ -1116,7 +1116,7 @@ def _batch_axis(node, subgraph, names_key):
 
 def _one_batch_axis(subgraph, name):
     shape = subgraph.get_tensor_by_name(name.decode()).shape
-    return 0 if len(shape) > 0 and dimension_value(shape[0]) is None else -1
+    return 0 if len(shape) > 0 and tensor_shape.dimension_value(shape[0]) is None else -1
 
 
 def _io_config(node, subgraph, subgraph_shapes=None):
@@ -1128,7 +1128,7 @@ def _io_config(node, subgraph, subgraph_shapes=None):
             shape = tensor.shape
         else:
             shape = subgraph_shapes[node.name][tensor.name]
-            shape = tensor.shape if isinstance(shape, str) else TensorShape(shape)
+            shape = tensor.shape if isinstance(shape, str) else tensor_shape.TensorShape(shape)
         if not shape.is_fully_defined():
             logging.warning('subgraph {}, tensor {}: invalid shape {}'
                             .format(node.name, name, shape))
@@ -1149,7 +1149,7 @@ def _get_shapes(node, names_key, subgraph_shapes, subgraph):
             if isinstance(shape, str):
                 shapes = None
                 break
-            shape = TensorShape(shape)
+            shape = tensor_shape.TensorShape(shape)
         if not shape.is_fully_defined():
             shapes = None
             break
