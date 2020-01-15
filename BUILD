@@ -41,7 +41,7 @@ py_library(
 py_library(
     name = "predictor_py",
     srcs = [
-        "python/predictor/neuron_predictor.py",
+        "python/predictor.py",
         "python/saved_model_util.py",
     ],
     srcs_version = "PY2AND3",
