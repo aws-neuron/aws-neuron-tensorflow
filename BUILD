@@ -142,6 +142,7 @@ py_library(
 
 py_library(
     name = "neuron_py",
+    srcs = ["__init__.py"],
     deps = [
         ":saved_model_py",
         ":graph_util_py",
@@ -152,5 +153,45 @@ py_library(
         ":saved_model_test_py",
         ":keras_test_py",
         ":fuse_test_py",
+        "//tensorflow/python:framework",
+        "//tensorflow/python:array_ops",
+        "//tensorflow/python:client",
+        "//tensorflow/python:check_ops",
+        "//tensorflow/python:nn_ops",
+        "//tensorflow/python/saved_model",
+    ],
+)
+
+
+load(
+    "//tensorflow/python/tools/api/generator:api_gen.bzl",
+    "gen_api_init_files",
+)
+load(
+    "//tensorflow/python/neuron:neuron_api_init_files.bzl",
+    "TENSORFLOW_NEURON_API_INIT_FILES",
+)
+
+gen_api_init_files(
+    name = "tf_neuron_python_api_gen",
+    srcs = [
+        "//tensorflow:api_template_v1.__init__.py",
+    ],
+    api_version = 1,
+    output_dir = "_api/v1/",
+    output_files = TENSORFLOW_NEURON_API_INIT_FILES,
+    output_package = "tensorflow._api.v1",
+    root_file_name = "v1.py",
+    root_init_template = "//tensorflow:api_template_v1.__init__.py",
+    packages = ["tensorflow.python.neuron"],
+    package_deps = [":neuron_py"],
+)
+
+sh_binary(
+    name = "build_pip_package",
+    srcs = ["build_pip_package.sh"],
+    data = [
+        ":neuron_py",
+        ":tf_neuron_python_api_gen",
     ],
 )
