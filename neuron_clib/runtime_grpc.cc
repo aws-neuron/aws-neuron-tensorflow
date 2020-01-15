@@ -137,9 +137,9 @@ Status RuntimeGRPC::infer(std::vector<Tensor*> *output_tensors, Timestamps *time
     nrt::infer_response response;
 
     // infer
-    timestamps->mark_above_nrtd_infer();
+    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
     grpc::Status status = NRT_GRPC(stub_->infer, request, &response);
-    timestamps->mark_below_nrtd_infer();
+    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
     if (status.ok()) {
         // ignore inf/nan errors
         if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
@@ -154,7 +154,9 @@ Status RuntimeGRPC::infer(std::vector<Tensor*> *output_tensors, Timestamps *time
             infer_io->set_buf(shm.output_ptrs_[idx], shm.output_sizes_[idx]);
         }
     }
-    TF_RETURN_IF_ERROR(copy_output_tensors(output_tensors, response, output_names));
+    if (nullptr != output_tensors) {
+        TF_RETURN_IF_ERROR(copy_output_tensors(output_tensors, response, output_names));
+    }
     return Status::OK();
 }
 

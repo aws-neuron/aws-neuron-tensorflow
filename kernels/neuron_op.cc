@@ -376,6 +376,21 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
         int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
         window_size = std::min(window_size, num_batches);
+
+        // run an extra inference upfront if profiler is enabled
+        if (profile_.enabled_) {
+            std::vector<const Tensor*> sliced_inputs(input_names.s_size());
+            for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+                sliced_inputs[idx] = is_batch_input_tensors[idx] ?
+                    &batches_neuron_input_tensors[0][idx] : input_tensors[idx];
+            }
+            OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+            OP_REQUIRES_OK(ctx, neuron_device_->infer(nullptr, nullptr,
+                                                      &profile_, nn_id_,
+                                                      input_names, output_names,
+                                                      sliced_inputs, shm_mgr_.shm_));
+        }
+
         std::queue<NMGROutputs> nmgr_outputs_queue;
         std::queue<int64_t> batch_idx_queue;
         int64_t post_bidx = 0;
