@@ -144,54 +144,6 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
-    def test_dynamic_batchsize(self):
-        np.random.seed(_RANDOM_SEED)
-        pix = 3
-        with tf.Session(graph=tf.Graph()) as sess:
-            input0 = tf.placeholder(tf.float16, [None, pix, pix, 3], name='input0')
-            input1 = tf.placeholder(tf.int32, name='input1')
-            input2 = tf.placeholder(tf.float16, [None, pix, pix, 3], name='input2')
-            input3 = tf.placeholder(tf.bool, name='input3')
-            identity_n0 = tf.identity_n([input0, input1, input2, input3], name='identity_n0')
-            identity_n10, _, identity_n12, _ = tf.identity_n(identity_n0, name='identity_n1')
-            conv2d0 = tf.nn.conv2d(identity_n10, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
-                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
-            conv2d2 = tf.nn.conv2d(identity_n12, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
-                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d2')
-            add0 = tf.add(conv2d0, conv2d2, name='add0')
-            relu0 = tf.nn.relu(add0, name='relu0')
-            sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
-            conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
-                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
-            relu1 = tf.nn.relu(conv2d2, name='relu1')
-            feed_dict_compile = {
-                'identity_n1:0': np.random.uniform(-1, 1, size=[3, pix, pix, 3]).astype(np.float16),
-                'identity_n1:2': np.random.uniform(-1, 1, size=[3, pix, pix, 3]).astype(np.float16),
-            }
-            feed_dict_list = []
-            for batch_size in 1, 2, 3, 5, 11, 12:
-                feed_dict = {
-                    'identity_n1:0': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),
-                    'identity_n1:2': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),
-                }
-                feed_dict_list.append(feed_dict)
-            result_names = ['relu0:0', 'relu1:0']
-            result_ref_list = [sess.run(result_names, feed_dict) for feed_dict in feed_dict_list]
-            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
-                feed_dict=feed_dict_compile, output_tensors=result_names,
-                dynamic_batch_size=True,
-                compiler_workdir='./workdir')
-        _assert_compiler_success(infer_graph)
-        assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
-        if 'NEURON_RTD_ADDRESS' in os.environ:
-            with tf.Session(graph=infer_graph) as sess:
-                for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
-                    result_neuron = sess.run(result_names, feed_dict)
-                    assert len(result_neuron) == len(result_ref)
-                    for res_neuron, res_ref in zip(result_neuron, result_ref):
-                        np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
-
     def test_compiler_timeout_recovery(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
@@ -546,6 +498,72 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 assert len(result_neuron) == len(result_ref)
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+
+
+class TestDynamicBatchSize(unittest.TestCase):
+
+    def test_simple(self):
+        infer_graph, result_names, feed_dict_list, result_ref_list = self._body()
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
+                    result_neuron = sess.run(result_names, feed_dict)
+                    assert len(result_neuron) == len(result_ref)
+                    for res_neuron, res_ref in zip(result_neuron, result_ref):
+                        np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+
+    def test_multithread(self):
+        infer_graph, result_names, feed_dict_list, result_ref_list = self._body()
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                for _ in range(3):
+                    with ThreadPoolExecutor(max_workers=len(feed_dict_list)) as executor:
+                        future_list = [executor.submit(sess.run, result_names, feed_dict) for feed_dict in feed_dict_list]
+                        result_neuron_list = [future.result() for future in future_list]
+            for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+
+    def _body(self):
+        np.random.seed(_RANDOM_SEED)
+        pix = 3
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [None, pix, pix, 3], name='input0')
+            input1 = tf.placeholder(tf.int32, name='input1')
+            input2 = tf.placeholder(tf.float16, [None, pix, pix, 3], name='input2')
+            input3 = tf.placeholder(tf.bool, name='input3')
+            identity_n0 = tf.identity_n([input0, input1, input2, input3], name='identity_n0')
+            identity_n10, _, identity_n12, _ = tf.identity_n(identity_n0, name='identity_n1')
+            conv2d0 = tf.nn.conv2d(identity_n10, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            conv2d2 = tf.nn.conv2d(identity_n12, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d2')
+            add0 = tf.add(conv2d0, conv2d2, name='add0')
+            relu0 = tf.nn.relu(add0, name='relu0')
+            sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+            conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            relu1 = tf.nn.relu(conv2d2, name='relu1')
+            feed_dict_compile = {
+                'identity_n1:0': np.random.uniform(-1, 1, size=[3, pix, pix, 3]).astype(np.float16),
+                'identity_n1:2': np.random.uniform(-1, 1, size=[3, pix, pix, 3]).astype(np.float16),
+            }
+            feed_dict_list = []
+            for batch_size in 1, 2, 3, 5, 11, 12:
+                feed_dict = {
+                    'identity_n1:0': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),
+                    'identity_n1:2': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),
+                }
+                feed_dict_list.append(feed_dict)
+            result_names = ['relu0:0', 'relu1:0']
+            result_ref_list = [sess.run(result_names, feed_dict) for feed_dict in feed_dict_list]
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                feed_dict=feed_dict_compile, output_tensors=result_names,
+                dynamic_batch_size=True,
+                compiler_workdir='./workdir')
+        _assert_compiler_success(infer_graph)
+        assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
+        return infer_graph, result_names, feed_dict_list, result_ref_list
 
 
 class TestSpecialOperator(unittest.TestCase):
