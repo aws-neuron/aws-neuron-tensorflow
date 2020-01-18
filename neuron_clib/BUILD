@@ -1,4 +1,4 @@
-package(default_visibility = ["//tensorflow:__subpackages__"])
+package(default_visibility = ["//visibility:public"])
 
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library_additional_deps",)
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
@@ -38,5 +38,4 @@ cc_proto_library(
     include = "nrt_proto/",
     use_grpc_plugin = True,
     default_runtime = "@com_google_protobuf//:protobuf",
-    visibility = ["//visibility:public"],
 )

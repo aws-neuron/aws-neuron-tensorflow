@@ -11,13 +11,11 @@ load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 cc_library(
     name = "all_ops",
     deps = [":neuron_op_op_lib"],
-    visibility = ["//visibility:public"],
 )
 
 cc_library(
     name = "all_kernels",
     deps = [":neuron_op_kernel"],
-    visibility = ["//visibility:public"],
 )
 
 py_library(
@@ -97,7 +95,6 @@ cc_library(
         "kernels/neuron_op.h",
     ],
     copts = tf_copts() + ["-std=c++14"],
-    visibility = ["//visibility:public"],
     deps = [
         "//tensorflow/core:protos_all_cc",
         "//tensorflow/python/neuron/neuron_clib:neuron_clib",
@@ -121,7 +118,6 @@ tf_custom_op_py_library(
     dso = [":python/ops/_neuron_op.so"],
     kernels = [":neuron_op_kernel",":neuron_op_op_lib"],
     srcs_version = "PY2AND3",
-    visibility = ["//visibility:public"],
     deps = ["//tensorflow/python:framework_for_generated_wrappers"]
 )
 
