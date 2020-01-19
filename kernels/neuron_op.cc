@@ -267,6 +267,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     std::vector<bool> is_batch_output_tensors(ctx->num_outputs());
     bool use_dynamic_batch_size = false;
     AttrList &output_names = def().attr().at("output_names").list();
+    AttrList &output_dtypes = def().attr().at("output_dtypes").list();
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
     AttrList &output_batch_axis = def().attr().at("output_batch_axis").list();
     if (enable_dynamic_batch_size_ && input_names.s_size() == input_batch_axis.i_size() &&
@@ -385,7 +386,17 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     &batches_neuron_input_tensors[0][idx] : input_tensors[idx];
             }
             OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
-            OP_REQUIRES_OK(ctx, neuron_device_->infer(nullptr, nullptr,
+            std::vector<Tensor> temp_outputs(output_dtypes.type_size());
+            for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+                OP_REQUIRES_OK(ctx, ctx->allocate_temp(
+                    output_dtypes.type(idx), output_shapes.shape(idx),
+                    &temp_outputs[idx]));
+            }
+            std::vector<Tensor*> output_tensors(temp_outputs.size());
+            for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
+                output_tensors[idx] = &temp_outputs[idx];
+            }
+            OP_REQUIRES_OK(ctx, neuron_device_->infer(&output_tensors, nullptr,
                                                       &profile_, nn_id_,
                                                       input_names, output_names,
                                                       sliced_inputs, shm_mgr_.shm_));
@@ -396,7 +407,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         int64_t post_bidx = 0;
         {   // scope of semaphore reservation queue
             SemResQueue sem_res_queue;
-            AttrList &output_dtypes = def().attr().at("output_dtypes").list();
             {   // lock device
                 std::queue<tensorflow::mutex_lock> mutex_lock_queue;
                 neuron_device_->acquire_mutex(&mutex_lock_queue);
