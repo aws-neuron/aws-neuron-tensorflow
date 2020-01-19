@@ -5,7 +5,7 @@ load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 cc_library(
     name = "neuron_clib",
     srcs = [
-        "neuron_clib.cc",
+        "device.cc",
         "timestamps.h",
         "profiler.h",
         "profiler.cc",
@@ -15,7 +15,7 @@ cc_library(
         "runtime_grpc.h",
         "runtime_grpc.cc",
     ],
-    hdrs = ["neuron_clib.h"],
+    hdrs = ["device.h"],
     deps = [
         "//tensorflow/compiler/xla/python:semaphore",
         "//tensorflow/core:framework",

@@ -1,7 +1,7 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#ifndef TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
-#define TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
+#ifndef TENSORFLOW_NEURON_NEURON_CLIB_DEVICE_H_
+#define TENSORFLOW_NEURON_NEURON_CLIB_DEVICE_H_
 
 #include <queue>
 #include "tensorflow/core/platform/mutex.h"
@@ -129,4 +129,4 @@ int stoi_no_throw(const std::string &str);
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_NEURON_CLIB_NEURON_CLIB_H_
+#endif  // TENSORFLOW_NEURON_NEURON_CLIB_DEVICE_H_

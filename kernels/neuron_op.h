@@ -15,7 +15,7 @@
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
-#include "tensorflow/python/neuron/neuron_clib/neuron_clib.h"
+#include "tensorflow/python/neuron/neuron_clib/device.h"
 
 
 namespace tensorflow {

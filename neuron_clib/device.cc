@@ -5,7 +5,7 @@
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
-#include "neuron_clib.h"
+#include "device.h"
 
 
 namespace tensorflow {
