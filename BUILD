@@ -1,10 +1,8 @@
 package(default_visibility = ["//visibility:public"])
 
-load("//tensorflow:tensorflow.bzl", "tf_copts")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_wrapper_py")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
-load("//tensorflow:tensorflow.bzl", "tf_custom_op_library_additional_deps")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 
 
@@ -94,11 +92,10 @@ cc_library(
     hdrs = [
         "kernels/neuron_op.h",
     ],
-    copts = tf_copts() + ["-std=c++14"],
+    copts = ["-std=c++14"],
     deps = [
-        "//tensorflow/core:protos_all_cc",
         "//tensorflow/python/neuron/neuron_clib:neuron_clib",
-    ] + tf_custom_op_library_additional_deps(),
+    ],
     alwayslink = 1,
 )
 

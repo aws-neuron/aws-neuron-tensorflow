@@ -1,6 +1,5 @@
 package(default_visibility = ["//visibility:public"])
 
-load("//tensorflow:tensorflow.bzl", "tf_custom_op_library_additional_deps",)
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 
 cc_library(
@@ -19,9 +18,10 @@ cc_library(
     hdrs = ["neuron_clib.h"],
     deps = [
         "//tensorflow/compiler/xla/python:semaphore",
+        "//tensorflow/core:framework",
         ":nmgr_service.grpc.o",
         "@grpc//:grpc++_codegen_base",
-    ] + tf_custom_op_library_additional_deps(),
+    ],
 )
 
 # nrt proto libraries
