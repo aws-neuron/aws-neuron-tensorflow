@@ -3,7 +3,7 @@ package(default_visibility = ["//visibility:public"])
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 
 cc_library(
-    name = "neuron_clib",
+    name = "device",
     srcs = [
         "device.cc",
         "timestamps.h",

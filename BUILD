@@ -94,7 +94,7 @@ cc_library(
     ],
     copts = ["-std=c++14"],
     deps = [
-        "//tensorflow/python/neuron/neuron_clib:neuron_clib",
+        "//tensorflow/python/neuron/runtime:device",
     ],
     alwayslink = 1,
 )
