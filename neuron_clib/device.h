@@ -5,7 +5,7 @@
 
 #include <queue>
 #include "tensorflow/core/platform/mutex.h"
-#include "tensorflow/compiler/xla/python/semaphore.h"
+#include "semaphore.h"
 #include "timestamps.h"
 #include "profiler.h"
 #include "tensor_util.h"
