@@ -1,7 +1,7 @@
 package(default_visibility = ["//visibility:public"])
 
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
-load("//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
+load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
 
 cc_library(
     name = "neuron_op",
@@ -38,8 +38,8 @@ cc_library(
     ],
     hdrs = ["device.h"],
     deps = [
-        "//tensorflow/core:framework",
-        "//tensorflow/core:lib",
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
         ":nmgr_service.grpc.o",
         "@grpc//:grpc++_codegen_base",
     ],
