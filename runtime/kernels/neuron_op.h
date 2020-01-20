@@ -15,7 +15,7 @@
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
-#include "../runtime/device.h"
+#include "../device.h"
 
 
 namespace tensorflow {

@@ -1,6 +1,5 @@
 package(default_visibility = ["//visibility:public"])
 
-load("//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_wrapper_py")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
@@ -8,12 +7,12 @@ load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 
 cc_library(
     name = "all_ops",
-    deps = [":neuron_op_op_lib"],
+    deps = ["//tensorflow/python/neuron/runtime:neuron_op_op_lib"],
 )
 
 cc_library(
     name = "all_kernels",
-    deps = [":neuron_op_kernel"],
+    deps = ["//tensorflow/python/neuron/runtime:neuron_op"],
 )
 
 py_library(
@@ -82,38 +81,24 @@ py_library(
 
 tf_custom_op_library(
     name = "python/ops/_neuron_op.so",
-    srcs = ["ops/neuron_op.cc"],
-    deps = [":neuron_op_kernel"],
-)
-
-cc_library(
-    name = "neuron_op_kernel",
-    srcs = ["kernels/neuron_op.cc"],
-    hdrs = [
-        "kernels/neuron_op.h",
-    ],
-    copts = ["-std=c++14"],
-    deps = [
-        "//tensorflow/python/neuron/runtime:device",
-    ],
-    alwayslink = 1,
-)
-
-tf_gen_op_libs(
-    op_lib_names = ["neuron_op"],
+    srcs = ["//tensorflow/python/neuron/runtime:ops/neuron_op.cc"],
+    deps = ["//tensorflow/python/neuron/runtime:neuron_op"],
 )
 
 tf_gen_op_wrapper_py(
     name = "neuron_op",
     out = "ops/gen_neuron_op.py",
-    deps = [":neuron_op_op_lib"],
+    deps = ["//tensorflow/python/neuron/runtime:neuron_op_op_lib"],
 )
 
 tf_custom_op_py_library(
     name = "neuron_op_py",
     srcs = glob(["python/ops/*.py"]),
     dso = [":python/ops/_neuron_op.so"],
-    kernels = [":neuron_op_kernel",":neuron_op_op_lib"],
+    kernels = [
+        "//tensorflow/python/neuron/runtime:neuron_op",
+        "//tensorflow/python/neuron/runtime:neuron_op_op_lib",
+    ],
     srcs_version = "PY2AND3",
     deps = ["//tensorflow/python:framework_for_generated_wrappers"]
 )

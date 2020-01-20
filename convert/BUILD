@@ -9,7 +9,7 @@ tf_py_wrap_cc(
     copts = tf_copts(),
     deps = [
         ":convert_graph",
-        "//tensorflow/python/neuron:neuron_op_kernel",
+        "//tensorflow/python/neuron/runtime:neuron_op",
         "//tensorflow/c:tf_status_helper",
         "//third_party/python_runtime:headers",
     ],
