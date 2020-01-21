@@ -120,8 +120,9 @@ SharedMemoryManager::~SharedMemoryManager() {
 
 static std::string remove_pattern(std::string data, const std::string &pattern) {
     size_t string_length = data.size();
+    size_t pos = 0;
     for (size_t idx = 0; idx < string_length; ++idx) {
-        size_t pos = data.find(pattern, pos);
+        pos = data.find(pattern, pos);
         if (std::string::npos == pos) {
             break;
         }
@@ -236,7 +237,7 @@ Status NeuronDeviceManager::init_default_device(int64_t opt_device_size) {
     return Status::OK();
 }
 
-Status NeuronDeviceManager::clear_if_empty() {
+void NeuronDeviceManager::clear_if_empty() {
     tensorflow::mutex_lock lock(global_mutex_);
     bool empty = true;
     for (size_t idx = 0; idx < num_devices_; ++idx) {
@@ -247,7 +248,6 @@ Status NeuronDeviceManager::clear_if_empty() {
     if (empty) {
         clear();
     }
-    return Status::OK();
 }
 
 void NeuronDeviceManager::clear() {

@@ -27,6 +27,12 @@ namespace neuron {
 namespace convert {
 
 
+#define TF_LOG_IF_ERROR(status) {   \
+    if (!(status).ok()) {           \
+        LOG(ERROR) << (status);     \
+    }                               \
+}
+
 // Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
 // Helper class for the segmenter to determine whether an output edge from the
 // TRT segment is valid.
@@ -540,7 +546,7 @@ static tensorflow::Status ExcludeInputNodes(
   for (auto in_edge : omit_node->in_edges()) {
     tensorflow::Node* in_node = in_edge->src();
     exclude_node_list.insert(in_node->name());
-    ExcludeInputNodes(in_node, exclude_node_list);
+    TF_RETURN_IF_ERROR(ExcludeInputNodes(in_node, exclude_node_list));
   }
 
   return tensorflow::Status::OK();
@@ -599,7 +605,7 @@ void PreProcessSegmentsForResources(
     3. Remove all segments in remove list from segment list.
   */
   std::unordered_map<string, tensorflow::Node*> node_map;
-  BuildNodeMap(graph, &node_map);
+  TF_LOG_IF_ERROR(BuildNodeMap(graph, &node_map));
   std::set<int> remove_segment_index;
   for (auto idx = 0; idx < (int)normal_segments.size(); idx++) {
     std::set<const Node*> &nodes_in_segment = normal_segments[idx];
@@ -656,7 +662,7 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
       tensorflow::GraphConstructorOptions(), in_graph_def, &graph));
 
   std::unordered_map<string, tensorflow::Node*> node_map;
-  BuildNodeMap(graph, &node_map);
+  TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
 
   for (int idx = 0; idx < in_graph_def.node_size(); idx++) {
     NodeDef* node_def = in_graph_def.mutable_node(idx);
@@ -752,7 +758,7 @@ static tensorflow::Status BuildNeuronOp(
     // Adding all the nodes before the input node to exclude list.
     tensorflow::Node* omit_node = node_map[node_name];
     if (omit_node) {
-      ExcludeInputNodes(omit_node, segment_options.exclude_node_list);
+      TF_RETURN_IF_ERROR(ExcludeInputNodes(omit_node, segment_options.exclude_node_list));
     }
   }
 

@@ -102,7 +102,7 @@ class NeuronDeviceManager {
 public:
     NeuronDeviceManager() {};
     Status apply_for_device(NeuronDevice **device, int64_t opt_device_size);
-    Status clear_if_empty();
+    void clear_if_empty();
     void clear();
     ~NeuronDeviceManager();
     std::string nrtd_address_;

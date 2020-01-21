@@ -183,7 +183,7 @@ Status NeuronOp::initialize() {
             ", output_dtypes size ", output_dtypes.type_size(),
             ", output_shapes size ", output_shapes.shape_size());
     }
-    for (size_t idx = 0; idx < input_dtypes.type_size(); ++idx) {
+    for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
         Tensor temp_tensor(input_dtypes.type(idx), input_shapes.shape(idx));
         input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
     }
@@ -197,7 +197,7 @@ Status NeuronOp::initialize() {
         }
     }
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
-    for (size_t idx = 0; idx < input_batch_axis.i_size(); ++idx) {
+    for (auto idx = 0; idx < input_batch_axis.i_size(); ++idx) {
         if (-1 != input_batch_axis.i(idx)) {
             enable_dynamic_batch_size_ = true;
             break;
@@ -226,7 +226,7 @@ Status NeuronOp::prepare_shared_memory() {
     AttrList &output_dtypes = def().attr().at("output_dtypes").list();
     AttrList &output_shapes = def().attr().at("output_shapes").list();
     std::vector<size_t> output_tensor_sizes;
-    for (size_t idx = 0; idx < output_dtypes.type_size(); ++idx) {
+    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
         output_tensor_sizes.push_back(temp_tensor.tensor_data().size());
     }
@@ -258,7 +258,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
         input_tensors[idx] = &ctx->input(idx);
     }
-    OP_REQUIRES(ctx, input_tensors.size() == input_names.s_size(),
+    OP_REQUIRES(ctx, (int)input_tensors.size() == input_names.s_size(),
                 errors::InvalidArgument("incorrect number of input tensors"));
 
     int64_t batch_size = UNINIT_BATCH_SIZE;
@@ -273,7 +273,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     if (enable_dynamic_batch_size_ && input_names.s_size() == input_batch_axis.i_size() &&
             output_names.s_size() == output_batch_axis.i_size()) {
         AttrList &input_shapes = def().attr().at("input_shapes").list();
-        for (auto idx = 0; idx < input_tensors.size(); ++idx) {
+        for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
             bool is_batch_tensor = false;
             const Tensor *tptr = input_tensors[idx];
             TensorShape shape(tptr->shape());
@@ -350,7 +350,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         for (int64_t batch_idx = 0; batch_idx < num_batches; ++batch_idx) {
             int64_t dim0_start = batch_idx * k_batch_size;
             int64_t dim0_limit = batch_idx * k_batch_size + k_batch_size;
-            for (auto idx = 0; idx < input_tensors.size(); ++idx) {
+            for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
                 if (is_batch_input_tensors[idx]) {
                     if (batch_idx == num_batches - 1) {
                         TensorShape ps_shape(input_tensors[idx]->shape());
@@ -393,7 +393,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     &temp_outputs[idx]));
             }
             std::vector<Tensor*> output_tensors(temp_outputs.size());
-            for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
+            for (size_t idx = 0; idx < temp_outputs.size(); ++idx) {
                 output_tensors[idx] = &temp_outputs[idx];
             }
             OP_REQUIRES_OK(ctx, neuron_device_->infer(&output_tensors, nullptr,
@@ -447,7 +447,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         }
                     }
                     std::vector<Tensor*> output_tensors(temp_outputs.size());
-                    for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
+                    for (size_t idx = 0; idx < temp_outputs.size(); ++idx) {
                         output_tensors[idx] = is_batch_output_tensors[idx] ?
                             &temp_outputs[idx] : batch_output_tensors[idx];
                     }
@@ -492,7 +492,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                 }
                 std::vector<Tensor*> output_tensors(temp_outputs.size());
-                for (auto idx = 0; idx < temp_outputs.size(); ++idx) {
+                for (size_t idx = 0; idx < temp_outputs.size(); ++idx) {
                     output_tensors[idx] = is_batch_output_tensors[idx] ?
                         &temp_outputs[idx] : batch_output_tensors[idx];
                 }
@@ -553,7 +553,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
 
 Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_tensors) {
     AttrList &input_names = def().attr().at("input_names").list();
-    if (input_tensors.size() != input_names.s_size()) {
+    if ((int)input_tensors.size() != input_names.s_size()) {
         return errors::Internal(
             "incorrect number of input tensors, input_tensors size ",
             input_tensors.size(), ", input_names size", input_names.s_size());

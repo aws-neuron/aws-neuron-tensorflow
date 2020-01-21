@@ -31,8 +31,8 @@ struct SubGraphParams {
                  tensorflow::Node *constructed_neuron_node, const int neuron_op_ind,
                  std::unordered_map<string, int> *neuron_op_index_to_name_map)
       : graph(&inp_graph),
-        subgraph_node_ids(&subgraph_node_id_numbers),
         output_names(&output_node_names),
+        subgraph_node_ids(&subgraph_node_id_numbers),
         output_inds(&output_indices),
         neuron_node(constructed_neuron_node),
         neuron_op_index(neuron_op_ind),
