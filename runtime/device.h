@@ -70,8 +70,8 @@ public:
                       xla::Semaphore *infer_sem, Timestamps *timestamps,
                       const uint32_t nn_id, AttrList &input_names,
                       const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
-                      const NMGROutputs &nmgr_outputs, AttrList &output_names);
+    Status infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
+                      AttrList &output_names);
     void unload(const uint32_t nn_id);
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
     Status infer_post_unsafe(NMGROutputs *nmgr_outputs, Timestamps *timestamps,

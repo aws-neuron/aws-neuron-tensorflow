@@ -352,9 +352,9 @@ Status NeuronDevice::infer_post_unsafe(NMGROutputs *nmgr_outputs, Timestamps *ti
     return runtime_.infer_post(nmgr_outputs, timestamps, nn_id, input_names, input_tensors);
 }
 
-Status NeuronDevice::infer_wait(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
-                                const NMGROutputs &nmgr_outputs, AttrList &output_names) {
-    return runtime_.infer_wait(output_tensors, timestamps, nmgr_outputs, output_names);
+Status NeuronDevice::infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
+                                AttrList &output_names) {
+    return runtime_.infer_wait(nmgr_outputs, timestamps, output_names);
 }
 
 void NeuronDevice::clear() {

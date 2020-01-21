@@ -42,8 +42,9 @@ inline Status nrt_error_status(const std::string &fn_name,
 class NMGROutputs {
 public:
     NMGROutputs() {};
-    Status initialize(std::vector<Tensor*> *output_tensors,
+    Status initialize(const std::vector<Tensor*> &output_tensors,
                       const uint32_t nn_id, AttrList &output_names) {
+        output_tensors_ = output_tensors;
         return Status::OK();
     }
     ~NMGROutputs() {};
@@ -55,6 +56,7 @@ public:
         return *this;
     }
     uint64_t cookie = 0;
+    std::vector<Tensor*> output_tensors_;
 };
 
 class RuntimeGRPC {
@@ -73,8 +75,8 @@ public:
     Status infer_post(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
                       const uint32_t nn_id, AttrList &input_names,
                       const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
-                      const NMGROutputs &nmgr_outputs, AttrList &output_names);
+    Status infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
+                      AttrList &output_names);
     Status stop(const uint32_t nn_id);
     Status unload(const uint32_t nn_id);
     Status destroy_eg(const uint32_t eg_id);

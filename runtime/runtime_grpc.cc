@@ -181,12 +181,11 @@ Status RuntimeGRPC::infer_post(NMGROutputs *nmgr_outputs, Timestamps *timestamps
     return Status::OK();
 }
 
-Status RuntimeGRPC::infer_wait(std::vector<Tensor*> *output_tensors,
-                               Timestamps *timestamps,
-                               const NMGROutputs &nmgr_outputs, AttrList &output_names) {
+Status RuntimeGRPC::infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
+                               AttrList &output_names) {
     nrt::infer_wait_request request;
     nrt::infer_response response;
-    request.set_cookie(nmgr_outputs.cookie);
+    request.set_cookie(nmgr_outputs->cookie);
 
     // infer_wait
     grpc::Status status = NRT_GRPC(stub_->infer_wait, request, &response);
@@ -198,7 +197,8 @@ Status RuntimeGRPC::infer_wait(std::vector<Tensor*> *output_tensors,
         }
     }
     NRT_CHECK_RETURN("infer_wait", status, response);
-    TF_RETURN_IF_ERROR(copy_output_tensors(output_tensors, response, output_names));
+    TF_RETURN_IF_ERROR(copy_output_tensors(&nmgr_outputs->output_tensors_,
+                                           response, output_names));
     return Status::OK();
 }
 
