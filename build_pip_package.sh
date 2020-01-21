@@ -25,8 +25,10 @@ function main() {
     fi
     DSTDIR="$(real_path $1)"
     if [[ -z "$2" ]]; then
-        PLATFORM="linux_x86_64"
-        echo "Building on default platform ${PLATFORM}"
+        PLATFORM=""
+    else
+        PLATFORM="-p $2"
+        echo "Building pip wheel for platform ${2}"
     fi
     if [[ -z "$3" ]]; then
         VERSION="$(git describe --tags)"
@@ -43,13 +45,13 @@ function main() {
     mkdir -p "${TFPYDIR}"
     cp -R bazel-bin/tensorflow/python/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/python/neuron "${TFPYDIR}/"
     mv "${TFPYDIR}/neuron/_api" "${TMPDIR}/tensorflow_core/"
-    mv tensorflow/python/neuron/setup.py "${TMPDIR}/"
-    sed -i "s/_VERSION/${VERSION}/g" "${TMPDIR}/setup.py"
+    sed "s/_VERSION/${VERSION}/g" tensorflow/python/neuron/setup.py > "${TMPDIR}/setup.py"
 
     echo $(date) : "=== Building wheel"
-    ( cd "${TMPDIR}" && python setup.py bdist_wheel -p "${PLATFORM}" > /dev/null 2>&1 )
+    cd "${TMPDIR}"
+    python setup.py -q bdist_wheel ${PLATFORM}
     mkdir -p "${DSTDIR}"
-    cp ${TMPDIR}/dist/* "${DSTDIR}"
+    cp "${TMPDIR}"/dist/* "${DSTDIR}"
     echo $(date) : "=== Output wheel file is in: ${DSTDIR}"
 
     rm -rf "${TMPDIR}"
