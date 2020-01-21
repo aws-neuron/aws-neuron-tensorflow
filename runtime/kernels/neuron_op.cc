@@ -438,35 +438,25 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
 
                     // wait one
-                    std::vector<Tensor> temp_outputs(output_dtypes.type_size());
-                    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-                        if (is_batch_output_tensors[idx]) {
-                            OP_REQUIRES_OK(ctx, ctx->allocate_temp(
-                                output_dtypes.type(idx), output_shapes.shape(idx),
-                                &temp_outputs[idx]));
-                        }
-                    }
-                    std::vector<Tensor*> output_tensors(temp_outputs.size());
-                    for (size_t idx = 0; idx < temp_outputs.size(); ++idx) {
-                        output_tensors[idx] = is_batch_output_tensors[idx] ?
-                            &temp_outputs[idx] : batch_output_tensors[idx];
-                    }
                     int64_t wait_batch_idx = batch_idx_queue.front();
                     int64_t dim0_start = wait_batch_idx * k_batch_size;
                     int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
+                    std::vector<Tensor> slice_outputs(output_dtypes.type_size());
+                    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+                        if (is_batch_output_tensors[idx]) {
+                            slice_outputs[idx] = batch_output_tensors[idx]->Slice(
+                                dim0_start, std::min(dim0_limit, batch_size));
+                        }
+                    }
+                    std::vector<Tensor*> output_tensors(slice_outputs.size());
+                    for (size_t idx = 0; idx < slice_outputs.size(); ++idx) {
+                        output_tensors[idx] = is_batch_output_tensors[idx] ?
+                            &slice_outputs[idx] : batch_output_tensors[idx];
+                    }
                     OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
                         &output_tensors, nullptr, nmgr_outputs_queue.front(), output_names));
                     nmgr_outputs_queue.pop();
                     batch_idx_queue.pop();
-                    for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                        if (is_batch_output_tensors[idx]) {
-                            StringPiece k_data = temp_outputs[idx].tensor_data();
-                            Tensor slice = batch_output_tensors[idx]->Slice(
-                                dim0_start, std::min(dim0_limit, batch_size));
-                            OP_REQUIRES_OK(ctx, tensor_memcpy(
-                                &slice, k_data, slice.tensor_data().size()));
-                        }
-                    }
 
                     // post next one
                     nmgr_outputs_queue.emplace();
@@ -483,22 +473,21 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 if (nmgr_outputs_queue.empty() || batch_idx_queue.empty()) {
                     break;
                 }
-                std::vector<Tensor> temp_outputs(output_dtypes.type_size());
-                for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-                    if (is_batch_output_tensors[idx]) {
-                        OP_REQUIRES_OK(ctx, ctx->allocate_temp(
-                            output_dtypes.type(idx), output_shapes.shape(idx),
-                            &temp_outputs[idx]));
-                    }
-                }
-                std::vector<Tensor*> output_tensors(temp_outputs.size());
-                for (size_t idx = 0; idx < temp_outputs.size(); ++idx) {
-                    output_tensors[idx] = is_batch_output_tensors[idx] ?
-                        &temp_outputs[idx] : batch_output_tensors[idx];
-                }
                 int64_t wait_batch_idx = batch_idx_queue.front();
                 int64_t dim0_start = wait_batch_idx * k_batch_size;
                 int64_t dim0_limit = wait_batch_idx * k_batch_size + k_batch_size;
+                std::vector<Tensor> slice_outputs(output_dtypes.type_size());
+                for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+                    if (is_batch_output_tensors[idx]) {
+                        slice_outputs[idx] = batch_output_tensors[idx]->Slice(
+                            dim0_start, std::min(dim0_limit, batch_size));
+                    }
+                }
+                std::vector<Tensor*> output_tensors(slice_outputs.size());
+                for (size_t idx = 0; idx < slice_outputs.size(); ++idx) {
+                    output_tensors[idx] = is_batch_output_tensors[idx] ?
+                        &slice_outputs[idx] : batch_output_tensors[idx];
+                }
                 Timestamps *wait_timestamps = (window_size - 1) == wait_bidx ?
                     &timestamps : nullptr;
                 OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
@@ -506,15 +495,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 nmgr_outputs_queue.pop();
                 batch_idx_queue.pop();
                 sem_res_queue.pop();
-                for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-                    if (is_batch_output_tensors[idx]) {
-                        StringPiece k_data = temp_outputs[idx].tensor_data();
-                        Tensor slice = batch_output_tensors[idx]->Slice(
-                            dim0_start, std::min(dim0_limit, batch_size));
-                        OP_REQUIRES_OK(ctx, tensor_memcpy(
-                            &slice, k_data, slice.tensor_data().size()));
-                    }
-                }
             }
         }   // semaphore reservation queue goes out of scope
     } else if (profile_.enabled_ || shm_mgr_.shm_.enabled_) {

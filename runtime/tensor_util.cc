@@ -38,14 +38,14 @@ namespace neuron {
 }
 
 Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size) {
-    if (memcpy_size < 0 ? source.size() != tensor->tensor_data().size()
-                        : memcpy_size > (int64)tensor->tensor_data().size()) {
+    int64 dst_size = tensor->tensor_data().size();
+    if (memcpy_size < 0) {
+        memcpy_size = dst_size;
+    }
+    if (memcpy_size > (int64)source.size() || memcpy_size > dst_size) {
         return errors::OutOfRange(
             "unexpected tensor size in tensor_memcpy, source size: ",
             source.size(), ", target size: ", tensor->tensor_data().size());
-    }
-    if (memcpy_size < 0) {
-        memcpy_size = source.size();
     }
     #define CASE_MEMCPY_TENSOR(TTYPE, TF_DataType) {            \
         case (TF_DataType):                                     \
