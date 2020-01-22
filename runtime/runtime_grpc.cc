@@ -37,15 +37,27 @@ Status RuntimeGRPC::create_eg(uint32_t *eg_id, uint32_t *num_cores,
     nrt::create_eg_response response;
     grpc::Status status = NRT_GRPC(stub_->create_eg, request, &response);
     if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
-        std::string message(" is unavailable. Is neuron-rtd running?");
-        std::string unix_prefix("unix:");
-        size_t start = nrtd_address_.find(unix_prefix);
-        if (0 == start) {
-            message += " Is socket ";
-            message += nrtd_address_.substr(start + unix_prefix.length());
-            message += " writable?";
-        }
-        return errors::Unavailable("grpc server ", nrtd_address_, message);
+        return errors::Unavailable(
+            "grpc server ", nrtd_address_, " is unavailable. ",
+            "Please check the status of neuron-rtd service by ",
+            "`systemctl is-active neuron-rtd`. If it shows `inactive`, ",
+            "please install the service by `sudo apt-get install aws-neuron-runtime`. ",
+            "If `aws-neuron-runtime` is already installed, you may activate ",
+            "neuron-rtd service by `sudo systemctl restart neuron-rtd`."
+        );
+    }
+    if (status.ok() && nrt::nerr::NERR_RESOURCE_NC == response.status().code()) {
+        return errors::ResourceExhausted(
+            "All machine learning accelerators are currently being consumed. ",
+            "Please check if there are other processes running ",
+            "on the accelerator. If no other processes are consuming machine ",
+            "learning accelerator resource, please manually free up hardware ",
+            "resource by `sudo systemctl restart neuron-rtd`. ",
+            "If you have package `aws-neuron-tools` installed, you may also "
+            "free up resource by `/opt/aws/neuron/bin/neuron-cli reset`. ",
+            "IMPORTANT: MANUALLY FREEING UP HARDWARE RESOURCE CAN DESTROY ",
+            "YOUR OTHER PROCESSES RUNNING ON MACHINE LEARNING ACCELERATORS!"
+        );
     }
     NRT_CHECK_RETURN("create_eg", status, response);
     *eg_id = response.h_eg().id();
