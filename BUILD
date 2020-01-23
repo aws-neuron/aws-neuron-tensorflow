@@ -136,6 +136,7 @@ py_library(
         "//tensorflow/python:client",
         "//tensorflow/python:check_ops",
         "//tensorflow/python:nn_ops",
+        "//tensorflow/python/profiler",
         "//tensorflow/python/saved_model",
     ],
 )

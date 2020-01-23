@@ -8,6 +8,7 @@ from __future__ import print_function
 import sys
 import argparse
 import json
+import numpy
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session as tf_session
@@ -19,6 +20,8 @@ from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.lib.io import file_io
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.core.protobuf import config_pb2
+from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.python.neuron.python.graph_util import compiled_graph_op_counts
 
@@ -118,31 +121,10 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     """
     _check_export_dir(new_model_dir)
     kwargs = kwargs.copy()
-    if tags is None:
-        default_tag_set = {tag_constants.SERVING}
-        # default to 'serving_default' first and then the tags in the first meta_graph
-        model = parse_saved_model(model_dir)
-        for meta_graph in model.meta_graphs:
-            if set(meta_graph.meta_info_def.tags) == default_tag_set:
-                tags = [tag_constants.SERVING]
-        if tags is None:
-            tags = model.meta_graphs[0].meta_info_def.tags
-        if len(model.meta_graphs) > 1:
-            tags_list = [mg.meta_info_def.tags for mg in model.meta_graphs]
-            logging.warning('SavedModel {} contains more than one tag-set {}; '
-                            'using {} as the default'.format(model_dir, tags_list, tags))
-    elif type(tags) is str:
-        tags = tags.split(',')
+    tags = _normalize_tags(tags, model_dir)
     with tf_session.Session(graph=ops.Graph()) as sess:
         meta_graph = tf_saved_model.loader.load(sess, tags, model_dir)
-        signature_def_map = meta_graph.signature_def
-        if signature_def_key is None:  # default to 'serving_default' first
-            if signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY in signature_def_map:
-                signature_def_key = signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
-            else:  # default to the first one found
-                signature_def_key = list(signature_def_map.keys())[0]
-                logging.warning('Using non-default signature_def_key {}'.format(signature_def_key))
-        signature_def = signature_def_map[signature_def_key]
+        signature_def_key, signature_def = _get_signature_def(meta_graph, signature_def_key)
         input_tensors = {sess.graph.get_tensor_by_name(ts.name)
                          for ts in signature_def.inputs.values()}
         output_tensors = {sess.graph.get_tensor_by_name(ts.name)
@@ -170,7 +152,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     # load inference graph into a session and export as a SavedModel
     with tf_session.Session(graph=infer_graph) as sess:
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
-        signature_def_map = {signature_def_key: signature_def_map[signature_def_key]}
+        signature_def_map = {signature_def_key: signature_def}
         for tensor in signature_def.inputs.values():
             infer_tensor = infer_graph.get_tensor_by_name(tensor.name)
             tensor.tensor_shape.CopyFrom(infer_tensor.shape.as_proto())
@@ -193,6 +175,36 @@ def _check_export_dir(export_dir):
     if file_io.file_exists(export_dir):
         raise AssertionError("Export directory already exists. Please specify a different "
                              "export directory: {}".format(export_dir))
+
+
+def _normalize_tags(tags, model_dir):
+    if tags is None:
+        default_tag_set = {tag_constants.SERVING}
+        # default to 'serving_default' first and then the tags in the first meta_graph
+        model = parse_saved_model(model_dir)
+        for meta_graph in model.meta_graphs:
+            if set(meta_graph.meta_info_def.tags) == default_tag_set:
+                tags = [tag_constants.SERVING]
+        if tags is None:
+            tags = model.meta_graphs[0].meta_info_def.tags
+        if len(model.meta_graphs) > 1:
+            tags_list = [mg.meta_info_def.tags for mg in model.meta_graphs]
+            logging.warning('SavedModel {} contains more than one tag-set {}; '
+                            'using {} as the default'.format(model_dir, tags_list, tags))
+    elif type(tags) is str:
+        tags = tags.split(',')
+    return tags
+
+
+def _get_signature_def(meta_graph, signature_def_key):
+    signature_def_map = meta_graph.signature_def
+    if signature_def_key is None:  # default to 'serving_default' first
+        if signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY in signature_def_map:
+            signature_def_key = signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        else:  # default to the first one found
+            signature_def_key = list(signature_def_map.keys())[0]
+            logging.warning('Using non-default signature_def_key {}'.format(signature_def_key))
+    return signature_def_key, signature_def_map[signature_def_key]
 
 
 def convert_to_inference_model_cli(args):
@@ -266,3 +278,85 @@ if sys.argv[0].endswith('saved_model_cli'):
     if argparse.ArgumentParser.add_subparsers is not convert_add_subparsers:
         add_subparsers = argparse.ArgumentParser.add_subparsers
         argparse.ArgumentParser.add_subparsers = convert_add_subparsers
+
+
+@tf_export('neuron.saved_model.profile')
+def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=None,
+            model_feed_dict=None, tags=None, signature_def_key=None, config=None,
+            num_warmup_runs=1, op_log=None, cmd='scope', options=None):
+    """Run tensorflow profiler on a `SavedModel`.
+
+    Args:
+        model_dir: The path of the `SavedModel`.
+        timeline_json: The path to which a 'timeline' json tracing will be saved.
+            This json can be visualized using chrome://tracing.
+        batch_size: Positive integer representing batch size used in inference.
+            Defaults to 1.
+        model_shape_feed_dict: Dictionary {str: list} used for creating input data
+            from tensor shapes. Keys should match model input names and values are lists
+            of positive integers representing model input tensor shapes.
+        model_feed_dict: Dictionary {str: numpy.array} used for inference.
+            Useful for inferring tensor shapes. Keys should match model input names
+            and values are numpy arrays that can be fed as inputs to the `SavedModel`.
+        tags: Iterable of strings to identify the required `MetaGraphDef`.
+            These should correspond to the tags used when saving the variables using
+            the `SavedModel` `save()` API. Default is to use the first `tag_set` available
+            in the `SavedModel`.
+        signature_def_key: String specifying the `signature_def` to use. Default is
+            to use 'serving_default' or the first `signature_def` corresponding to `tags`.
+        num_warmup_runs: int representing number of warmup inference runs.
+            Possibly useful with XLA where re-compilation can happen.
+        op_log: tensorflow.tfprof.OpLogProto proto. User can assign "types" to
+            graph nodes with op_log. "types" allow user to flexibly group and
+            account profiles using options['accounted_type_regexes'].
+        cmd: string. Either 'op', 'scope', 'graph' or 'code'.
+            'op' view organizes profile using operation type. (e.g. MatMul)
+            'scope' view organizes profile using graph node name scope.
+            'graph' view organizes profile using graph node inputs/outputs.
+            'code' view organizes profile using Python call stack.
+        options: A dict of options. See core/profiler/g3doc/options.md.
+
+    Returns:
+        If cmd is 'scope' or 'graph', returns GraphNodeProto proto.
+        If cmd is 'op' or 'code', returns MultiGraphNodeProto proto.
+        Side effect: stdout/file/timeline.json depending on options['output']
+    """
+    tags = _normalize_tags(tags, model_dir)
+    with tf_session.Session(graph=ops.Graph(), config=config) as sess:
+        meta_graph = tf_saved_model.loader.load(sess, tags, model_dir)
+        _, signature_def = _get_signature_def(meta_graph, signature_def_key)
+        inputs = {name: sess.graph.get_tensor_by_name(ts.name)
+                  for name, ts in signature_def.inputs.items()}
+        outputs = {name: sess.graph.get_tensor_by_name(ts.name)
+                   for name, ts in signature_def.outputs.items()}
+        if model_feed_dict is None:
+            model_feed_dict = {}
+            for name, tensor in inputs.items():
+                if model_shape_feed_dict is None:
+                    shape = tensor.shape.as_list()
+                    shape[0] = batch_size
+                else:
+                    shape = json.loads(model_shape_feed_dict)[name]
+                model_feed_dict[name] = numpy.zeros(shape, dtype=tensor.dtype.as_numpy_dtype)
+        feed_dict = {tensor: model_feed_dict[name] for name, tensor in inputs.items()}
+
+        # warm up run
+        for _ in range(num_warmup_runs):
+            sess.run(outputs, feed_dict=feed_dict)
+        run_options = config_pb2.RunOptions(trace_level=config_pb2.RunOptions.FULL_TRACE)
+        run_metadata = config_pb2.RunMetadata()
+
+        # profiling run
+        sess.run(outputs, feed_dict=feed_dict, options=run_options, run_metadata=run_metadata)
+
+        # write out timeline json if requested
+        if timeline_json is not None:
+            fetched_timeline = timeline.Timeline(run_metadata.step_stats)
+            chrome_trace = fetched_timeline.generate_chrome_trace_format()
+            with open(timeline_json, 'w') as f:
+                f.write(chrome_trace)
+
+        # run profiling
+        if options is None:
+            options = option_builder.ProfileOptionBuilder.time_and_memory()
+        return model_analyzer.profile(sess.graph, run_metadata, op_log=op_log, cmd=cmd, options=options)

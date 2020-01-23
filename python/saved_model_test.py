@@ -477,5 +477,32 @@ class TestSavedModelCLIConvert(unittest.TestCase):
                 np.testing.assert_allclose(result_neuron_b4[name], result_ref_b4[name], rtol=1e-2, atol=1e-3)
 
 
+class TestProfile(unittest.TestCase):
+
+    def test_simple(self):
+        export_dir = './simple_save_profile'
+        tags = [tf.saved_model.tag_constants.SERVING]
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
+            input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            add0 = tf.add(conv2d0, conv2d1, name='add0')
+            relu0 = tf.nn.relu(add0, name='relu0')
+            sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+            conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            relu1 = tf.nn.relu(conv2d2, name='relu1')
+            inputs = {'x0': input0, 'x1': input1}
+            outputs = {'y0': relu0, 'y1': relu1}
+
+            # Save the current session using tensorflow's simple_save() method
+            shutil.rmtree(export_dir, ignore_errors=True)
+            tf.saved_model.simple_save(sess, export_dir=export_dir, inputs=inputs, outputs=outputs)
+        tfn.saved_model.profile(export_dir)
+
+
 if __name__ == '__main__':
     unittest.main()
