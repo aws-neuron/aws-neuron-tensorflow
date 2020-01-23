@@ -135,7 +135,12 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
         : OpKernel(ctx), infer_sem_(INFER_SEM_MAX_CAPACITY) {
     VLOG(1) << "calling NeuronOp constructor";
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
-                errors::InvalidArgument("neff is invalid"));
+                errors::InvalidArgument(
+                    "Neuron executable (neff) is empty. Please ensure you compiled ",
+                    "the SavedModel with `tensorflow.neuron.saved_model.compile`.",
+                    "If you specified argument `compiler_recovery=False`, this ",
+                    "error message indicates that neuron-cc could not optimize ",
+                    "you model for running on Neuron runtime."));
     profile_.initialize(env_get("NEURON_PROFILE"), def().name());
     if (profile_.enabled_) profile_.dump_info(def().attr().at("graph_def").s(),
                                               def().attr().at("executable").s());
