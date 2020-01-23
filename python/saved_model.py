@@ -23,6 +23,7 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
+from tensorflow.python.neuron.python.graph_util import logging_show_info
 from tensorflow.python.neuron.python.graph_util import compiled_graph_op_counts
 
 
@@ -123,7 +124,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     kwargs = kwargs.copy()
     tags = _normalize_tags(tags, model_dir)
     with tf_session.Session(graph=ops.Graph()) as sess:
-        meta_graph = tf_saved_model.loader.load(sess, tags, model_dir)
+        meta_graph = tf_saved_model.loader.load.__wrapped__(sess, tags, model_dir)
         signature_def_key, signature_def = _get_signature_def(meta_graph, signature_def_key)
         input_tensors = {sess.graph.get_tensor_by_name(ts.name)
                          for ts in signature_def.inputs.values()}
@@ -162,12 +163,27 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         builder.add_meta_graph_and_variables(sess, tags, signature_def_map=signature_def_map,
                                              strip_default_attrs=True)
         builder.save()
-        verbosity = logging.get_verbosity()
-        logging.set_verbosity(logging.INFO)
-        logging.info('Successfully converted {} to {}'.format(model_dir, new_model_dir))
-        logging.set_verbosity(verbosity)
     num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(infer_graph)
-    on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0
+    on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0
+    converted_msg = '{} to {}'.format(model_dir, new_model_dir)
+    if on_neuron_ratio == 0.0:
+        ops_msg = 'no operator'
+        unless_msg = ''
+    else:
+        ops_msg = 'only a small portion of operators'
+        unless_msg = ' (well, unless there are too many training operators in your SavedModel)'
+    warning_msg = (
+        'but {} will be running on AWS machine learning accelerators. This is probably '
+        'not what you want{}. Please refer to https://github.com/aws/aws-neuron-sdk '
+        'for current limitations of the AWS Neuron SDK. We are actively improving '
+        '(and hiring)!'.format(ops_msg, unless_msg))
+    if on_neuron_ratio > 0.3:
+        with logging_show_info():
+            logging.info('Successfully converted {}'.format(converted_msg))
+    elif on_neuron_ratio == 0.0:
+        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
+    else:
+        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
     return dict(OnNeuronRatio=on_neuron_ratio)
 
 

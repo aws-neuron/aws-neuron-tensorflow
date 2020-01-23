@@ -330,6 +330,16 @@ def inference_graph_from_session(
         logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
         logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
         logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
+    if spawn.find_executable('neuron-cc') is None:
+        logging.warning('***************************************************************')
+        logging.warning('')
+        logging.warning('  neuron-cc is not found.')
+        logging.warning('')
+        logging.warning('  To fully optimize TensorFlow model with AWS Neuron, please')
+        logging.warning('')
+        logging.warning('  install the neuron-cc compiler by "pip install neuron-cc".')
+        logging.warning('')
+        logging.warning('***************************************************************')
     return compiled_graph
 
 
@@ -701,9 +711,6 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     if op_whitelist is None:
         neuron_cc = spawn.find_executable('neuron-cc')
         if neuron_cc is None:
-            logging.warning('neuron-cc is not found. To fully optimize your TensorFlow model '
-                            'for Inferentia, please install the neuron-cc compiler by '
-                            '"pip install neuron-cc".')
             return graph_def
         else:
             command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
