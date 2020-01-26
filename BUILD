@@ -25,12 +25,20 @@ py_library(
 )
 
 py_library(
-    name = "graph_util_test_py",
+    name = "unittest_py",
     srcs = [
         "python/graph_util_test.py",
+        "python/saved_model_test.py",
+        "python/keras_test.py",
+        "python/fuse_test.py",
+        "python/op_register_test.py",
     ],
     srcs_version = "PY2AND3",
-    deps = [":graph_util_py"],
+    deps = [
+        ":graph_util_py",
+        ":saved_model_py",
+        ":fuse_py"
+    ],
 )
 
 py_library(
@@ -50,33 +58,6 @@ py_library(
     ],
     srcs_version = "PY2AND3",
     deps = [":graph_util_py"],
-)
-
-py_library(
-    name = "saved_model_test_py",
-    srcs = [
-        "python/saved_model_test.py",
-    ],
-    srcs_version = "PY2AND3",
-    deps = [":saved_model_py"],
-)
-
-py_library(
-    name = "keras_test_py",
-    srcs = [
-        "python/keras_test.py",
-    ],
-    srcs_version = "PY2AND3",
-    deps = [":saved_model_py"],
-)
-
-py_library(
-    name = "fuse_test_py",
-    srcs = [
-        "python/fuse_test.py",
-    ],
-    srcs_version = "PY2AND3",
-    deps = [":fuse_py"],
 )
 
 tf_custom_op_library(
@@ -127,10 +108,7 @@ py_library(
         ":predictor_py",
         ":neuron_ops_py",
         ":fuse_py",
-        ":graph_util_test_py",
-        ":saved_model_test_py",
-        ":keras_test_py",
-        ":fuse_test_py",
+        ":unittest_py",
         "//tensorflow/python:framework",
         "//tensorflow/python:array_ops",
         "//tensorflow/python:client",

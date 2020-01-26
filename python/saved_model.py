@@ -25,6 +25,7 @@ from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.python.neuron.python.graph_util import logging_show_info
 from tensorflow.python.neuron.python.graph_util import compiled_graph_op_counts
+from tensorflow.python.neuron.python.graph_util import register_neuron_op
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -41,6 +42,7 @@ def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch
         batch_size: (Optional) Batch size used in inference.
     Note: This function sends all unknown arguments to `tf.neuron.graph_util.inference_graph_from_session`.
     """
+    register_neuron_op()
     _check_export_dir(export_dir)
     # if `feed_dict` is not given, try to guess a `shape_feed_dict` from `batch_size`
     if 'shape_feed_dict' not in kwargs and 'feed_dict' not in kwargs:
@@ -87,7 +89,8 @@ def _infer_input_shapes(input_tensors, batch_size):
 @tf_export('neuron.saved_model.compile')
 def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                model_shape_feed_dict=None, model_feed_dict=None,
-                               tags=None, signature_def_key=None, **kwargs):
+                               tags=None, signature_def_key=None, strip_default_attrs=False,
+                               **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -107,6 +110,9 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             in the `SavedModel`.
         signature_def_key: (Optional) String specifying the `signature_def` to use. Default is
             to use 'serving_default' or the first `signature_def` corresponding to `tags`.
+        strip_default_attrs: Boolean. If `True`, default-valued attributes will be
+            removed from the NodeDefs. For a detailed guide, see
+            [Stripping Default-Valued Attributes](https://github.com/tensorflow/tensorflow/blob/master/tensorflow/python/saved_model/README.md#stripping-default-valued-attributes).
         minimum_segment_size: Integer; minimum number of ops in an `NeuronOp` used by
             `whitelist_partition`.
         no_fuse_ops: None or iterable of strings (unordered) representing names of ops
@@ -120,6 +126,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
 
     Note: This function sends all unknown arguments to `tf.neuron.graph_util.inference_graph_from_session`.
     """
+    register_neuron_op()
     _check_export_dir(new_model_dir)
     kwargs = kwargs.copy()
     tags = _normalize_tags(tags, model_dir)
@@ -161,7 +168,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             infer_tensor = infer_graph.get_tensor_by_name(tensor.name)
             tensor.tensor_shape.CopyFrom(infer_tensor.shape.as_proto())
         builder.add_meta_graph_and_variables(sess, tags, signature_def_map=signature_def_map,
-                                             strip_default_attrs=True)
+                                             strip_default_attrs=strip_default_attrs)
         builder.save()
     num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(infer_graph)
     on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0

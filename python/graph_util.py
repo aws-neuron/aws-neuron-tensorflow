@@ -343,6 +343,11 @@ def inference_graph_from_session(
     return compiled_graph
 
 
+def register_neuron_op():
+    from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
+    return neuron_op
+
+
 def normalize_operators(graph_def, shaped_graph=None):
     graph = _graph_def_to_graph(graph_def)
     if shaped_graph is None:
