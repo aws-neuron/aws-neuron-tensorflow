@@ -3,18 +3,18 @@
 set -e
 
 function usage() {
-  echo "Usage:"
-  echo "$0 dstdir [platform] [version_tag]"
-  echo ""
-  exit 1
+    echo "Usage:"
+    echo "$0 dstdir [platform] [version_tag]"
+    echo ""
+    exit 1
 }
 
 function is_absolute {
-  [[ "$1" = /* ]] || [[ "$1" =~ ^[a-zA-Z]:[/\\].* ]]
+    [[ "$1" = /* ]] || [[ "$1" =~ ^[a-zA-Z]:[/\\].* ]]
 }
 
 function real_path() {
-  is_absolute "$1" && echo "$1" || echo "$PWD/${1#./}"
+    is_absolute "$1" && echo "$1" || echo "$PWD/${1#./}"
 }
 
 function main() {

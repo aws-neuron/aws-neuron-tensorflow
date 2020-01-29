@@ -56,14 +56,14 @@ cc_library(
 cc_proto_library(
     name = "nmgr_service.grpc.o",
     srcs = [
-        "nrt_proto/nmgr_service.proto",
-        "nrt_proto/nmgr.proto",
-        "nrt_proto/nmetric.proto",
-        "nrt_proto/common.proto",
-        "nrt_proto/nerr.proto",
+        "proto/nmgr_service.proto",
+        "proto/nmgr.proto",
+        "proto/nmetric.proto",
+        "proto/common.proto",
+        "proto/nerr.proto",
     ],
     protoc = "@com_google_protobuf//:protoc",
-    include = "nrt_proto/",
+    include = "proto/",
     use_grpc_plugin = True,
     default_runtime = "@com_google_protobuf//:protobuf",
 )
