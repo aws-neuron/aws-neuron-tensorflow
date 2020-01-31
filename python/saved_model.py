@@ -22,6 +22,7 @@ from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.python.profiler import model_analyzer, option_builder
+from tensorflow.python.client import timeline
 from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.python.neuron.python.graph_util import logging_show_info
 from tensorflow.python.neuron.python.graph_util import compiled_graph_op_counts
