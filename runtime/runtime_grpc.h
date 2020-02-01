@@ -39,23 +39,20 @@ inline Status nrt_error_status(const std::string &fn_name,
     );
 }
 
-class NMGROutputs {
+class RuntimeIO {
 public:
-    NMGROutputs() {};
-    Status initialize(const std::vector<Tensor*> &output_tensors,
-                      const uint32_t nn_id, AttrList &output_names) {
-        output_tensors_ = output_tensors;
-        return Status::OK();
-    }
-    ~NMGROutputs() {};
-    NMGROutputs(const NMGROutputs &nmgr_outputs) {
-        cookie = nmgr_outputs.cookie;
-    }
-    NMGROutputs &operator=(const NMGROutputs &nmgr_outputs) {
-        cookie = nmgr_outputs.cookie;
-        return *this;
-    }
+    RuntimeIO() {};
+    ~RuntimeIO() {};
+    RuntimeIO(const RuntimeIO &runtime_io) = delete;
+    RuntimeIO &operator=(const RuntimeIO &runtime_io) = delete;
+    Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
+                 AttrList &output_names, const std::vector<Tensor*> &output_tensors,
+                 const uint32_t nn_id);
+    Status finish();
     uint64_t cookie = 0;
+    nrt::infer_request request_;
+    nrt::infer_response response_;
+    AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
 };
 
@@ -72,11 +69,8 @@ public:
                  AttrList &input_names, AttrList &output_names,
                  const std::vector<const Tensor*> &input_tensors,
                  const SharedMemory &shm);
-    Status infer_post(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                      const uint32_t nn_id, AttrList &input_names,
-                      const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                      AttrList &output_names);
+    Status infer_post(RuntimeIO *runtime_io);
+    Status infer_wait(RuntimeIO *runtime_io);
     Status stop(const uint32_t nn_id);
     Status unload(const uint32_t nn_id);
     Status destroy_eg(const uint32_t eg_id);

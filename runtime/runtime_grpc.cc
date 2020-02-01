@@ -10,6 +10,27 @@ namespace tensorflow {
 namespace neuron {
 
 
+Status RuntimeIO::setup(
+        AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
+        AttrList &output_names, const std::vector<Tensor*> &output_tensors,
+        const uint32_t nn_id) {
+    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+        nrt::infer_io *infer_io = request_.add_ifmap();
+        infer_io->set_name(input_names.s(idx));
+        StringPiece tensor_data(input_tensors[idx]->tensor_data());
+        infer_io->set_buf((void*)tensor_data.data(), tensor_data.size());
+    }
+    request_.mutable_h_nn()->set_id(nn_id);
+    output_names_ = &output_names;
+    output_tensors_ = output_tensors;
+    return Status::OK();
+}
+
+Status RuntimeIO::finish() {
+    return copy_output_tensors(&output_tensors_, response_, *output_names_);
+}
+
+
 Status RuntimeGRPC::initialize(const std::string &nrtd_address) {
     nrtd_address_ = nrtd_address;
     grpc::ChannelArguments ch_args;
@@ -172,45 +193,28 @@ Status RuntimeGRPC::infer(std::vector<Tensor*> *output_tensors, Timestamps *time
     return Status::OK();
 }
 
-Status RuntimeGRPC::infer_post(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                               const uint32_t nn_id, AttrList &input_names,
-                               const std::vector<const Tensor*> &input_tensors) {
-    nrt::infer_request request;
-    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-        nrt::infer_io *infer_io = request.add_ifmap();
-        infer_io->set_name(input_names.s(idx));
-        StringPiece tensor_data(input_tensors[idx]->tensor_data());
-        infer_io->set_buf((void*)tensor_data.data(), tensor_data.size());
-    }
-    request.mutable_h_nn()->set_id(nn_id);
-
-    // infer
+Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
     nrt::infer_post_response response;
-    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
-    grpc::Status status = NRT_GRPC(stub_->infer_post, request, &response);
+    grpc::Status status = NRT_GRPC(stub_->infer_post, runtime_io->request_, &response);
     NRT_CHECK_RETURN("infer_post", status, response);
-    nmgr_outputs->cookie = response.cookie();
+    runtime_io->cookie = response.cookie();
     return Status::OK();
 }
 
-Status RuntimeGRPC::infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                               AttrList &output_names) {
+Status RuntimeGRPC::infer_wait(RuntimeIO *runtime_io) {
     nrt::infer_wait_request request;
-    nrt::infer_response response;
-    request.set_cookie(nmgr_outputs->cookie);
+    request.set_cookie(runtime_io->cookie);
+    nrt::infer_response *response = &runtime_io->response_;
 
     // infer_wait
-    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, &response);
-    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
+    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, response);
     if (status.ok()) {
         // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
-            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
+            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
-    NRT_CHECK_RETURN("infer_wait", status, response);
-    TF_RETURN_IF_ERROR(copy_output_tensors(&nmgr_outputs->output_tensors_,
-                                           response, output_names));
+    NRT_CHECK_RETURN("infer_wait", status, *response);
     return Status::OK();
 }
 

@@ -66,17 +66,14 @@ public:
                  AttrList &input_names, AttrList &output_names,
                  const std::vector<const Tensor*> &input_tensors,
                  const SharedMemory &shm);
-    Status infer_post(NMGROutputs *nmgr_outputs, SemResQueue *sem_res_queue,
+    Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
                       xla::Semaphore *infer_sem, Timestamps *timestamps,
-                      const uint32_t nn_id, AttrList &input_names,
-                      const std::vector<const Tensor*> &input_tensors);
-    Status infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                      AttrList &output_names);
+                      const uint32_t nn_id);
+    Status infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps);
     void unload(const uint32_t nn_id);
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
-    Status infer_post_unsafe(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                             const uint32_t nn_id, AttrList &input_names,
-                             const std::vector<const Tensor*> &input_tensors);
+    Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
+                             const uint32_t nn_id);
     void clear();
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };

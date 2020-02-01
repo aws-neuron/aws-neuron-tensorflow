@@ -510,7 +510,7 @@ class TestDynamicBatchSize(unittest.TestCase):
                     result_neuron = sess.run(result_names, feed_dict)
                     assert len(result_neuron) == len(result_ref)
                     for res_neuron, res_ref in zip(result_neuron, result_ref):
-                        np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+                        np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
     def test_multithread(self):
         infer_graph, result_names, feed_dict_list, result_ref_list = self._body()
@@ -521,7 +521,7 @@ class TestDynamicBatchSize(unittest.TestCase):
                         future_list = [executor.submit(sess.run, result_names, feed_dict) for feed_dict in feed_dict_list]
                         result_neuron_list = [future.result() for future in future_list]
             for res_neuron, res_ref in zip(result_neuron_list, result_ref_list):
-                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+                np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
     def _body(self):
         np.random.seed(_RANDOM_SEED)
@@ -548,7 +548,7 @@ class TestDynamicBatchSize(unittest.TestCase):
                 'identity_n1:2': np.random.uniform(-1, 1, size=[3, pix, pix, 3]).astype(np.float16),
             }
             feed_dict_list = []
-            for batch_size in 1, 2, 3, 5, 11, 12:
+            for batch_size in 1, 2, 3, 5, 11, 12, 1023:
                 feed_dict = {
                     'identity_n1:0': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),
                     'identity_n1:2': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),

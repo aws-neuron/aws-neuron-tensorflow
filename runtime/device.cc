@@ -332,29 +332,29 @@ Status NeuronDevice::infer(std::vector<Tensor*> *output_tensors, Timestamps *tim
     return status;
 }
 
-Status NeuronDevice::infer_post(NMGROutputs *nmgr_outputs, SemResQueue *sem_res_queue,
+Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
                                 xla::Semaphore *infer_sem, Timestamps *timestamps,
-                                const uint32_t nn_id, AttrList &input_names,
-                                const std::vector<const Tensor*> &input_tensors) {
+                                const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
     sem_res_queue->push(infer_sem->ScopedAcquire(1));
-    return infer_post_unsafe(nmgr_outputs, timestamps, nn_id, input_names, input_tensors);
+    return infer_post_unsafe(runtime_io, timestamps, nn_id);
 }
 
 void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
     mutex_lock_queue->emplace(mutex_eg_);
 }
 
-Status NeuronDevice::infer_post_unsafe(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                                       const uint32_t nn_id, AttrList &input_names,
-                                       const std::vector<const Tensor*> &input_tensors) {
+Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
+                                       const uint32_t nn_id) {
     TF_RETURN_IF_ERROR(start_model(nn_id));
-    return runtime_.infer_post(nmgr_outputs, timestamps, nn_id, input_names, input_tensors);
+    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
+    return runtime_.infer_post(runtime_io);
 }
 
-Status NeuronDevice::infer_wait(NMGROutputs *nmgr_outputs, Timestamps *timestamps,
-                                AttrList &output_names) {
-    return runtime_.infer_wait(nmgr_outputs, timestamps, output_names);
+Status NeuronDevice::infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps) {
+    TF_RETURN_IF_ERROR(runtime_.infer_wait(runtime_io));
+    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
+    return Status::OK();
 }
 
 void NeuronDevice::clear() {
