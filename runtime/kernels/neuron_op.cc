@@ -194,10 +194,10 @@ Status NeuronOp::initialize() {
     }
 
     std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
-    if (!nrt_shm_map.empty()) {
+    if ("no" != nrt_shm_map) {
         if (!prepare_shared_memory(model_config.max_num_infers_).ok()) {
-            LOG(WARNING) << "shared memory is requested but is not available; "
-                         << "using regular grpc for transfering input/output tensors";
+            VLOG(1) << "shared memory is requested but is not available; "
+                    << "using regular grpc for transfering input/output tensors";
         }
     }
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
