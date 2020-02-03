@@ -405,6 +405,10 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
                                   const uint32_t nn_id, const uint32_t max_num_infers,
                                   const std::vector<size_t> input_tensor_sizes,
                                   const std::vector<size_t> output_tensor_sizes) {
+    std::string unix_prefix = "unix:";
+    if (nrtd_address_.compare(0, unix_prefix.size(), unix_prefix)) {
+        return errors::InvalidArgument("shared memory requires using unix socket");
+    }
     tensorflow::mutex_lock lock(mutex_eg_);
     nn_id_to_shm_mgr_.emplace(std::piecewise_construct, std::forward_as_tuple(nn_id), std::forward_as_tuple());
     TF_RETURN_IF_ERROR(nn_id_to_shm_mgr_[nn_id].initialize(

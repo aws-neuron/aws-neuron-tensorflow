@@ -69,9 +69,12 @@ Status RuntimeIO::finish() {
     }
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
         StringPiece out_tensor_raw;
-        out_tensor_raw = nullptr != shm_
-            ? StringPiece((const char*)shm_->output_ptrs_[idx], shm_->output_sizes_[idx])
-            : raw_output_tensors[idx];
+        if (nullptr != shm_) {
+            out_tensor_raw = StringPiece((const char*)shm_->output_ptrs_[idx],
+                                         shm_->output_sizes_[idx]);
+        } else {
+            out_tensor_raw = raw_output_tensors[idx];
+        }
         TF_RETURN_WITH_CONTEXT_IF_ERROR(
             tensor_memcpy(output_tensors_[idx], out_tensor_raw),
             "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
