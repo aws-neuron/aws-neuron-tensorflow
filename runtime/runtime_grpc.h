@@ -41,16 +41,14 @@ inline Status nrt_error_status(const std::string &fn_name,
 
 class RuntimeIO {
 public:
-    RuntimeIO() {};
-    ~RuntimeIO() {};
-    RuntimeIO(const RuntimeIO &runtime_io) = delete;
-    RuntimeIO &operator=(const RuntimeIO &runtime_io) = delete;
     Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
                  AttrList &output_names, const std::vector<Tensor*> &output_tensors,
-                 const uint32_t nn_id);
+                 const uint32_t nn_id, SharedMemory *shm=nullptr);
     Status finish();
     uint64_t cookie = 0;
+    SharedMemory *shm_ = nullptr;
     nrt::infer_request request_;
+    nrt::infer_wait_request wait_request_;
     nrt::infer_response response_;
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
@@ -58,17 +56,11 @@ public:
 
 class RuntimeGRPC {
 public:
-    RuntimeGRPC() {};
     Status initialize(const std::string &nrtd_address);
     Status create_eg(uint32_t *eg_id, uint32_t *num_cores, const int num_cores_req);
     Status load(uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
     Status start(const uint32_t nn_id);
-    Status infer(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
-                 const uint32_t nn_id,
-                 AttrList &input_names, AttrList &output_names,
-                 const std::vector<const Tensor*> &input_tensors,
-                 const SharedMemory &shm);
     Status infer_post(RuntimeIO *runtime_io);
     Status infer_wait(RuntimeIO *runtime_io);
     Status stop(const uint32_t nn_id);
@@ -81,10 +73,6 @@ private:
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
 };
-
-Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
-                           const nrt::infer_response &response,
-                           AttrList &output_names);
 
 }  // namespace neuron
 }  // namespace tensorflow

@@ -193,10 +193,9 @@ Status NeuronOp::initialize() {
         input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
     }
 
-    // preallocate output tensors (not used by the default infer call)
     std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
     if (!nrt_shm_map.empty()) {
-        if (!prepare_shared_memory().ok()) {
+        if (!prepare_shared_memory(model_config.max_num_infers_).ok()) {
             LOG(WARNING) << "shared memory is requested but is not available; "
                          << "using regular grpc for transfering input/output tensors";
         }
@@ -227,7 +226,7 @@ Status NeuronOp::initialize() {
     return Status::OK();
 }
 
-Status NeuronOp::prepare_shared_memory() {
+Status NeuronOp::prepare_shared_memory(const uint32_t max_num_infers) {
     AttrList &output_dtypes = def().attr().at("output_dtypes").list();
     AttrList &output_shapes = def().attr().at("output_shapes").list();
     std::vector<size_t> output_tensor_sizes;
@@ -235,8 +234,8 @@ Status NeuronOp::prepare_shared_memory() {
         Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
         output_tensor_sizes.push_back(temp_tensor.tensor_data().size());
     }
-    return shm_mgr_.initialize(global_neuron_device_manager.nrtd_address_, nn_id_,
-                               input_tensor_sizes_, output_tensor_sizes);
+    return neuron_device_->init_shm_mgr(&shm_mgr_.shm_mgr_, nn_id_, max_num_infers,
+                                        input_tensor_sizes_, output_tensor_sizes);
 }
 
 NeuronOp::~NeuronOp() {
@@ -247,6 +246,7 @@ NeuronOp::~NeuronOp() {
         return;
     }
     neuron_device_->unload(nn_id_);
+    shm_mgr_.shm_mgr_ = nullptr;
     VLOG(1) << "unload from NeuronOp::~NeuronOp";
     global_neuron_device_manager.clear_if_empty();
     VLOG(1) << "NeuronOp destructor done";
@@ -401,10 +401,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             for (size_t idx = 0; idx < temp_outputs.size(); ++idx) {
                 output_tensors[idx] = &temp_outputs[idx];
             }
-            OP_REQUIRES_OK(ctx, neuron_device_->infer(&output_tensors, nullptr,
-                                                      &profile_, nn_id_,
-                                                      input_names, output_names,
-                                                      sliced_inputs, shm_mgr_.shm_));
+            SharedMemory *shm = shm_mgr_.apply_for_shm();
+            RuntimeIO runtime_io;
+            OP_REQUIRES_OK(ctx, runtime_io.setup(
+                input_names, input_tensors, output_names, output_tensors, nn_id_, shm));
+            OP_REQUIRES_OK(ctx, neuron_device_->infer(&runtime_io, nullptr,
+                                                      &profile_, nn_id_));
         }
 
         std::queue<RuntimeIO> runtime_io_queue;
@@ -443,8 +445,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_sliced_outputs[post_bidx][idx] : batch_output_tensors[idx];
                     }
                     runtime_io_queue.emplace();
+                    SharedMemory *shm = shm_mgr_.apply_for_shm();
                     OP_REQUIRES_OK(ctx, runtime_io_queue.back().setup(
-                        input_names, sliced_inputs, output_names, output_tensors, nn_id_));
+                        input_names, sliced_inputs, output_names, output_tensors, nn_id_, shm));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
 
                     // post
@@ -481,8 +484,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_sliced_outputs[post_bidx][idx] : batch_output_tensors[idx];
                     }
                     runtime_io_queue.emplace();
+                    SharedMemory *shm = shm_mgr_.apply_for_shm();
                     OP_REQUIRES_OK(ctx, runtime_io_queue.back().setup(
-                        input_names, sliced_inputs, output_names, output_tensors, nn_id_));
+                        input_names, sliced_inputs, output_names, output_tensors, nn_id_, shm));
 
                     // wait one
                     OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(
@@ -511,18 +515,20 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 runtime_io_queue.pop();
             }
         }   // semaphore reservation queue goes out of scope
-    } else if (profile_.enabled_ || shm_mgr_.shm_.enabled_) {
-        VLOG(1) << "profile/shm enabled -- lock stop/start/infer altogether";
+    } else if (profile_.enabled_) {
+        VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors(ctx->num_outputs());
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
-        OP_REQUIRES_OK(ctx, neuron_device_->infer(&output_tensors, &timestamps,
-                                                  &profile_, nn_id_,
-                                                  input_names, output_names,
-                                                  input_tensors, shm_mgr_.shm_));
+        SharedMemory *shm = shm_mgr_.apply_for_shm();
+        RuntimeIO runtime_io;
+        OP_REQUIRES_OK(ctx, runtime_io.setup(
+            input_names, input_tensors, output_names, output_tensors, nn_id_, shm));
+        OP_REQUIRES_OK(ctx, neuron_device_->infer(&runtime_io, &timestamps,
+                                                  &profile_, nn_id_));
     } else {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors(ctx->num_outputs());
@@ -530,16 +536,22 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
+        SharedMemory *shm = shm_mgr_.apply_for_shm();
         RuntimeIO runtime_io;
         OP_REQUIRES_OK(ctx, runtime_io.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id_));
+            input_names, input_tensors, output_names, output_tensors, nn_id_, shm));
         {
             SemResQueue sem_res_queue;
             OP_REQUIRES_OK(ctx, neuron_device_->infer_post(
                 &runtime_io, &sem_res_queue, &infer_sem_, &timestamps, nn_id_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&runtime_io, &timestamps));
+            if (nullptr != shm) {
+                OP_REQUIRES_OK(ctx, runtime_io.finish());
+            }
         }
-        OP_REQUIRES_OK(ctx, runtime_io.finish());
+        if (nullptr == shm) {
+            OP_REQUIRES_OK(ctx, runtime_io.finish());
+        }
     }
     timestamps.mark_exit();
     VLOG(1) << timestamps.timing_string();

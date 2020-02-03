@@ -13,12 +13,30 @@ namespace neuron {
 Status RuntimeIO::setup(
         AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
         AttrList &output_names, const std::vector<Tensor*> &output_tensors,
-        const uint32_t nn_id) {
+        const uint32_t nn_id, SharedMemory *shm) {
+    shm_ = shm;
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
         nrt::infer_io *infer_io = request_.add_ifmap();
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
-        infer_io->set_buf((void*)tensor_data.data(), tensor_data.size());
+        if (nullptr != shm_) {
+            infer_io->mutable_buf_shm()->set_path(shm_->input_paths_[idx]);
+            std::memcpy(shm_->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
+        } else {
+            infer_io->set_buf((void*)tensor_data.data(), tensor_data.size());
+        }
+    }
+    if (nullptr != shm_) {
+        for (int idx = 0; idx < output_names.s_size(); ++idx) {
+            nrt::infer_io *infer_io = request_.add_shm_ofmap();
+            infer_io->set_name(output_names.s(idx));
+            infer_io->mutable_buf_shm()->set_path(shm_->output_paths_[idx]);
+        }
+        for (int idx = 0; idx < output_names.s_size(); ++idx) {
+            nrt::infer_io *infer_io = wait_request_.add_shm_ofmap();
+            infer_io->set_name(output_names.s(idx));
+            infer_io->mutable_buf_shm()->set_path(shm_->output_paths_[idx]);
+        }
     }
     request_.mutable_h_nn()->set_id(nn_id);
     output_names_ = &output_names;
@@ -27,7 +45,38 @@ Status RuntimeIO::setup(
 }
 
 Status RuntimeIO::finish() {
-    return copy_output_tensors(&output_tensors_, response_, *output_names_);
+    std::vector<StringPiece> raw_output_tensors;
+    if (nullptr == shm_) {
+        std::unordered_map<std::string, StringPiece> map_name_raw;
+        for (const auto &infer_io : response_.ofmap()) {
+            map_name_raw.emplace(infer_io.name(), infer_io.buf());
+        }
+        for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
+            if (map_name_raw.find(output_names_->s(idx)) == map_name_raw.end()) {
+                return errors::Internal("tensor name", output_names_->s(idx),
+                                        " not found in infer_response.ofmap()");
+            }
+            raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
+        }
+        for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
+            StringPiece out_tensor_raw = raw_output_tensors[idx];
+            Tensor *out_tensor = output_tensors_[idx];
+            TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
+                                            "tensor_memcpy failure on tensor name: ",
+                                            output_names_->s(idx));
+        }
+        return Status::OK();
+    }
+    for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
+        StringPiece out_tensor_raw;
+        out_tensor_raw = nullptr != shm_
+            ? StringPiece((const char*)shm_->output_ptrs_[idx], shm_->output_sizes_[idx])
+            : raw_output_tensors[idx];
+        TF_RETURN_WITH_CONTEXT_IF_ERROR(
+            tensor_memcpy(output_tensors_[idx], out_tensor_raw),
+            "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
+    }
+    return Status::OK();
 }
 
 
@@ -142,57 +191,6 @@ Status RuntimeGRPC::start(const uint32_t nn_id) {
     return Status::OK();
 }
 
-Status RuntimeGRPC::infer(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
-                          const uint32_t nn_id,
-                          AttrList &input_names, AttrList &output_names,
-                          const std::vector<const Tensor*> &input_tensors,
-                          const SharedMemory &shm) {
-    nrt::infer_request request;
-    for (int idx = 0; idx < input_names.s_size(); ++idx) {
-        nrt::infer_io *infer_io = request.add_ifmap();
-        infer_io->set_name(input_names.s(idx));
-        StringPiece tensor_data(input_tensors[idx]->tensor_data());
-        if (shm.enabled_) {
-            infer_io->mutable_buf_shm()->set_path(shm.input_paths_[idx]);
-            std::memcpy(shm.input_ptrs_[idx], tensor_data.data(), tensor_data.size());
-        } else {
-            infer_io->set_buf(tensor_data.data(), tensor_data.size());
-        }
-    }
-    if (shm.enabled_) {
-        for (int idx = 0; idx < output_names.s_size(); ++idx) {
-            nrt::infer_io *infer_io = request.add_shm_ofmap();
-            infer_io->set_name(output_names.s(idx));
-            infer_io->mutable_buf_shm()->set_path(shm.output_paths_[idx]);
-        }
-    }
-    request.mutable_h_nn()->set_id(nn_id);
-    nrt::infer_response response;
-
-    // infer
-    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
-    grpc::Status status = NRT_GRPC(stub_->infer, request, &response);
-    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
-    if (status.ok()) {
-        // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response.status().code()) {
-            response.mutable_status()->set_code(nrt::nerr::NERR_OK);
-        }
-    }
-    NRT_CHECK_RETURN("infer", status, response);
-    if (shm.enabled_) {
-        for (int idx = 0; idx < output_names.s_size(); ++idx) {
-            nrt::infer_io *infer_io = response.add_ofmap();
-            infer_io->set_name(output_names.s(idx));
-            infer_io->set_buf(shm.output_ptrs_[idx], shm.output_sizes_[idx]);
-        }
-    }
-    if (nullptr != output_tensors) {
-        TF_RETURN_IF_ERROR(copy_output_tensors(output_tensors, response, output_names));
-    }
-    return Status::OK();
-}
-
 Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
     nrt::infer_post_response response;
     grpc::Status status = NRT_GRPC(stub_->infer_post, runtime_io->request_, &response);
@@ -202,12 +200,11 @@ Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
 }
 
 Status RuntimeGRPC::infer_wait(RuntimeIO *runtime_io) {
-    nrt::infer_wait_request request;
-    request.set_cookie(runtime_io->cookie);
+    runtime_io->wait_request_.set_cookie(runtime_io->cookie);
     nrt::infer_response *response = &runtime_io->response_;
 
     // infer_wait
-    grpc::Status status = NRT_GRPC(stub_->infer_wait, request, response);
+    grpc::Status status = NRT_GRPC(stub_->infer_wait, runtime_io->wait_request_, response);
     if (status.ok()) {
         // ignore inf/nan errors
         if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
@@ -262,33 +259,6 @@ Status RuntimeGRPC::shm_unmap(const std::string &path, const uint32_t mmap_prot)
     nrt::shm_unmap_response response;
     grpc::Status status = NRT_GRPC(stub_->shm_unmap, request, &response);
     NRT_CHECK_RETURN("shm_unmap", status, response);
-    return Status::OK();
-}
-
-
-Status copy_output_tensors(std::vector<Tensor*> *output_tensors,
-                           const nrt::infer_response &response,
-                           AttrList &output_names) {
-    // set output tensors
-    std::vector<StringPiece> raw_output_tensors;
-    std::unordered_map<std::string, StringPiece> map_name_raw;
-    for (const auto &infer_io : response.ofmap()) {
-        map_name_raw.emplace(infer_io.name(), infer_io.buf());
-    }
-    for (auto idx = 0; idx < output_names.s_size(); ++idx) {
-        if (map_name_raw.find(output_names.s(idx)) == map_name_raw.end()) {
-            return errors::Internal("tensor name", output_names.s(idx),
-                                    " not found in infer_response.ofmap()");
-        }
-        raw_output_tensors.push_back(map_name_raw[output_names.s(idx)]);
-    }
-    for (auto idx = 0; idx < output_names.s_size(); ++idx) {
-        StringPiece out_tensor_raw = raw_output_tensors[idx];
-        Tensor *out_tensor = output_tensors->at(idx);
-        TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
-                                        "tensor_memcpy failure on tensor name: ",
-                                        output_names.s(idx));
-    }
     return Status::OK();
 }
 

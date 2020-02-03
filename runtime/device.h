@@ -36,12 +36,14 @@ typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
 class SharedMemoryManager {
 public:
-    SharedMemoryManager() {}
-    ~SharedMemoryManager();
     Status initialize(const std::string &nrtd_address, const uint32_t nn_id,
+                      const uint32_t max_num_infers,
                       const std::vector<size_t> &input_tensor_sizes,
                       const std::vector<size_t> &output_tensor_sizes);
-    SharedMemory shm_;
+    void clear();
+    SharedMemory *apply_for_shm();
+    std::vector<SharedMemory> shm_vec_;
+    bool enabled_ = false;
 private:
     Status init_vectors(std::vector<std::string> *names,
                         std::vector<void*> *ptrs,
@@ -49,23 +51,20 @@ private:
                         std::vector<std::string> *nrt_paths,
                         const std::vector<size_t> &tensor_sizes,
                         const uint32_t nn_id);
+    tensorflow::mutex mutex_;
+    size_t shm_index_ = 0;
+    size_t num_shms_ = 0;
     RuntimeGRPC runtime_;
-    std::vector<std::string> nrt_input_paths_;
-    std::vector<std::string> nrt_output_paths_;
 };
 
 
 class NeuronDevice {
 public:
-    NeuronDevice() {};
     Status initialize(const std::string &nrtd_address, const int num_cores_req);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
-    Status infer(std::vector<Tensor*> *output_tensors, Timestamps *timestamps,
-                 ProfilerInterface *profile, const uint32_t nn_id,
-                 AttrList &input_names, AttrList &output_names,
-                 const std::vector<const Tensor*> &input_tensors,
-                 const SharedMemory &shm);
+    Status infer(RuntimeIO *runtime_io, Timestamps *timestamps,
+                 ProfilerInterface *profile, const uint32_t nn_id);
     Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
                       xla::Semaphore *infer_sem, Timestamps *timestamps,
                       const uint32_t nn_id);
@@ -74,6 +73,10 @@ public:
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
     Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
                              const uint32_t nn_id);
+    Status init_shm_mgr(SharedMemoryManager **shm_mgr,
+                        const uint32_t nn_id, const uint32_t max_num_infers,
+                        const std::vector<size_t> input_tensor_sizes,
+                        const std::vector<size_t> output_tensor_sizes);
     void clear();
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
@@ -92,16 +95,21 @@ private:
     uint32_t num_cores_ = 0;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
+    std::unordered_map<uint32_t, SharedMemoryManager> nn_id_to_shm_mgr_;
 };
 
 
 class NeuronDeviceManager {
 public:
     NeuronDeviceManager() {};
+    ~NeuronDeviceManager();
+    NeuronDeviceManager(const NeuronDeviceManager &) = delete;
+    NeuronDeviceManager &operator=(const NeuronDeviceManager &) = delete;
+    NeuronDeviceManager(NeuronDeviceManager &&) = delete;
+    NeuronDeviceManager &operator=(NeuronDeviceManager &&) = delete;
     Status apply_for_device(NeuronDevice **device, int64_t opt_device_size);
     void clear_if_empty();
     void clear();
-    ~NeuronDeviceManager();
     std::string nrtd_address_;
     static const int64 MAX_NUM_CORES = 64;
     static const int64 MIN_NUM_CORES = 0;

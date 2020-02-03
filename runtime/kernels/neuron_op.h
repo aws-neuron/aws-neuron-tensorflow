@@ -22,6 +22,19 @@ namespace tensorflow {
 namespace neuron {
 
 
+class SharedMemoryManagerWrapper {
+public:
+    SharedMemory *apply_for_shm() {
+        if (nullptr == shm_mgr_) {
+            return nullptr;
+        } else {
+            return shm_mgr_->apply_for_shm();
+        }
+    }
+    SharedMemoryManager *shm_mgr_ = nullptr;
+};
+
+
 class NeuronOp : public OpKernel {
 public:
     explicit NeuronOp(OpKernelConstruction *ctx);
@@ -30,7 +43,7 @@ public:
 
 private:
     Status initialize();
-    Status prepare_shared_memory();
+    Status prepare_shared_memory(const uint32_t max_num_infers);
     Status check_input_tensors(const std::vector<const Tensor*> &input_tensors);
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
@@ -44,7 +57,7 @@ private:
     bool infer_sem_initialized_ = false;
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
-    SharedMemoryManager shm_mgr_;
+    SharedMemoryManagerWrapper shm_mgr_;
 };
 
 
