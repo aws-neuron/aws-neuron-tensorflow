@@ -22,37 +22,37 @@ namespace tensorflow {
 namespace neuron {
 
 
-class ScopedSharedMemory {
+class ScopedRuntimeIO {
 public:
-    ScopedSharedMemory(SharedMemoryManager *shm_mgr, SharedMemory *shm) {
+    ScopedRuntimeIO() {}
+    Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
+                 AttrList &output_names, const std::vector<Tensor*> &output_tensors,
+                 const uint32_t nn_id, SharedMemoryManager *shm_mgr) {
         shm_mgr_ = shm_mgr;
-        shm_ = shm;
+        if (nullptr != shm_mgr_) {
+            shm_ = shm_mgr_->apply_for_shm();
+        } else {
+            shm_ = nullptr;
+        }
+        return runtime_io_.setup(
+            input_names, input_tensors, output_names, output_tensors, nn_id, shm_);
     }
-    ~ScopedSharedMemory() {
+    Status finish() {
+        return runtime_io_.finish();
+    }
+    ~ScopedRuntimeIO() {
         if (nullptr != shm_mgr_) {
             shm_mgr_->free_shm(shm_);
         }
     }
-    ScopedSharedMemory(const ScopedSharedMemory &) = delete;
-    ScopedSharedMemory &operator=(const ScopedSharedMemory &) = delete;
-    ScopedSharedMemory(ScopedSharedMemory &&) = delete;
-    ScopedSharedMemory &operator=(ScopedSharedMemory &&) = delete;
+    ScopedRuntimeIO(const ScopedRuntimeIO &) = delete;
+    ScopedRuntimeIO &operator=(const ScopedRuntimeIO &) = delete;
+    ScopedRuntimeIO(ScopedRuntimeIO &&) = delete;
+    ScopedRuntimeIO &operator=(ScopedRuntimeIO &&) = delete;
+    RuntimeIO runtime_io_;
 private:
     SharedMemoryManager *shm_mgr_ = nullptr;
     SharedMemory *shm_ = nullptr;
-};
-
-
-class SharedMemoryManagerWrapper {
-public:
-    SharedMemory *apply_for_shm() {
-        if (nullptr == shm_mgr_) {
-            return nullptr;
-        } else {
-            return shm_mgr_->apply_for_shm();
-        }
-    }
-    SharedMemoryManager *shm_mgr_ = nullptr;
 };
 
 
@@ -78,7 +78,7 @@ private:
     bool infer_sem_initialized_ = false;
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
-    SharedMemoryManagerWrapper shm_mgr_;
+    SharedMemoryManager *shm_mgr_ = nullptr;
 };
 
 
