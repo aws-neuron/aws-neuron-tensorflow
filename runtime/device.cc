@@ -1,6 +1,7 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <fcntl.h>
 #ifdef NEURONTFSERV
 #include <csignal>
@@ -35,16 +36,25 @@ void sigint_handler(int sig) {
 class ShmFile {
 public:
     ShmFile(const std::string &name) {
-        shm_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
+        shm_open_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
+        if (shm_open_fd_ >= 0) {
+            if (::fchmod(shm_open_fd_, S_IRWXU | S_IRWXG | S_IRWXO) < 0) {
+                shm_open_fd_ = -1;
+            } else {
+                shm_fd_ = shm_open_fd_;
+            }
+        }
     }
     ~ShmFile() {
-        if (shm_fd_ >= 0) {
-            ::close(shm_fd_);
+        if (shm_open_fd_ >= 0) {
+            ::close(shm_open_fd_);
         }
     }
     ShmFile(const ShmFile &shm_file) = delete;
     ShmFile &operator=(const ShmFile &shm_file) = delete;
     int shm_fd_ = -1;
+private:
+    int shm_open_fd_ = -1;
 };
 
 
