@@ -79,7 +79,10 @@ Status SharedMemoryManager::initialize(const std::string &nrtd_address,
         return Status::OK();
     }
     TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address));
-    shm_vec_.resize(max_num_infers);
+    uint32_t num_buffers = max_num_infers + 1;  // +1 because batching mode uses one more buffer
+    shm_vec_.resize(num_buffers);
+    shm_busy_vec_.clear();
+    shm_busy_vec_.resize(num_buffers, 0);
     num_shms_ = 0;
     for (auto &shm : shm_vec_) {
         TF_RETURN_IF_ERROR(init_vectors(
@@ -132,10 +135,26 @@ SharedMemory *SharedMemoryManager::apply_for_shm() {
         return nullptr;
     }
     tensorflow::mutex_lock lock(mutex_);
-    SharedMemory *shm = &shm_vec_[shm_index_];
-    ++shm_index_;
-    shm_index_ %= num_shms_;
-    return shm;
+    for (size_t idx = 0; idx < num_shms_; ++idx) {
+        if (!shm_busy_vec_[idx]) {
+            shm_busy_vec_[idx] = 1;
+            return &shm_vec_[idx];
+        }
+    }
+    return nullptr;
+}
+
+void SharedMemoryManager::free_shm(SharedMemory *shm) {
+    if (!enabled_ || nullptr == shm) {
+        return;
+    }
+    tensorflow::mutex_lock lock(mutex_);
+    for (size_t idx = 0; idx < num_shms_; ++idx) {
+        if (shm == &shm_vec_[idx]) {
+            shm_busy_vec_[idx] = 0;
+            return;
+        }
+    }
 }
 
 void SharedMemoryManager::clear() {

@@ -22,6 +22,27 @@ namespace tensorflow {
 namespace neuron {
 
 
+class ScopedSharedMemory {
+public:
+    ScopedSharedMemory(SharedMemoryManager *shm_mgr, SharedMemory *shm) {
+        shm_mgr_ = shm_mgr;
+        shm_ = shm;
+    }
+    ~ScopedSharedMemory() {
+        if (nullptr != shm_mgr_) {
+            shm_mgr_->free_shm(shm_);
+        }
+    }
+    ScopedSharedMemory(const ScopedSharedMemory &) = delete;
+    ScopedSharedMemory &operator=(const ScopedSharedMemory &) = delete;
+    ScopedSharedMemory(ScopedSharedMemory &&) = delete;
+    ScopedSharedMemory &operator=(ScopedSharedMemory &&) = delete;
+private:
+    SharedMemoryManager *shm_mgr_ = nullptr;
+    SharedMemory *shm_ = nullptr;
+};
+
+
 class SharedMemoryManagerWrapper {
 public:
     SharedMemory *apply_for_shm() {

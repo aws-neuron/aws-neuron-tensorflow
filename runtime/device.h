@@ -42,6 +42,7 @@ public:
                       const std::vector<size_t> &output_tensor_sizes);
     void clear();
     SharedMemory *apply_for_shm();
+    void free_shm(SharedMemory *shm);
     std::vector<SharedMemory> shm_vec_;
     bool enabled_ = false;
 private:
@@ -52,7 +53,7 @@ private:
                         const std::vector<size_t> &tensor_sizes,
                         const uint32_t nn_id);
     tensorflow::mutex mutex_;
-    size_t shm_index_ = 0;
+    std::vector<int> shm_busy_vec_;
     size_t num_shms_ = 0;
     RuntimeGRPC runtime_;
 };

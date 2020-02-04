@@ -402,6 +402,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 output_tensors[idx] = &temp_outputs[idx];
             }
             SharedMemory *shm = shm_mgr_.apply_for_shm();
+            ScopedSharedMemory scoped_shm(shm_mgr_.shm_mgr_, shm);
             RuntimeIO runtime_io;
             OP_REQUIRES_OK(ctx, runtime_io.setup(
                 input_names, input_tensors, output_names, output_tensors, nn_id_, shm));
@@ -410,6 +411,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
 
         std::queue<RuntimeIO> runtime_io_queue;
+        std::queue<ScopedSharedMemory> scoped_shm_queue;
         std::vector<std::vector<Tensor> > batches_sliced_outputs(num_batches);
         int64_t post_bidx = 0;
         {   // scope of semaphore reservation queue
@@ -446,6 +448,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                     runtime_io_queue.emplace();
                     SharedMemory *shm = shm_mgr_.apply_for_shm();
+                    scoped_shm_queue.emplace(shm_mgr_.shm_mgr_, shm);
                     OP_REQUIRES_OK(ctx, runtime_io_queue.back().setup(
                         input_names, sliced_inputs, output_names, output_tensors, nn_id_, shm));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
@@ -485,6 +488,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                     runtime_io_queue.emplace();
                     SharedMemory *shm = shm_mgr_.apply_for_shm();
+                    scoped_shm_queue.emplace(shm_mgr_.shm_mgr_, shm);
                     OP_REQUIRES_OK(ctx, runtime_io_queue.back().setup(
                         input_names, sliced_inputs, output_names, output_tensors, nn_id_, shm));
 
@@ -495,9 +499,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     // post next one
                     OP_REQUIRES_OK(ctx, neuron_device_->infer_post_unsafe(
                         &runtime_io_queue.back(), nullptr, nn_id_));
-
                     OP_REQUIRES_OK(ctx, runtime_io_queue.front().finish());
                     runtime_io_queue.pop();
+                    scoped_shm_queue.pop();
                 }
             }   // unlock device
 
@@ -513,6 +517,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 sem_res_queue.pop();
                 OP_REQUIRES_OK(ctx, runtime_io_queue.front().finish());
                 runtime_io_queue.pop();
+                scoped_shm_queue.pop();
             }
         }   // semaphore reservation queue goes out of scope
     } else if (profile_.enabled_) {
@@ -524,6 +529,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                                                      &output_tensors[idx]));
         }
         SharedMemory *shm = shm_mgr_.apply_for_shm();
+        ScopedSharedMemory scoped_shm(shm_mgr_.shm_mgr_, shm);
         RuntimeIO runtime_io;
         OP_REQUIRES_OK(ctx, runtime_io.setup(
             input_names, input_tensors, output_names, output_tensors, nn_id_, shm));
@@ -537,6 +543,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                                                      &output_tensors[idx]));
         }
         SharedMemory *shm = shm_mgr_.apply_for_shm();
+        ScopedSharedMemory scoped_shm(shm_mgr_.shm_mgr_, shm);
         RuntimeIO runtime_io;
         OP_REQUIRES_OK(ctx, runtime_io.setup(
             input_names, input_tensors, output_names, output_tensors, nn_id_, shm));
@@ -545,13 +552,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, neuron_device_->infer_post(
                 &runtime_io, &sem_res_queue, &infer_sem_, &timestamps, nn_id_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&runtime_io, &timestamps));
-            if (nullptr != shm) {
-                OP_REQUIRES_OK(ctx, runtime_io.finish());
-            }
         }
-        if (nullptr == shm) {
-            OP_REQUIRES_OK(ctx, runtime_io.finish());
-        }
+        OP_REQUIRES_OK(ctx, runtime_io.finish());
     }
     timestamps.mark_exit();
     VLOG(1) << timestamps.timing_string();
