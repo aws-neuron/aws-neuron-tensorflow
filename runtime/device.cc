@@ -106,7 +106,7 @@ Status SharedMemoryManager::initialize(const std::string &nrtd_address,
 }
 
 Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
-                                         std::vector<void*> *ptrs,
+                                         std::vector<char*> *ptrs,
                                          std::vector<size_t> *sizes,
                                          std::vector<std::string> *nrt_paths,
                                          const std::vector<size_t> &tensor_sizes,
@@ -120,7 +120,7 @@ Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
         SYS_FAIL_RETURN(shm_file.shm_fd_ < 0, "shm_open");
         names->push_back(name);
         SYS_FAIL_RETURN(::ftruncate(shm_file.shm_fd_, size) < 0, "ftruncate");
-        void *ptr = ::mmap(0, size, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
+        char *ptr = static_cast<char*>(::mmap(0, size, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0));
         SYS_FAIL_RETURN(nullptr == ptr, "mmap");
         ptrs->push_back(ptr);
         sizes->push_back(size);

@@ -21,9 +21,9 @@ Status RuntimeIO::setup(
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (nullptr != shm_) {
             infer_io->mutable_buf_shm()->set_path(shm_->input_paths_[idx]);
-            std::memcpy(shm_->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
+            std::copy_n(tensor_data.data(), tensor_data.size(), shm_->input_ptrs_[idx]);
         } else {
-            infer_io->set_buf((void*)tensor_data.data(), tensor_data.size());
+            infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
     if (nullptr != shm_) {
@@ -70,7 +70,7 @@ Status RuntimeIO::finish() {
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
         StringPiece out_tensor_raw;
         if (nullptr != shm_) {
-            out_tensor_raw = StringPiece((const char*)shm_->output_ptrs_[idx],
+            out_tensor_raw = StringPiece(shm_->output_ptrs_[idx],
                                          shm_->output_sizes_[idx]);
         } else {
             out_tensor_raw = raw_output_tensors[idx];

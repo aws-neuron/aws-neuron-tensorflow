@@ -47,7 +47,7 @@ public:
     bool enabled_ = false;
 private:
     Status init_vectors(std::vector<std::string> *names,
-                        std::vector<void*> *ptrs,
+                        std::vector<char*> *ptrs,
                         std::vector<size_t> *sizes,
                         std::vector<std::string> *nrt_paths,
                         const std::vector<size_t> &tensor_sizes,
