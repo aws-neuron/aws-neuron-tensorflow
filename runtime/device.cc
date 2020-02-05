@@ -25,7 +25,7 @@ NeuronDeviceManager global_neuron_device_manager;
 
 #ifdef NEURONTFSERV
 void sigint_handler(int sig) {
-    global_neuron_device_manager.clear();
+    global_neuron_device_manager.clear_from_global_state();
     std::signal(SIGINT, SIG_DFL);
     std::signal(SIGTERM, SIG_DFL);
     std::raise(sig);
@@ -52,6 +52,8 @@ public:
     }
     ShmFile(const ShmFile &shm_file) = delete;
     ShmFile &operator=(const ShmFile &shm_file) = delete;
+    ShmFile(ShmFile &&) = delete;
+    ShmFile &operator=(ShmFile &&) = delete;
     int shm_fd_ = -1;
 private:
     int shm_open_fd_ = -1;
@@ -203,7 +205,7 @@ static std::string remove_pattern(std::string data, const std::string &pattern) 
 
 NeuronDeviceManager::~NeuronDeviceManager() {
     tensorflow::mutex_lock lock(global_mutex_);
-    clear();
+    clear_from_global_state();
 }
 
 Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
@@ -330,6 +332,17 @@ void NeuronDeviceManager::clear() {
     VLOG(1) << "NeuronDeviceManager is cleared";
 }
 
+void NeuronDeviceManager::clear_from_global_state() {
+    for (size_t idx = 0; idx < num_devices_; ++idx) {
+        device_array_[idx].clear(true);
+    }
+    num_devices_ = 0;
+    device_index_ = 0;
+    ready_ = false;
+    VLOG(1) << "NeuronDeviceManager is cleared from global state";
+}
+
+
 Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
                                              int64_t opt_device_size) {
     tensorflow::mutex_lock lock(global_mutex_);
@@ -446,14 +459,14 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
     return Status::OK();
 }
 
-void NeuronDevice::clear() {
+void NeuronDevice::clear(bool from_global_state) {
     tensorflow::mutex_lock lock(mutex_eg_);
     for (uint32_t nn_id : nn_id_set_) {
         if (running(nn_id)) {
             TF_LOG_IF_ERROR(runtime_.stop(nn_id));
             set_running(NRT_INVALID_NN_ID);
         }
-        TF_LOG_IF_ERROR(runtime_.unload(nn_id));
+        TF_LOG_IF_ERROR(runtime_.unload(nn_id, from_global_state));
         VLOG(1) << "unload from NeuronDevice::clear";
     }
     for (auto &item : nn_id_to_shm_mgr_) {
@@ -462,7 +475,7 @@ void NeuronDevice::clear() {
     nn_id_to_shm_mgr_.clear();
     nn_id_set_.clear();
     if (create_eg_done_) {
-        TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id_));
+        TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id_, from_global_state));
         create_eg_done_ = false;
         VLOG(1) << "destroy_eg from NeuronDevice::clear";
     }

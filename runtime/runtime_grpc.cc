@@ -227,7 +227,7 @@ Status RuntimeGRPC::stop(const uint32_t nn_id) {
     return Status::OK();
 }
 
-Status RuntimeGRPC::unload(const uint32_t nn_id) {
+Status RuntimeGRPC::unload(const uint32_t nn_id, bool from_global_state) {
     nrt::unload_request request;
     request.mutable_h_nn()->set_id(nn_id);
     nrt::unload_response response;
@@ -236,7 +236,7 @@ Status RuntimeGRPC::unload(const uint32_t nn_id) {
     return Status::OK();
 }
 
-Status RuntimeGRPC::destroy_eg(const uint32_t eg_id) {
+Status RuntimeGRPC::destroy_eg(const uint32_t eg_id, bool from_global_state) {
     nrt::destroy_eg_request request;
     request.mutable_h_eg()->set_id(eg_id);
     nrt::destroy_eg_response response;

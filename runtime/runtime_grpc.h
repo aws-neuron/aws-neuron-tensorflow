@@ -64,8 +64,8 @@ public:
     Status infer_post(RuntimeIO *runtime_io);
     Status infer_wait(RuntimeIO *runtime_io);
     Status stop(const uint32_t nn_id);
-    Status unload(const uint32_t nn_id);
-    Status destroy_eg(const uint32_t eg_id);
+    Status unload(const uint32_t nn_id, bool from_global_state=false);
+    Status destroy_eg(const uint32_t eg_id, bool from_global_state=false);
     Status shm_map(const std::string &path, const uint32_t mmap_prot);
     Status shm_unmap(const std::string &path, const uint32_t mmap_prot);
 private:

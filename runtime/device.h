@@ -78,7 +78,7 @@ public:
                         const uint32_t nn_id, const uint32_t max_num_infers,
                         const std::vector<size_t> input_tensor_sizes,
                         const std::vector<size_t> output_tensor_sizes);
-    void clear();
+    void clear(bool from_global_state=false);
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
 private:
@@ -111,6 +111,7 @@ public:
     Status apply_for_device(NeuronDevice **device, int64_t opt_device_size);
     void clear_if_empty();
     void clear();
+    void clear_from_global_state();
     std::string nrtd_address_;
     static const int64 MAX_NUM_CORES = 64;
     static const int64 MIN_NUM_CORES = 0;
