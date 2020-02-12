@@ -24,6 +24,21 @@ from tensorflow.python.platform import tf_logging as logging
 _RANDOM_SEED = 15213
 
 
+@contextmanager
+def _enable_tensorized_scheduler():
+    from distutils.version import LooseVersion
+    from functools import partial
+    import neuroncc
+    if LooseVersion(neuroncc.__version__.split('+')[0]) > LooseVersion('1.0.7000'):
+        original_func = tf.neuron.graph_util.inference_graph_from_session
+        tf.neuron.graph_util.inference_graph_from_session = partial(
+            tf.neuron.graph_util.inference_graph_from_session, compiler_args=['--enable-tensorized-scheduler'])
+        try:
+            yield
+        finally:
+            tf.neuron.graph_util.inference_graph_from_session = original_func
+
+
 class TestInferenceGraphFromSession(unittest.TestCase):
 
     def test_multiple_inputs_outputs(self):
@@ -103,6 +118,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
     def test_inputs_start_from_middle(self):
+      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -185,6 +201,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
     def test_graph_with_large_constants(self):
+      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -524,6 +541,7 @@ class TestDynamicBatchSize(unittest.TestCase):
                 np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
     def _body(self):
+      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         pix = 3
         with tf.Session(graph=tf.Graph()) as sess:
@@ -687,6 +705,7 @@ class TestSpecialOperator(unittest.TestCase):
 class TestMiscUtils(unittest.TestCase):
 
     def test_shared_memory_infer(self):
+      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
