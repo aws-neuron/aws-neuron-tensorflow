@@ -405,6 +405,18 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
+Status NeuronDevice::setup_async_io(RuntimeIO *runtime_io, int64_t post_tag) {
+    return runtime_.setup_async_io(runtime_io, post_tag);
+}
+
+Status NeuronDevice::post_infer_post(RuntimeIO *runtime_io) {
+    return runtime_.post_infer_post(runtime_io);
+}
+
+Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
+    return runtime_.wait_infer_post(runtime_io);
+}
+
 Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
                            ProfilerInterface *profile, const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);

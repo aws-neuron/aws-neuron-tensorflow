@@ -12,6 +12,9 @@
 namespace tensorflow {
 namespace neuron {
 
+#define NRT_INVALID_COOKIE 0
+#define INFER_POST_INVALID_TAG -1
+
 #define NRT_GRPC(func, request, response) ({                    \
     grpc::Status status;                                        \
     grpc::ClientContext context;                                \
@@ -23,10 +26,10 @@ namespace neuron {
     status;                                                     \
 })
 
-#define NRT_CHECK_RETURN(fn_name, status, response) {                       \
-    if (!((status).ok() && 0 == (response).status().code())) {              \
-        return nrt_error_status((fn_name), (status), (response).status());  \
-    }                                                                       \
+#define NRT_CHECK_RETURN(fn_name, grpc_status, response) {                      \
+    if (!((grpc_status).ok() && 0 == (response).status().code())) {             \
+        return nrt_error_status((fn_name), (grpc_status), (response).status()); \
+    }                                                                           \
 }
 
 inline Status nrt_error_status(const std::string &fn_name,
@@ -45,13 +48,19 @@ public:
                  AttrList &output_names, const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, SharedMemory *shm=nullptr);
     Status finish();
-    uint64_t cookie = 0;
+    uint64_t cookie = NRT_INVALID_COOKIE;
     SharedMemory *shm_ = nullptr;
     nrt::infer_request request_;
+    nrt::infer_post_response post_response_;
+    grpc::Status post_status_;
+    int64_t post_tag_ = INFER_POST_INVALID_TAG;
     nrt::infer_wait_request wait_request_;
     nrt::infer_response response_;
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
+    grpc::ClientContext context_;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_ = nullptr;
+    grpc::CompletionQueue infer_post_cq_;
 };
 
 class RuntimeGRPC {
@@ -61,6 +70,9 @@ public:
     Status load(uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
     Status start(const uint32_t nn_id);
+    Status setup_async_io(RuntimeIO *runtime_io, int64_t post_tag);
+    Status post_infer_post(RuntimeIO *runtime_io);
+    Status wait_infer_post(RuntimeIO *runtime_io);
     Status infer_post(RuntimeIO *runtime_io);
     Status infer_wait(RuntimeIO *runtime_io);
     Status stop(const uint32_t nn_id);
