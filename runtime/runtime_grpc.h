@@ -70,6 +70,7 @@ public:
     Status load(uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
     Status start(const uint32_t nn_id);
+    Status start_ping(const uint32_t nn_id);
     Status setup_async_io(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
     Status wait_infer_post(RuntimeIO *runtime_io);

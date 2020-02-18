@@ -194,6 +194,19 @@ Status RuntimeGRPC::start(const uint32_t nn_id) {
     return Status::OK();
 }
 
+Status RuntimeGRPC::start_ping(const uint32_t nn_id) {
+    // this function is only used as a hack to re-establish channel in case of grpc 14
+    // and so intentionally returns OK as long as grpc status is ok
+    nrt::start_request request;
+    request.mutable_h_nn()->set_id(nn_id);
+    nrt::start_response response;
+    grpc::Status status = NRT_GRPC(stub_->start, request, &response);
+    if (!status.ok()) {
+        NRT_CHECK_RETURN("start", status, response);
+    }
+    return Status::OK();
+}
+
 Status RuntimeGRPC::setup_async_io(RuntimeIO *runtime_io, int64_t post_tag) {
     runtime_io->rpc_ = stub_->PrepareAsyncinfer_post(
         &runtime_io->context_, runtime_io->request_, &runtime_io->infer_post_cq_);

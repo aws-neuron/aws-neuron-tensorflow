@@ -420,7 +420,7 @@ Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
 Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
                            ProfilerInterface *profile, const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
-    TF_RETURN_IF_ERROR(start_model(nn_id));
+    TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (profile->enabled_) profile->start_session(nrtd_address_, nn_id);
     Status status_post = runtime_.infer_post(runtime_io);
     Status status_wait = runtime_.infer_wait(runtime_io);
@@ -444,7 +444,7 @@ void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_
 
 Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
                                        const uint32_t nn_id) {
-    TF_RETURN_IF_ERROR(start_model(nn_id));
+    TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
     return runtime_.infer_post(runtime_io);
 }
@@ -493,7 +493,11 @@ void NeuronDevice::clear(bool from_global_state) {
     }
 }
 
-Status NeuronDevice::start_model(const uint32_t nn_id) {
+Status NeuronDevice::start_ping(const uint32_t nn_id) {
+    return runtime_.start_ping(nn_id);
+}
+
+Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
     if (!create_eg_done_) {
         return errors::Internal("neuron_device is not initialized");
     }

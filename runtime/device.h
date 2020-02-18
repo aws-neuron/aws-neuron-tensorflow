@@ -84,8 +84,9 @@ public:
     void clear(bool from_global_state=false);
     size_t num_executable() { return nn_id_set_.size(); };
     uint32_t num_cores() { return num_cores_; };
+    Status start_model_unsafe(const uint32_t nn_id);
+    Status start_ping(const uint32_t nn_id);
 private:
-    Status start_model(const uint32_t nn_id);
     bool is_busy();
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
