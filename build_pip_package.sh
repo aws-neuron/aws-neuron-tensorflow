@@ -41,11 +41,10 @@ function main() {
         exit 1
     fi
     TMPDIR="$(mktemp -d -t tmp.XXXXXXXXXX)"
-    TFPYDIR="${TMPDIR}/tensorflow_core/python"
+    TFPYDIR="${TMPDIR}/tensorflow_core"
     mkdir -p "${TFPYDIR}"
-    cp -R bazel-bin/tensorflow/python/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/python/neuron "${TFPYDIR}/"
-    mv "${TFPYDIR}/neuron/_api" "${TMPDIR}/tensorflow_core/"
-    sed "s/_VERSION/${VERSION}/g" tensorflow/python/neuron/setup.py > "${TMPDIR}/setup.py"
+    cp -R bazel-bin/tensorflow/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/neuron "${TFPYDIR}/"
+    sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
 
     echo $(date) : "=== Building wheel"
     cd "${TMPDIR}"

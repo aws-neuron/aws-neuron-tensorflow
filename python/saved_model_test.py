@@ -14,7 +14,7 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
 from tensorflow.python.saved_model.saved_model import signature_constants
-from tensorflow.python.neuron.python.graph_util_test import _assert_compiler_success
+from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
 
 
 _RANDOM_SEED = 15213
@@ -382,7 +382,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
 
 class TestSavedModelCLIConvert(unittest.TestCase):
 
-    @unittest.skipIf(not hasattr(tfn, 'predictor'), 'tensorflow-neuron-plugin does not support saved_model_cli')
+    @unittest.skipIf(not hasattr(tfn, '_module_wrapper'), 'tensorflow-neuron-plugin does not support saved_model_cli')
     def test_saved_model_cli_convert_neuron(self):
         np.random.seed(_RANDOM_SEED)
         model_dir = './original_saved_model2'

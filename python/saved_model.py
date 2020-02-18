@@ -23,10 +23,10 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.client import timeline
-from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
-from tensorflow.python.neuron.python.graph_util import logging_show_info
-from tensorflow.python.neuron.python.graph_util import compiled_graph_op_counts
-from tensorflow.python.neuron.python.graph_util import register_neuron_op
+from tensorflow.neuron.python.graph_util import inference_graph_from_session
+from tensorflow.neuron.python.graph_util import logging_show_info
+from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
+from tensorflow.neuron.python.graph_util import register_neuron_op
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -193,6 +193,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     else:
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
     return dict(OnNeuronRatio=on_neuron_ratio)
+compile = convert_to_inference_model
 
 
 def _check_export_dir(export_dir):

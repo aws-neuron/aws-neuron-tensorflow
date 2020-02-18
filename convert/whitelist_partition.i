@@ -21,7 +21,7 @@ limitations under the License.
 %include "tensorflow/python/platform/base.i"
 
 %{
-#include "tensorflow/python/neuron/convert/convert_graph.h"
+#include "tensorflow/neuron/convert/convert_graph.h"
 %}
 
 %{

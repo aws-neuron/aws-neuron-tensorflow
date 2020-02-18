@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 
-from tensorflow.python.neuron.python import graph_util
-from tensorflow.python.neuron.python import saved_model
-from tensorflow.python.neuron.python import fuse
+from tensorflow.neuron.python import graph_util
+from tensorflow.neuron.python import saved_model
+from tensorflow.neuron.python import predictor
+from tensorflow.neuron.python.fuse import fuse
+from tensorflow.neuron.ops.gen_neuron_op import neuron_op

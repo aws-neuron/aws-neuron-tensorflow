@@ -15,9 +15,9 @@ import unittest
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
-from tensorflow.python.neuron.python.graph_util import (
+from tensorflow.neuron.python.graph_util import (
     shape_inference, shape_inference_with_inputs, whitelist_partition, compile_subgraphs)
-from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
+from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
 
 

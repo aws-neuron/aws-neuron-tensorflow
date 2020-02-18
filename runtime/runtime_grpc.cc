@@ -1,9 +1,9 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
 #include <grpcpp/grpcpp.h>
-#include "nmgr.pb.h"
-#include "nerr.pb.h"
-#include "runtime_grpc.h"
+#include "tensorflow/neuron/runtime/proto/nmgr.pb.h"
+#include "tensorflow/neuron/runtime/proto/nerr.pb.h"
+#include "tensorflow/neuron/runtime/runtime_grpc.h"
 
 
 namespace tensorflow {

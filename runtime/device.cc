@@ -6,7 +6,7 @@
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
-#include "device.h"
+#include "tensorflow/neuron/runtime/device.h"
 
 
 namespace tensorflow {

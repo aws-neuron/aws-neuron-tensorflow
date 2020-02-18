@@ -1,6 +1,6 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#include "tensor_util.h"
+#include "tensorflow/neuron/runtime/tensor_util.h"
 
 namespace tensorflow {
 namespace neuron {

@@ -17,7 +17,7 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops, variables
 from tensorflow.python.eager.context import executing_eagerly
-from tensorflow.python.neuron.python.graph_util import (
+from tensorflow.neuron.python.graph_util import (
     normalize_operators, most_popular_namescope, logging_show_info, register_neuron_op)
 
 

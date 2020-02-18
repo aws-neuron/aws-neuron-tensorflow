@@ -12,8 +12,8 @@ from tensorflow.python.saved_model import loader
 from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.tools import saved_model_utils
 
-from tensorflow.python.neuron.python.graph_util import inference_graph_from_session
-from tensorflow.python.neuron.python.saved_model_util import get_io_names_from_signature_def
+from tensorflow.neuron.python.graph_util import inference_graph_from_session
+from tensorflow.neuron.python.saved_model_util import get_io_names_from_signature_def
 
 
 DEFAULT_TAGS = 'serve'

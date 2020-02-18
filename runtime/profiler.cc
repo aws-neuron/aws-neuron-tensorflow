@@ -5,7 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include "tensorflow/core/lib/core/errors.h"
-#include "profiler.h"
+#include "tensorflow/neuron/runtime/profiler.h"
 
 
 namespace tensorflow {

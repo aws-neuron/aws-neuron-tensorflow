@@ -9,7 +9,7 @@ tf_py_wrap_cc(
     copts = tf_copts(),
     deps = [
         ":convert_graph",
-        "//tensorflow/python/neuron/runtime:neuron_op",
+        "//tensorflow/neuron/runtime:neuron_op",
         "//tensorflow/c:tf_status_helper",
         "//third_party/python_runtime:headers",
     ],
@@ -22,7 +22,7 @@ cc_library(
     copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         ":segment",
-        "//tensorflow/python/neuron:all_ops",
+        "//tensorflow/neuron:all_ops",
         "//tensorflow/core:core_cpu_headers_lib",
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",

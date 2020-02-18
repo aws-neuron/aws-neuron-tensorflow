@@ -128,7 +128,7 @@ class TestFuse(unittest.TestCase):
                      'Running this test together with others requires 2 neuron cores')
     def test_fuse_eager_execution(self):
         assert subprocess.run([
-            sys.executable, '-c', 'from tensorflow.python.neuron.python import fuse_test;'
+            sys.executable, '-c', 'from tensorflow.neuron.python import fuse_test;'
                                   'fuse_test.actualtest_fuse_eager_execution()'
         ]).returncode == 0
 

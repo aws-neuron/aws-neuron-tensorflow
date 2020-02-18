@@ -39,7 +39,7 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.framework import meta_graph
-from tensorflow.python.neuron.convert.whitelist_partition_swig import WhitelistPartition
+from tensorflow.neuron.convert.whitelist_partition_swig import WhitelistPartition
 
 
 _NEURON_OP = 'NeuronOp'
@@ -344,7 +344,7 @@ def inference_graph_from_session(
 
 
 def register_neuron_op():
-    from tensorflow.python.neuron.ops.gen_neuron_op import neuron_op
+    from tensorflow.neuron.ops.gen_neuron_op import neuron_op
     return neuron_op
 
 

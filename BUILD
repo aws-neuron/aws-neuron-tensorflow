@@ -7,12 +7,12 @@ load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 
 cc_library(
     name = "all_ops",
-    deps = ["//tensorflow/python/neuron/runtime:neuron_op_op_lib"],
+    deps = ["//tensorflow/neuron/runtime:neuron_op_op_lib"],
 )
 
 cc_library(
     name = "all_kernels",
-    deps = ["//tensorflow/python/neuron/runtime:neuron_op"],
+    deps = ["//tensorflow/neuron/runtime:neuron_op"],
 )
 
 py_library(
@@ -21,7 +21,7 @@ py_library(
         "python/graph_util.py",
     ],
     srcs_version = "PY2AND3",
-    deps = ["//tensorflow/python/neuron/convert:whitelist_partition_swig"],
+    deps = ["//tensorflow/neuron/convert:whitelist_partition_swig"],
 )
 
 py_library(
@@ -62,14 +62,14 @@ py_library(
 
 tf_custom_op_library(
     name = "python/ops/_neuron_op.so",
-    srcs = ["//tensorflow/python/neuron/runtime:ops/neuron_op.cc"],
-    deps = ["//tensorflow/python/neuron/runtime:neuron_op"],
+    srcs = ["//tensorflow/neuron/runtime:ops/neuron_op.cc"],
+    deps = ["//tensorflow/neuron/runtime:neuron_op"],
 )
 
 tf_gen_op_wrapper_py(
     name = "neuron_op",
     out = "ops/gen_neuron_op.py",
-    deps = ["//tensorflow/python/neuron/runtime:neuron_op_op_lib"],
+    deps = ["//tensorflow/neuron/runtime:neuron_op_op_lib"],
 )
 
 tf_custom_op_py_library(
@@ -77,8 +77,8 @@ tf_custom_op_py_library(
     srcs = glob(["python/ops/*.py"]),
     dso = [":python/ops/_neuron_op.so"],
     kernels = [
-        "//tensorflow/python/neuron/runtime:neuron_op",
-        "//tensorflow/python/neuron/runtime:neuron_op_op_lib",
+        "//tensorflow/neuron/runtime:neuron_op",
+        "//tensorflow/neuron/runtime:neuron_op_op_lib",
     ],
     srcs_version = "PY2AND3",
     deps = ["//tensorflow/python:framework_for_generated_wrappers"]
@@ -119,36 +119,10 @@ py_library(
     ],
 )
 
-
-load(
-    "//tensorflow/python/tools/api/generator:api_gen.bzl",
-    "gen_api_init_files",
-)
-load(
-    "//tensorflow/python/neuron:neuron_api_init_files.bzl",
-    "TENSORFLOW_NEURON_API_INIT_FILES",
-)
-
-gen_api_init_files(
-    name = "tf_neuron_python_api_gen",
-    srcs = [
-        "//tensorflow:api_template_v1.__init__.py",
-    ],
-    api_version = 1,
-    output_dir = "_api/v1/",
-    output_files = TENSORFLOW_NEURON_API_INIT_FILES,
-    output_package = "tensorflow._api.v1",
-    root_file_name = "v1.py",
-    root_init_template = "//tensorflow:api_template_v1.__init__.py",
-    packages = ["tensorflow.python.neuron"],
-    package_deps = [":neuron_py"],
-)
-
 sh_binary(
     name = "build_pip_package",
     srcs = ["build_pip_package.sh"],
     data = [
         ":neuron_py",
-        ":tf_neuron_python_api_gen",
     ],
 )
