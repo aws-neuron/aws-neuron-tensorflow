@@ -61,6 +61,7 @@ public:
     grpc::ClientContext context_;
     grpc::CompletionQueue cq_;
     std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_infer_post_ = nullptr;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_response> > rpc_infer_ = nullptr;
 };
 
 class RuntimeGRPC {
@@ -74,6 +75,7 @@ public:
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
     Status wait_infer_post(RuntimeIO *runtime_io);
+    Status setup_infer(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer(RuntimeIO *runtime_io);
     Status wait_infer(RuntimeIO *runtime_io);
     Status infer_post(RuntimeIO *runtime_io);

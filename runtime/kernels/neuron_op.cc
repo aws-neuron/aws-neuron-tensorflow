@@ -453,15 +453,22 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         input_names, sliced_inputs, output_names, output_tensors,
                         nn_id_, shm_mgr_));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
+
                     // post
                     RuntimeIO *runtime_io = &scoped_io_queue.back().runtime_io_;
-                    OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io, post_bidx));
-                    if (0 == post_bidx) {
-                        timestamps.mark_above_nrtd_infer();
-                    }
-                    OP_REQUIRES_OK(ctx, neuron_device_->post_infer_post(runtime_io));
                     if (post_bidx >= first_need_wait_infer_post_bidx) {
+                        OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io, post_bidx));
+                        if (0 == post_bidx) {
+                            timestamps.mark_above_nrtd_infer();
+                        }
+                        OP_REQUIRES_OK(ctx, neuron_device_->post_infer_post(runtime_io));
                         need_wait_infer_post.push(runtime_io);
+                    } else {
+                        OP_REQUIRES_OK(ctx, neuron_device_->setup_infer(runtime_io, post_bidx));
+                        if (0 == post_bidx) {
+                            timestamps.mark_above_nrtd_infer();
+                        }
+                        OP_REQUIRES_OK(ctx, neuron_device_->post_infer(runtime_io));
                     }
                 }
 
@@ -497,24 +504,29 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         input_names, sliced_inputs, output_names, output_tensors,
                         nn_id_, shm_mgr_));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
-                    OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io_back, post_bidx));
+                    if (post_bidx >= first_need_wait_infer_post_bidx) {
+                        OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io_back, post_bidx));
+                    } else {
+                        OP_REQUIRES_OK(ctx, neuron_device_->setup_infer(runtime_io_back, post_bidx));
+                    }
 
                     // wait one
                     RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
-                    OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
-                    OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(runtime_io_front, nullptr));
+                    OP_REQUIRES_OK(ctx, neuron_device_->wait_infer(runtime_io_front));
 
                     // post next one
-                    OP_REQUIRES_OK(ctx, neuron_device_->post_infer_post(runtime_io_back));
                     if (post_bidx >= first_need_wait_infer_post_bidx) {
+                        OP_REQUIRES_OK(ctx, neuron_device_->post_infer_post(runtime_io_back));
                         need_wait_infer_post.push(runtime_io_back);
+                    } else {
+                        OP_REQUIRES_OK(ctx, neuron_device_->post_infer(runtime_io_back));
                     }
                     OP_REQUIRES_OK(ctx, runtime_io_front->finish());
                     scoped_io_queue.pop();
                 }
 
                 // ensure all infer_post calls are queued up by RT before releasing eg lock
-                OP_REQUIRES(ctx, need_wait_infer_post.size() == window_size,
+                OP_REQUIRES(ctx, (int64_t)need_wait_infer_post.size() == window_size,
                             errors::Internal("incorrect queue length found -- race condition likely"));
                 for (int64_t wait_bidx = 0; wait_bidx < window_size; ++wait_bidx) {
                     RuntimeIO *runtime_io_front = need_wait_infer_post.front();

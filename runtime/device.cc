@@ -417,6 +417,18 @@ Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
     return runtime_.wait_infer_post(runtime_io);
 }
 
+Status NeuronDevice::setup_infer(RuntimeIO *runtime_io, int64_t post_tag) {
+    return runtime_.setup_infer(runtime_io, post_tag);
+}
+
+Status NeuronDevice::post_infer(RuntimeIO *runtime_io) {
+    return runtime_.post_infer(runtime_io);
+}
+
+Status NeuronDevice::wait_infer(RuntimeIO *runtime_io) {
+    return runtime_.wait_infer(runtime_io);
+}
+
 Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
                            ProfilerInterface *profile, const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);

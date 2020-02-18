@@ -268,6 +268,39 @@ Status RuntimeGRPC::infer_wait(RuntimeIO *runtime_io) {
     return Status::OK();
 }
 
+Status RuntimeGRPC::setup_infer(RuntimeIO *runtime_io, int64_t post_tag) {
+    runtime_io->rpc_infer_ = stub_->PrepareAsyncinfer(
+        &runtime_io->context_, runtime_io->request_, &runtime_io->cq_);
+    runtime_io->post_tag_ = post_tag;
+    return Status::OK();
+}
+
+Status RuntimeGRPC::post_infer(RuntimeIO *runtime_io) {
+    if (nullptr == runtime_io->rpc_infer_) {
+        return errors::Internal("runtime_io->rpc_infer_ is not initialized");
+    }
+    runtime_io->rpc_infer_->StartCall();
+    runtime_io->rpc_infer_->Finish(&runtime_io->response_, &runtime_io->post_status_,
+                                   (void*)runtime_io->post_tag_);
+    return Status::OK();
+}
+
+Status RuntimeGRPC::wait_infer(RuntimeIO *runtime_io) {
+    void *got_tag;
+    bool ok = false;
+    if (!runtime_io->cq_.Next(&got_tag, &ok)) {
+        return errors::Internal("CompletionQueue::Next failed");
+    }
+    if (got_tag != (void*)runtime_io->post_tag_) {
+        return errors::Internal("CompletionQueue::Next did not return the correct tag");
+    }
+    if (!ok) {
+        return errors::Internal("CompletionQueue::Next did not return OK");
+    }
+    NRT_CHECK_RETURN("infer", runtime_io->post_status_, runtime_io->response_);
+    return Status::OK();
+}
+
 Status RuntimeGRPC::stop(const uint32_t nn_id) {
     nrt::stop_request request;
     request.mutable_h_nn()->set_id(nn_id);

@@ -67,6 +67,9 @@ public:
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
     Status wait_infer_post(RuntimeIO *runtime_io);
+    Status setup_infer(RuntimeIO *runtime_io, int64_t post_tag);
+    Status post_infer(RuntimeIO *runtime_io);
+    Status wait_infer(RuntimeIO *runtime_io);
     Status infer(RuntimeIO *runtime_io, Timestamps *timestamps,
                  ProfilerInterface *profile, const uint32_t nn_id);
     Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
