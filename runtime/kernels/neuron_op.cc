@@ -410,6 +410,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
 
         std::queue<ScopedRuntimeIO> scoped_io_queue;
+        std::queue<RuntimeIO*> need_wait_infer_post;
         std::vector<std::vector<Tensor> > batches_sliced_outputs(num_batches);
         {   // scope of semaphore reservation queue
             SemResQueue sem_res_queue;
@@ -449,16 +450,17 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         nn_id_, shm_mgr_));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
                     // post
+                    RuntimeIO *runtime_io = &scoped_io_queue.back().runtime_io_;
                     if (0 == post_bidx) {
                         // need a unary infer_post call to re-establish grpc channel
                         // in case of seeing grpc 14, as well as call start_model
                         OP_REQUIRES_OK(ctx, neuron_device_->infer_post_unsafe(
-                            &scoped_io_queue.back().runtime_io_, &timestamps, nn_id_));
+                            runtime_io, &timestamps, nn_id_));
                     } else {
-                        RuntimeIO *runtime_io = &scoped_io_queue.back().runtime_io_;
                         OP_REQUIRES_OK(ctx, neuron_device_->setup_async_io(runtime_io, post_bidx));
                         OP_REQUIRES_OK(ctx, neuron_device_->post_infer_post(runtime_io));
                     }
+                    need_wait_infer_post.push(runtime_io);
                 }
 
                 // wait one and post one
@@ -498,12 +500,21 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     // wait one
                     RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
                     OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
+                    need_wait_infer_post.pop();
                     OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(runtime_io_front, nullptr));
 
                     // post next one
                     OP_REQUIRES_OK(ctx, neuron_device_->post_infer_post(runtime_io_back));
+                    need_wait_infer_post.push(runtime_io_back);
                     OP_REQUIRES_OK(ctx, runtime_io_front->finish());
                     scoped_io_queue.pop();
+                }
+
+                // ensure all infer_post calls are queued up by RT before releasing eg lock
+                for (int64_t wait_bidx = 0; wait_bidx < window_size; ++wait_bidx) {
+                    RuntimeIO *runtime_io_front = need_wait_infer_post.front();
+                    OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
+                    need_wait_infer_post.pop();
                 }
             }   // unlock device
 
@@ -515,7 +526,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 Timestamps *wait_timestamps = (window_size - 1) == wait_bidx ?
                     &timestamps : nullptr;
                 RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
-                OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
                 OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(runtime_io_front, wait_timestamps));
                 sem_res_queue.pop();
                 OP_REQUIRES_OK(ctx, runtime_io_front->finish());
