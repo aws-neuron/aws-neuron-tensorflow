@@ -418,9 +418,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 std::queue<RuntimeIO*> need_wait_infer_post;
                 int64_t first_need_wait_infer_post_bidx = num_batches - window_size;
                 neuron_device_->acquire_mutex(&mutex_lock_queue);
-                neuron_device_->start_model_unsafe(nn_id_);
-                // need an extra grpc call to re-establish channel in case of seeing grpc 14
-                neuron_device_->start_ping(nn_id_);
+                OP_REQUIRES_OK(ctx, neuron_device_->start_model_unsafe(nn_id_));
+                uint64 infer_timestamp = Env::Default()->NowMicros();
+                if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC_) {
+                    // need an extra grpc call to re-establish channel in case of seeing grpc 14
+                    OP_REQUIRES_OK(ctx, neuron_device_->start_ping(nn_id_));
+                }
                 // post ninfer ones
                 for (int64_t post_bidx = 0; post_bidx < window_size; ++post_bidx) {
                     // setup inputs
@@ -533,6 +536,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
                     need_wait_infer_post.pop();
                 }
+                last_infer_timestamp_ = Env::Default()->NowMicros();
             }   // unlock device
 
             // wait for remaining ones in the queue

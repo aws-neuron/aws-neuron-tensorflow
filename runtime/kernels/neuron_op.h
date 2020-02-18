@@ -79,6 +79,8 @@ private:
     std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
     SharedMemoryManager *shm_mgr_ = nullptr;
+    uint64 last_infer_timestamp_ = 0;
+    static const uint64 INFER_NEED_PING_MICROSEC_ = 1024 * 1024;
 };
 
 
