@@ -207,9 +207,9 @@ Status RuntimeGRPC::start_ping(const uint32_t nn_id) {
     return Status::OK();
 }
 
-Status RuntimeGRPC::setup_async_io(RuntimeIO *runtime_io, int64_t post_tag) {
-    runtime_io->rpc_ = stub_->PrepareAsyncinfer_post(
-        &runtime_io->context_, runtime_io->request_, &runtime_io->infer_post_cq_);
+Status RuntimeGRPC::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {
+    runtime_io->rpc_infer_post_ = stub_->PrepareAsyncinfer_post(
+        &runtime_io->context_, runtime_io->request_, &runtime_io->cq_);
     runtime_io->post_tag_ = post_tag;
     return Status::OK();
 }
@@ -223,12 +223,12 @@ Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
 }
 
 Status RuntimeGRPC::post_infer_post(RuntimeIO *runtime_io) {
-    if (nullptr == runtime_io->rpc_) {
-        return errors::Internal("runtime_io->rpc_ is not initialized");
+    if (nullptr == runtime_io->rpc_infer_post_) {
+        return errors::Internal("runtime_io->rpc_infer_post_ is not initialized");
     }
-    runtime_io->rpc_->StartCall();
-    runtime_io->rpc_->Finish(&runtime_io->post_response_, &runtime_io->post_status_,
-                             (void*)runtime_io->post_tag_);
+    runtime_io->rpc_infer_post_->StartCall();
+    runtime_io->rpc_infer_post_->Finish(&runtime_io->post_response_, &runtime_io->post_status_,
+                                        (void*)runtime_io->post_tag_);
     return Status::OK();
 }
 
@@ -238,7 +238,7 @@ Status RuntimeGRPC::wait_infer_post(RuntimeIO *runtime_io) {
     }
     void *got_tag;
     bool ok = false;
-    if (!runtime_io->infer_post_cq_.Next(&got_tag, &ok)) {
+    if (!runtime_io->cq_.Next(&got_tag, &ok)) {
         return errors::Internal("CompletionQueue::Next failed");
     }
     if (got_tag != (void*)runtime_io->post_tag_) {

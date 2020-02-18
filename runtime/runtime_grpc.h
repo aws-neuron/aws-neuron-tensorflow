@@ -59,8 +59,8 @@ public:
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
     grpc::ClientContext context_;
-    std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_ = nullptr;
-    grpc::CompletionQueue infer_post_cq_;
+    grpc::CompletionQueue cq_;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_infer_post_ = nullptr;
 };
 
 class RuntimeGRPC {
@@ -71,9 +71,11 @@ public:
                 const uint32_t timeout, const uint32_t ninfer);
     Status start(const uint32_t nn_id);
     Status start_ping(const uint32_t nn_id);
-    Status setup_async_io(RuntimeIO *runtime_io, int64_t post_tag);
+    Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
     Status wait_infer_post(RuntimeIO *runtime_io);
+    Status post_infer(RuntimeIO *runtime_io);
+    Status wait_infer(RuntimeIO *runtime_io);
     Status infer_post(RuntimeIO *runtime_io);
     Status infer_wait(RuntimeIO *runtime_io);
     Status stop(const uint32_t nn_id);

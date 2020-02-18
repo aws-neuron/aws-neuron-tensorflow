@@ -405,8 +405,8 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
-Status NeuronDevice::setup_async_io(RuntimeIO *runtime_io, int64_t post_tag) {
-    return runtime_.setup_async_io(runtime_io, post_tag);
+Status NeuronDevice::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {
+    return runtime_.setup_infer_post(runtime_io, post_tag);
 }
 
 Status NeuronDevice::post_infer_post(RuntimeIO *runtime_io) {

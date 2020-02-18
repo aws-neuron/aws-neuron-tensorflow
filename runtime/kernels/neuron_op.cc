@@ -455,7 +455,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
                     // post
                     RuntimeIO *runtime_io = &scoped_io_queue.back().runtime_io_;
-                    OP_REQUIRES_OK(ctx, neuron_device_->setup_async_io(runtime_io, post_bidx));
+                    OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io, post_bidx));
                     if (0 == post_bidx) {
                         timestamps.mark_above_nrtd_infer();
                     }
@@ -497,7 +497,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         input_names, sliced_inputs, output_names, output_tensors,
                         nn_id_, shm_mgr_));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
-                    OP_REQUIRES_OK(ctx, neuron_device_->setup_async_io(runtime_io_back, post_bidx));
+                    OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io_back, post_bidx));
 
                     // wait one
                     RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
