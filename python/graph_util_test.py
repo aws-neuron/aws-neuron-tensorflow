@@ -29,10 +29,15 @@ def _enable_tensorized_scheduler():
     from distutils.version import LooseVersion
     from functools import partial
     import neuroncc
-    if LooseVersion(neuroncc.__version__.split('+')[0]) > LooseVersion('1.0.7000'):
+    neuroncc_version = LooseVersion(neuroncc.__version__.split('+')[0])
+    if neuroncc_version > LooseVersion('1.0.7000'):
         original_func = tf.neuron.graph_util.inference_graph_from_session
+        if neuroncc_version < LooseVersion('1.0.7500'):
+            flag = '--enable-tensorized-scheduler'
+        else:
+            flag = '--enable-experimental-tensorized-scheduler'
         tf.neuron.graph_util.inference_graph_from_session = partial(
-            tf.neuron.graph_util.inference_graph_from_session, compiler_args=['--enable-tensorized-scheduler'])
+            tf.neuron.graph_util.inference_graph_from_session, compiler_args=[flag])
         try:
             yield
         finally:
