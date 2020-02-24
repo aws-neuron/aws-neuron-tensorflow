@@ -552,9 +552,9 @@ int stoi_no_throw(const std::string &str) {
     try {
         return std::stoi(str);
     } catch (std::invalid_argument e) {
-        return -1;
+        return STOI_INVALID_RESULT;
     } catch (std::out_of_range e) {
-        return -1;
+        return STOI_INVALID_RESULT;
     }
 }
 
