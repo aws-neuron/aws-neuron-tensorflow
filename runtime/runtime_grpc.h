@@ -47,6 +47,8 @@ public:
     Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
                  AttrList &output_names, const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, SharedMemory *shm=nullptr);
+    void set_nn_id(const uint32_t nn_id) { request_.mutable_h_nn()->set_id(nn_id); }
+    uint32_t get_nn_id() { return request_.mutable_h_nn()->id(); }
     Status finish();
     uint64_t cookie = NRT_INVALID_COOKIE;
     SharedMemory *shm_ = nullptr;

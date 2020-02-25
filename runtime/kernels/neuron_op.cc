@@ -165,7 +165,8 @@ Status NeuronOp::initialize() {
     StringPiece executable(def().attr().at("executable").s());
     TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
                                             model_config.ninfer_));
-    VLOG(1) << "load: number of NEFFs: " << neuron_device_->num_executable();
+    VLOG(1) << "loaded " << def().name() << " as " << nn_id_
+            << "; number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
     AttrList &input_names = def().attr().at("input_names").list();
@@ -208,6 +209,7 @@ Status NeuronOp::initialize() {
         }
     }
     max_num_infers_ = model_config.max_num_infers_;
+    max_num_infers_ *= neuron_device_->semaphore_factor();
     int64 init_acquire_amount = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
     if (init_acquire_amount >= INFER_SEM_MAX_CAPACITY) {
         LOG(WARNING) << "infer semaphore cannot be correctly initialized;"

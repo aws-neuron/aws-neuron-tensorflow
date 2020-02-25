@@ -229,41 +229,57 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
         neuron_device_sizes = remove_pattern(neuron_device_sizes, "]");
 
         std::vector<int> num_cores_req_vector;
+        std::vector<int> num_dup_vector;
         std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
         for (size_t idx = 0; idx < MAX_NUM_CORES; ++idx) {
             if (!neuron_device_sizes_stream.good()) {
                 break;
             }
-            std::string substr;
-            std::getline(neuron_device_sizes_stream, substr, ',');
-            if (substr.empty()) {
+            std::string device_spec;
+            std::getline(neuron_device_sizes_stream, device_spec, ',');
+            if (device_spec.empty()) {
                 continue;
             }
-            int num_cores_req = stoi_no_throw(substr);
-            if (num_cores_req < 0 || num_cores_req > 64) {
+            int num_dup = 1;
+            if (device_spec.find("x") != std::string::npos) {
+                size_t delim_pos = device_spec.find("x");
+                num_dup = stoi_no_throw(device_spec.substr(0, delim_pos));
+                device_spec = device_spec.substr(delim_pos + 1, std::string::npos);
+            }
+            int num_cores_req = stoi_no_throw(device_spec);
+            if (num_cores_req < 0 || num_cores_req > MAX_NUM_CORES || num_dup <= 0 || num_dup > MAX_NUM_CORES) {
                 LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_device_sizes_raw
                              << " looks ill-formatted. Falling back to initializing"
                              << " a default NeuronCore Group.";
                 num_cores_req_vector.clear();
+                num_dup_vector.clear();
                 break;
             }
             num_cores_req_vector.push_back(num_cores_req);
+            num_dup_vector.push_back(num_dup);
         }
         if (num_cores_req_vector.empty()) {
             TF_RETURN_IF_ERROR(init_default_device(opt_device_size));
         } else {
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
         }
     }
     ready_ = true;
     return Status::OK();
 }
 
-Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector) {
+Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector,
+                                         const std::vector<int> &num_dup_vector) {
     Status status = errors::Internal("No NeuronCore Group can be initialized.");
     for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
         int num_cores_req = num_cores_req_vector[idx];
-        status = device_array_[idx].initialize(nrtd_address_, num_cores_req);
+        int num_dup;
+        if (num_dup_vector.size() == num_cores_req_vector.size()) {
+            num_dup = num_dup_vector[idx];
+        } else {
+            num_dup = 1;
+        }
+        status = device_array_[idx].initialize(nrtd_address_, num_cores_req, num_dup);
         if (!status.ok()) {
             LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
                          << " cores; stopping initialization.";
@@ -362,20 +378,74 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
     return Status::OK();
 }
 
-Status NeuronDevice::initialize(const std::string &nrtd_address, const int num_cores_req) {
+Status NeuronDevice::initialize(const std::string &nrtd_address,
+                                const int num_cores_req, const int num_dup) {
     nrtd_address_ = nrtd_address;
     TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address_));
-    TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id_, &num_cores_, num_cores_req));
-    create_eg_done_ = true;
+    if (num_dup == 1) {
+        uint32_t eg_id = NRT_INVALID_EG_ID;
+        TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores_, num_cores_req));
+        vec_eg_id_.push_back(eg_id);
+    } else {
+        // setup device to duplicate models automatically
+        for (int idx = 0; idx < num_dup; ++idx) {
+            uint32_t eg_id = NRT_INVALID_EG_ID;
+            uint32_t num_cores = 0;
+            TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores, num_cores_req));
+            if (num_cores != 1) {
+                return errors::Internal("NeuronCore group size ", num_cores,
+                                        " is not allowed in model duplication mode");
+            }
+            vec_eg_id_.push_back(eg_id);
+            num_cores_ = num_cores_req;
+        }
+    }
     running_nn_id_ = NRT_INVALID_NN_ID;
     return Status::OK();
 }
 
 Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
                           const uint32_t timeout, const uint32_t ninfer) {
-    TF_RETURN_IF_ERROR(runtime_.load(nn_id, eg_id_, executable, timeout, ninfer));
+    uint32_t first_nn_id = NRT_INVALID_NN_ID;
+    std::vector<uint32_t> all_nn_ids;
+    if (vec_eg_id_.size() == 1) {
+        TF_RETURN_IF_ERROR(runtime_.load(&first_nn_id, vec_eg_id_[0], executable, timeout, ninfer));
+        all_nn_ids.push_back(first_nn_id);
+    } else if (vec_eg_id_.size() > 1) {
+        Status status;
+        for (const uint32_t eg_id : vec_eg_id_) {
+            uint32_t this_nn_id = NRT_INVALID_NN_ID;
+            status = runtime_.load(&this_nn_id, eg_id, executable, timeout, ninfer);
+            if (!status.ok()) {
+                LOG(WARNING) << "stop duplicating nn " << first_nn_id
+                             << " due to error " << status.error_message();
+                break;
+            }
+            if (all_nn_ids.size() == 0) {
+                TF_RETURN_IF_ERROR(status);
+                first_nn_id = this_nn_id;
+            } else {
+                VLOG(1) << "duplicated " << first_nn_id << " as " << this_nn_id;
+            }
+            all_nn_ids.push_back(this_nn_id);
+        }
+        if (all_nn_ids.size() == 0) {
+            return status;
+        }
+    } else {
+        return errors::Internal("NeuronDevice is uninitialized");
+    }
     tensorflow::mutex_lock lock(mutex_eg_);
-    nn_id_set_.insert(*nn_id);
+    if (nn_id_to_all_nn_ids_.count(first_nn_id)) {
+        for (const uint32_t nid : all_nn_ids) {
+            TF_LOG_IF_ERROR(runtime_.unload(nid));
+        }
+        return errors::Internal("nn ", first_nn_id, " is already mapped");
+    }
+    nn_id_to_all_nn_ids_[first_nn_id] = all_nn_ids;
+    nn_id_to_active_idx_[first_nn_id] = 0;
+    *nn_id = first_nn_id;
+    VLOG(1) << "successfully loaded " << first_nn_id;
     return Status::OK();
 }
 
@@ -386,26 +456,32 @@ void NeuronDevice::unload(const uint32_t nn_id) {
             nn_id_to_shm_mgr_[nn_id].clear();
         }
         nn_id_to_shm_mgr_.erase(nn_id);
-        if (!nn_id_set_.count(nn_id)) {
+        if (!nn_id_to_all_nn_ids_.count(nn_id)) {
             VLOG(1) << "model " << nn_id << " is not loaded";
             return;
         }
-        nn_id_set_.erase(nn_id);
         // stop
         if (running(nn_id)) {
-            TF_LOG_IF_ERROR(runtime_.stop(nn_id));
+            // stop all models
+            for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
+                TF_LOG_IF_ERROR(runtime_.stop(nid));
+            }
             set_running(NRT_INVALID_NN_ID);
         }
-    }
 
-    // unload
-    if (NRT_INVALID_NN_ID != nn_id) {
-        TF_LOG_IF_ERROR(runtime_.unload(nn_id));
+        // unload all models
+        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
+            TF_LOG_IF_ERROR(runtime_.unload(nid));
+        }
+        nn_id_to_all_nn_ids_.erase(nn_id);
     }
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
 Status NeuronDevice::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {
+    uint32_t active_nn_id = NRT_INVALID_NN_ID;
+    TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
+    runtime_io->set_nn_id(active_nn_id);
     return runtime_.setup_infer_post(runtime_io, post_tag);
 }
 
@@ -418,6 +494,9 @@ Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
 }
 
 Status NeuronDevice::setup_infer(RuntimeIO *runtime_io, int64_t post_tag) {
+    uint32_t active_nn_id = NRT_INVALID_NN_ID;
+    TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
+    runtime_io->set_nn_id(active_nn_id);
     return runtime_.setup_infer(runtime_io, post_tag);
 }
 
@@ -458,6 +537,9 @@ Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timest
                                        const uint32_t nn_id) {
     TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
+    uint32_t active_nn_id = NRT_INVALID_NN_ID;
+    TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
+    runtime_io->set_nn_id(active_nn_id);
     return runtime_.infer_post(runtime_io);
 }
 
@@ -485,24 +567,32 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
 
 void NeuronDevice::clear(bool from_global_state) {
     tensorflow::mutex_lock lock(mutex_eg_);
-    for (uint32_t nn_id : nn_id_set_) {
+    for (const auto &nn_id_pair : nn_id_to_all_nn_ids_) {
+        const uint32_t nn_id = nn_id_pair.first;
+        const std::vector<uint32_t> &all_nn_ids = nn_id_pair.second;
         if (running(nn_id)) {
-            TF_LOG_IF_ERROR(runtime_.stop(nn_id));
+            // stop all models
+            for (const uint32_t nid : all_nn_ids) {
+                TF_LOG_IF_ERROR(runtime_.stop(nid));
+            }
             set_running(NRT_INVALID_NN_ID);
         }
-        TF_LOG_IF_ERROR(runtime_.unload(nn_id, from_global_state));
+        // unload all models
+        for (const uint32_t nid : all_nn_ids) {
+            TF_LOG_IF_ERROR(runtime_.unload(nid, from_global_state));
+        }
         VLOG(1) << "unload from NeuronDevice::clear";
     }
     for (auto &item : nn_id_to_shm_mgr_) {
         item.second.clear();
     }
     nn_id_to_shm_mgr_.clear();
-    nn_id_set_.clear();
-    if (create_eg_done_) {
-        TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id_, from_global_state));
-        create_eg_done_ = false;
-        VLOG(1) << "destroy_eg from NeuronDevice::clear";
+    nn_id_to_all_nn_ids_.clear();
+    for (const uint32_t eg_id : vec_eg_id_) {
+        TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id, from_global_state));
     }
+    vec_eg_id_.clear();
+    VLOG(1) << "destroy_eg from NeuronDevice::clear";
 }
 
 Status NeuronDevice::start_ping(const uint32_t nn_id) {
@@ -510,17 +600,23 @@ Status NeuronDevice::start_ping(const uint32_t nn_id) {
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
-    if (!create_eg_done_) {
+    if (vec_eg_id_.size() == 0) {
         return errors::Internal("neuron_device is not initialized");
     }
     if (!running(nn_id) && is_busy()) {
         // if nn_id is not running, stop the current running model
-        TF_RETURN_IF_ERROR(runtime_.stop(nn_get_current_running()));
+        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_get_current_running()]) {
+            TF_RETURN_IF_ERROR(runtime_.stop(nid));
+            VLOG(1) << "stopped model " << nid;
+        }
         set_running(NRT_INVALID_NN_ID);
     }
     if (!is_busy()) {
         // if no model is running, start nn_id
-        TF_RETURN_IF_ERROR(runtime_.start(nn_id));
+        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
+            TF_RETURN_IF_ERROR(runtime_.start(nid));
+            VLOG(1) << "started model " << nid;
+        }
         set_running(nn_id);
     }
     return Status::OK();
@@ -540,6 +636,16 @@ uint32_t NeuronDevice::nn_get_current_running() {
 
 void NeuronDevice::set_running(uint32_t nn_id) {
     running_nn_id_ = nn_id;
+}
+
+Status NeuronDevice::get_active(uint32_t *active_nn_id, const uint32_t nn_id) {
+    if (!nn_id_to_all_nn_ids_.count(nn_id)) {
+        return errors::Internal("no active id can be found from nn id ", nn_id);
+    }
+    size_t idx = nn_id_to_active_idx_[nn_id];
+    nn_id_to_active_idx_[nn_id] = (idx + 1) % nn_id_to_all_nn_ids_[nn_id].size();
+    *active_nn_id = nn_id_to_all_nn_ids_[nn_id][idx];
+    return Status::OK();
 }
 
 
