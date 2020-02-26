@@ -42,6 +42,20 @@ inline Status nrt_error_status(const std::string &fn_name,
     );
 }
 
+template <class T_request, class T_response>
+class RuntimeSwitcher {
+public:
+    T_request request_;
+    T_response response_;
+    grpc::Status status_;
+    grpc::ClientContext context_;
+    grpc::CompletionQueue cq_;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<T_response> > rpc_ = nullptr;
+    int64_t post_tag_ = -1;
+};
+typedef RuntimeSwitcher<nrt::start_request, nrt::start_response> RuntimeStarter;
+typedef RuntimeSwitcher<nrt::stop_request, nrt::stop_response> RuntimeStopper;
+
 class RuntimeIO {
 public:
     Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
@@ -73,6 +87,8 @@ public:
     Status load(uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer);
     Status start(const uint32_t nn_id);
+    Status post_start(RuntimeStarter *starter, const uint32_t nn_id);
+    Status wait_start(RuntimeStarter *starter);
     Status start_ping(const uint32_t nn_id);
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
@@ -83,6 +99,8 @@ public:
     Status infer_post(RuntimeIO *runtime_io);
     Status infer_wait(RuntimeIO *runtime_io);
     Status stop(const uint32_t nn_id);
+    Status post_stop(RuntimeStopper *stopper, const uint32_t nn_id);
+    Status wait_stop(RuntimeStopper *stopper);
     Status unload(const uint32_t nn_id, bool from_global_state=false);
     Status destroy_eg(const uint32_t eg_id, bool from_global_state=false);
     Status shm_map(const std::string &path, const uint32_t mmap_prot);

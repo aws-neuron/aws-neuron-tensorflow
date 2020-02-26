@@ -194,6 +194,37 @@ Status RuntimeGRPC::start(const uint32_t nn_id) {
     return Status::OK();
 }
 
+static Status wait_grpc_cq(void **got_tag, bool *ok, grpc::CompletionQueue *cq, const int64_t post_tag) {
+    if (!cq->Next(got_tag, ok)) {
+        return errors::Internal("CompletionQueue::Next failed");
+    }
+    if (*got_tag != (void*)post_tag) {
+        return errors::Internal("CompletionQueue::Next did not return the correct tag");
+    }
+    if (!ok) {
+        return errors::Internal("CompletionQueue::Next did not return OK");
+    }
+    return Status::OK();
+}
+
+Status RuntimeGRPC::post_start(RuntimeStarter *starter, const uint32_t nn_id) {
+    starter->request_.mutable_h_nn()->set_id(nn_id);
+    starter->rpc_ = stub_->PrepareAsyncstart(
+        &starter->context_, starter->request_, &starter->cq_);
+    starter->post_tag_ = (int64_t)nn_id;
+    starter->rpc_->StartCall();
+    starter->rpc_->Finish(&starter->response_, &starter->status_, (void*)starter->post_tag_);
+    return Status::OK();
+}
+
+Status RuntimeGRPC::wait_start(RuntimeStarter *starter) {
+    void *got_tag;
+    bool ok = false;
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &starter->cq_, starter->post_tag_));
+    NRT_CHECK_RETURN("start", starter->status_, starter->response_);
+    return Status::OK();
+}
+
 Status RuntimeGRPC::start_ping(const uint32_t nn_id) {
     // this function is only used as a hack to re-establish channel in case of grpc 14
     // and so intentionally returns OK as long as grpc status is ok
@@ -238,15 +269,7 @@ Status RuntimeGRPC::wait_infer_post(RuntimeIO *runtime_io) {
     }
     void *got_tag;
     bool ok = false;
-    if (!runtime_io->cq_.Next(&got_tag, &ok)) {
-        return errors::Internal("CompletionQueue::Next failed");
-    }
-    if (got_tag != (void*)runtime_io->post_tag_) {
-        return errors::Internal("CompletionQueue::Next did not return the correct tag");
-    }
-    if (!ok) {
-        return errors::Internal("CompletionQueue::Next did not return OK");
-    }
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &runtime_io->cq_, runtime_io->post_tag_));
     NRT_CHECK_RETURN("infer_post", runtime_io->post_status_, runtime_io->post_response_);
     runtime_io->cookie = runtime_io->post_response_.cookie();
     return Status::OK();
@@ -288,15 +311,7 @@ Status RuntimeGRPC::post_infer(RuntimeIO *runtime_io) {
 Status RuntimeGRPC::wait_infer(RuntimeIO *runtime_io) {
     void *got_tag;
     bool ok = false;
-    if (!runtime_io->cq_.Next(&got_tag, &ok)) {
-        return errors::Internal("CompletionQueue::Next failed");
-    }
-    if (got_tag != (void*)runtime_io->post_tag_) {
-        return errors::Internal("CompletionQueue::Next did not return the correct tag");
-    }
-    if (!ok) {
-        return errors::Internal("CompletionQueue::Next did not return OK");
-    }
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &runtime_io->cq_, runtime_io->post_tag_));
     NRT_CHECK_RETURN("infer", runtime_io->post_status_, runtime_io->response_);
     return Status::OK();
 }
@@ -307,6 +322,24 @@ Status RuntimeGRPC::stop(const uint32_t nn_id) {
     nrt::stop_response response;
     grpc::Status status = NRT_GRPC(stub_->stop, request, &response);
     NRT_CHECK_RETURN("stop", status, response);
+    return Status::OK();
+}
+
+Status RuntimeGRPC::post_stop(RuntimeStopper *stopper, const uint32_t nn_id) {
+    stopper->request_.mutable_h_nn()->set_id(nn_id);
+    stopper->rpc_ = stub_->PrepareAsyncstop(
+        &stopper->context_, stopper->request_, &stopper->cq_);
+    stopper->post_tag_ = (int64_t)nn_id;
+    stopper->rpc_->StartCall();
+    stopper->rpc_->Finish(&stopper->response_, &stopper->status_, (void*)stopper->post_tag_);
+    return Status::OK();
+}
+
+Status RuntimeGRPC::wait_stop(RuntimeStopper *stopper) {
+    void *got_tag;
+    bool ok = false;
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &stopper->cq_, stopper->post_tag_));
+    NRT_CHECK_RETURN("stop", stopper->status_, stopper->response_);
     return Status::OK();
 }
 

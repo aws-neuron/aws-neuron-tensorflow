@@ -605,16 +605,28 @@ Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
     }
     if (!running(nn_id) && is_busy()) {
         // if nn_id is not running, stop the current running model
+        std::queue<RuntimeStopper> stopper_queue;
         for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_get_current_running()]) {
-            TF_RETURN_IF_ERROR(runtime_.stop(nid));
+            stopper_queue.emplace();
+            TF_RETURN_IF_ERROR(runtime_.post_stop(&stopper_queue.back(), nid));
+        }
+        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_get_current_running()]) {
+            TF_RETURN_IF_ERROR(runtime_.wait_stop(&stopper_queue.front()));
+            stopper_queue.pop();
             VLOG(1) << "stopped model " << nid;
         }
         set_running(NRT_INVALID_NN_ID);
     }
     if (!is_busy()) {
         // if no model is running, start nn_id
+        std::queue<RuntimeStarter> starter_queue;
         for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
-            TF_RETURN_IF_ERROR(runtime_.start(nid));
+            starter_queue.emplace();
+            TF_RETURN_IF_ERROR(runtime_.post_start(&starter_queue.back(), nid));
+        }
+        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
+            TF_RETURN_IF_ERROR(runtime_.wait_start(&starter_queue.front()));
+            starter_queue.pop();
             VLOG(1) << "started model " << nid;
         }
         set_running(nn_id);
