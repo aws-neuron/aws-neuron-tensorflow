@@ -95,11 +95,11 @@ Status SharedMemoryManager::initialize(const std::string &nrtd_address,
             &shm.nrt_output_paths_, output_tensor_sizes, nn_id));
         for (size_t idx = 0; idx < shm.input_paths_.size(); ++idx) {
             VLOG(1) << "input shared memory " << shm.input_paths_[idx]
-                    << " ready at address " << shm.input_ptrs_[idx];
+                    << " ready at address " << (void*)shm.input_ptrs_[idx];
         }
         for (size_t idx = 0; idx < shm.output_paths_.size(); ++idx) {
             VLOG(1) << "output shared memory " << shm.output_paths_[idx]
-                    << " ready at address " << shm.output_ptrs_[idx];
+                    << " ready at address " << (void*)shm.output_ptrs_[idx];
         }
         ++num_shms_;
     }
