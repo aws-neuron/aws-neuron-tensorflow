@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import sys
+import os
 import argparse
 import json
 import numpy
@@ -19,14 +20,17 @@ from tensorflow.python.saved_model import tag_constants
 from tensorflow.python.saved_model import signature_constants
 from tensorflow.python.lib.io import file_io
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
+from tensorflow.python.platform import gfile
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.protobuf import config_pb2
+from tensorflow.core.protobuf import saved_model_pb2
 from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.client import timeline
 from tensorflow.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.neuron.python.graph_util import logging_show_info
 from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
 from tensorflow.neuron.python.graph_util import register_neuron_op
+from tensorflow.neuron.python.graph_util import _NEURON_OP
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -230,6 +234,50 @@ def _get_signature_def(meta_graph, signature_def_key):
             signature_def_key = list(signature_def_map.keys())[0]
             logging.warning('Using non-default signature_def_key {}'.format(signature_def_key))
     return signature_def_key, signature_def_map[signature_def_key]
+
+
+@tf_export('neuron.saved_model.set_core_binding')
+def set_core_binding(model_dir, index_list):
+    saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
+    default_model_config = [-1, -1, -1, 10, -1]
+    for node, device_index in zip(neuron_node_list, index_list):
+        len_model_config = len(node.attr['model_config'].list.i)
+        if len_model_config < 5:
+            model_config = default_model_config.copy()
+            model_config[4] = device_index
+            node.attr['model_config'].list.i[len_model_config:] = model_config[len_model_config:]
+        else:
+            node.attr['model_config'].list.i[4] = device_index
+    with gfile.Open(os.path.join(model_dir, 'saved_model.pb'), 'wb') as f:
+        f.write(saved_model_pb.SerializeToString())
+
+
+@tf_export('neuron.saved_model.inspect_core_binding')
+def inspect_core_binding(model_dir):
+    saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
+    with logging_show_info():
+        for node in neuron_node_list:
+            if len(node.attr['model_config'].list.i) > 4:
+                device_index = node.attr['model_config'].list.i[4]
+            else:
+                device_index = -1
+            if device_index < 0:
+                logging.info('subgraph {} does not bind to a NeuronCore Group'.format(node.name))
+            else:
+                logging.info('subgraph {} binds to NeuronCore Group index {}'
+                             .format(node.name, device_index))
+
+
+def _saved_model_pb_neuron_nodes(model_dir):
+    saved_model_pb = saved_model_pb2.SavedModel()
+    with gfile.Open(os.path.join(model_dir, 'saved_model.pb'), 'rb') as f:
+        saved_model_pb.ParseFromString(f.read())
+    neuron_node_list = []
+    for meta_graph in saved_model_pb.meta_graphs:
+        for node in meta_graph.graph_def.node:
+            if node.op == _NEURON_OP:
+                neuron_node_list.append(node)
+    return saved_model_pb, neuron_node_list
 
 
 def convert_to_inference_model_cli(args):

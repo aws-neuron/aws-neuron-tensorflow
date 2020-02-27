@@ -504,5 +504,47 @@ class TestProfile(unittest.TestCase):
         tfn.saved_model.profile(export_dir)
 
 
+class TestCoreBinding(unittest.TestCase):
+
+    def test_set(self):
+        model_dir = self._gen_saved_model()
+        tfn.saved_model.set_core_binding(model_dir, [0, 0])
+        pred_neuron = tf.contrib.predictor.from_saved_model(model_dir)
+        _assert_compiler_success(pred_neuron.graph)
+        model_feed_dict = {
+            'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+            'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+        }
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            result_neuron = pred_neuron(model_feed_dict)
+
+    def test_inspect(self):
+        model_dir = self._gen_saved_model()
+        tfn.saved_model.inspect_core_binding(model_dir)
+
+    def _gen_saved_model(self):
+        export_dir = './simple_save_core_binding'
+        tags = [tf.saved_model.tag_constants.SERVING]
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
+            input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            add0 = tf.add(conv2d0, conv2d1, name='add0')
+            add0 = tf.identity_n([add0])[0]
+            relu0 = tf.nn.relu(add0, name='relu0')
+            sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+            conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            relu1 = tf.nn.relu(conv2d2, name='relu1')
+            inputs = {'x0': input0, 'x1': input1}
+            outputs = {'y0': relu0, 'y1': relu1}
+            shutil.rmtree(export_dir, ignore_errors=True)
+            tfn.saved_model.simple_save(sess, export_dir=export_dir, inputs=inputs, outputs=outputs)
+            return export_dir
+
+
 if __name__ == '__main__':
     unittest.main()

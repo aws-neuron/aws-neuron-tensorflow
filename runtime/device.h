@@ -119,7 +119,8 @@ public:
     NeuronDeviceManager &operator=(const NeuronDeviceManager &) = delete;
     NeuronDeviceManager(NeuronDeviceManager &&) = delete;
     NeuronDeviceManager &operator=(NeuronDeviceManager &&) = delete;
-    Status apply_for_device(NeuronDevice **device, int64_t opt_device_size);
+    Status apply_for_device(
+        NeuronDevice **device, int64_t opt_device_size, int64_t device_index=-1);
     void clear_if_empty();
     void clear();
     void clear_from_global_state();

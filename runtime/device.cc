@@ -360,7 +360,8 @@ void NeuronDeviceManager::clear_from_global_state() {
 
 
 Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
-                                             int64_t opt_device_size) {
+                                             int64_t opt_device_size,
+                                             int64_t device_index) {
     tensorflow::mutex_lock lock(global_mutex_);
     if (!ready_) {
         TF_RETURN_IF_ERROR(initialize(opt_device_size));
@@ -370,6 +371,10 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
 #endif // NEURONTFSERV
     }
 
+    if (0 <= device_index && device_index < (int64_t)num_devices_) {
+        *device = &device_array_[device_index];
+        return Status::OK();
+    }
     *device = &device_array_[device_index_];
     ++device_index_;
     if (device_index_ >= num_devices_) {

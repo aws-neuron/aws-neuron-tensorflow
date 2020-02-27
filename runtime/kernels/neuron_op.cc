@@ -103,10 +103,15 @@ public:
         ninfer_ = num_infer_is_negative ? max_num_infers_ : max_num_infers_ + 1;
     }
 
+    void parse_device_index(AttrList &model_config) {
+        device_index_ = model_config_device_index(model_config);
+    }
+
     int64_t opt_device_size_ = -1;
     uint32_t max_num_infers_ = 4;
     uint32_t timeout_ = 2;
     uint32_t ninfer_ = 5;
+    int64_t device_index_ = -1;
 private:
     bool model_config_valid(AttrList &model_config) {
         return model_config.i_size() >= 4;
@@ -122,6 +127,13 @@ private:
     }
     int64 model_config_timeout(AttrList &model_config) {
         return model_config.i(3);
+    }
+    int64 model_config_device_index(AttrList &model_config) {
+        if (model_config.i_size() >= 5) {
+            return model_config.i(4);
+        } else {
+            return -1;
+        }
     }
 
     static const int64 DEFAULT_MAX_NUM_INFER = 4;
@@ -156,9 +168,10 @@ Status NeuronOp::initialize() {
     AttrList &model_config_attr = def().attr().at("model_config").list();
     NeuronModelConfig model_config;
     model_config.parse_opt_device_size(model_config_attr);
+    model_config.parse_device_index(model_config_attr);
     TF_RETURN_IF_ERROR(
-        global_neuron_device_manager.apply_for_device(&neuron_device_,
-                                                      model_config.opt_device_size_)
+        global_neuron_device_manager.apply_for_device(
+            &neuron_device_, model_config.opt_device_size_, model_config.device_index_)
     );
     model_config.parse_timeout(model_config_attr);
     model_config.parse_ninfer(model_config_attr, neuron_device_);
