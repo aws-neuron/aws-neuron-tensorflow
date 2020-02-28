@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import argparse
 import time
 import tempfile
 import json
@@ -13,6 +14,7 @@ import struct
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
+import shlex
 import copy
 import collections
 from distutils import spawn
@@ -101,6 +103,23 @@ def inference_graph_from_session(
         `input_tensors`, `shape_feed_dict`, and `feed_dict` can all set input tensors, and so
         the latter one will always override the former one.
     """
+    if 'NEURON_CC_FLAGS' in os.environ:
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--must-compile', action='store_true')
+        parser.add_argument('--dump-prefix', default=None)
+        tf_neuron_args, neuron_cc_args = parser.parse_known_args(shlex.split(os.environ['NEURON_CC_FLAGS']))
+        if tf_neuron_args.must_compile:
+            compiler_recovery = False
+            compiler_verbose = 1
+            logging.warning('Enabling must-compile according to NEURON_CC_FLAGS environment variable; '
+                            'neuron-cc failures will be thrown as exceptions')
+        if tf_neuron_args.dump_prefix is not None:
+            compiler_workdir = tf_neuron_args.dump_prefix
+        if neuron_cc_args:
+            if compiler_args is None:
+                compiler_args = neuron_cc_args
+            else:
+                compiler_args.extend(neuron_cc_args)
     if sess is None:
         sess = ops.get_default_session()
     # determine input tensor names and normalize feed_dict/shape_feed_dict keys to tensor names
@@ -316,6 +335,14 @@ def inference_graph_from_session(
     for node in compiled_graph_def.node:
         node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
 
+    # raise exception if NeuronOp is still uncompiled after fallback pass
+    uncompiled_node_names = []
+    for node in _gd_neuron_nodes(compiled_graph_def):
+        if not node.attr['executable'].s:
+            uncompiled_node_names.append(node.name)
+    if uncompiled_node_names:
+        raise ValueError('The following subgraphs failed to compile: {}'.format(uncompiled_node_names))
+
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
     if not dynamic_batch_size:
@@ -392,7 +419,7 @@ def compiled_graph_op_counts(compiled_graph):
     neuron_ops = [op for op in _neuron_ops(compiled_graph)]
     num_ops_on_neuron = sum(
         len(_get_subgraph(op.node_def).get_operations()) - len(op.get_attr('input_names'))
-        for op in neuron_ops
+        for op in neuron_ops if op.get_attr('executable')
     )
     num_ops_tfn = len(compiled_graph.get_operations()) + num_ops_on_neuron - len(neuron_ops)
     return num_ops_tfn, num_ops_on_neuron
@@ -922,7 +949,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             command.extend(extend_args)
         if verbose is not None:
             command.extend(['--verbose', str(verbose)])
-        debug_logging = workdir is not None
+        debug_logging = workdir is not None or verbose is not None
         subgraph_compilers[node.name] = Compiler(command, debug_logging, workdir_path)
     if max_num_compilers is None:
         num_cpu = multiprocessing.cpu_count()
@@ -1027,15 +1054,21 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
         logging.warning("Failed to fuse subgraph {} with '{}'".format(node_name, command))
         if debug_logging:
             logging.warning("neuron-cc error message:")
+            full_neuron_cc_log = []
             neuron_cc_error_message = []
             found_error = False
             with open(logfile, 'r') as f:
                 for line in f:
+                    if len(full_neuron_cc_log) < 20:
+                        full_neuron_cc_log.append(line)
                     if '[neuron-cc]: *************************************************' in line:
                         found_error = True
                     if found_error and 'Artifacts stored' not in line:
                         neuron_cc_error_message.append(line)
-            logging.warning(''.join(neuron_cc_error_message))
+            if len(full_neuron_cc_log) < 20:
+                logging.warning(''.join(full_neuron_cc_log))
+            else:
+                logging.warning(''.join(neuron_cc_error_message))
         return None
     return True
 

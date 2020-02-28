@@ -876,6 +876,66 @@ class TestMiscUtils(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron0, result_ref0):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
+    def test_neuron_cc_flags_env_must_compile(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            fetch_list, feed_dict = self._gen_graph()
+            result_ref0 = sess.run(fetch_list, feed_dict)
+            with self._set_neuron_cc_flags('--must-compile --dump-prefix ./workdir --fp32-cast matmult'):
+                try:
+                    infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+                        sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                except ValueError as e:
+                    assert e.args[0].startswith('The following subgraphs failed')
+            with self._set_neuron_cc_flags('--i-am-not-recognized --must-compile'):
+                try:
+                    infer_graph1 = tf.neuron.graph_util.inference_graph_from_session(
+                        sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                    assert False, 'This test needs to crash compiler with unknown argument'
+                except ValueError as e:
+                    assert e.args[0].startswith('The following subgraphs failed')
+
+    def test_neuron_cc_flags_env_recoverty(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            fetch_list, feed_dict = self._gen_graph()
+            result_ref0 = sess.run(fetch_list, feed_dict)
+            with self._set_neuron_cc_flags('--dump-prefix ./workdir --fp32-cast matmult'):
+                infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+                    sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            _assert_compiler_success(infer_graph0)
+
+    def _gen_graph(self):
+        input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
+        input1 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input1')
+        conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+        conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        add0 = tf.add(conv2d0, conv2d1, name='add0')
+        relu0 = tf.nn.relu(add0, name='relu0')
+        sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+        conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                               strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+        relu1 = tf.nn.relu(conv2d2, name='relu1')
+        feed_dict = {
+            'input0:0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+            'input1:0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+        }
+        return ['relu0:0', 'relu1:0'], feed_dict
+
+    @contextmanager
+    def _set_neuron_cc_flags(self, env_var):
+        env_set = False
+        if 'NEURON_CC_FLAGS' not in os.environ:
+            os.environ['NEURON_CC_FLAGS'] = env_var
+            env_set = True
+        try:
+            yield
+        finally:
+            if env_set:
+                os.environ.pop('NEURON_CC_FLAGS')
+
 
 class TestStress(unittest.TestCase):
 
