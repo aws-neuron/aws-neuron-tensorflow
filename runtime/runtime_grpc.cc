@@ -13,7 +13,8 @@ namespace neuron {
 Status RuntimeIO::setup(
         AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
         AttrList &output_names, const std::vector<Tensor*> &output_tensors,
-        const uint32_t nn_id, SharedMemory *shm) {
+        const uint32_t nn_id, thread::ThreadPool *thread_pool, SharedMemory *shm) {
+    thread_pool_ = thread_pool;
     shm_ = shm;
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
         nrt::infer_io *infer_io = request_.add_ifmap();
@@ -21,7 +22,7 @@ Status RuntimeIO::setup(
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (nullptr != shm_) {
             infer_io->mutable_buf_shm()->set_path(shm_->input_paths_[idx]);
-            std::copy_n(tensor_data.data(), tensor_data.size(), shm_->input_ptrs_[idx]);
+            fast_memcpy(thread_pool_, shm_->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
         } else {
             infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
@@ -61,9 +62,9 @@ Status RuntimeIO::finish() {
         for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
             StringPiece out_tensor_raw = raw_output_tensors[idx];
             Tensor *out_tensor = output_tensors_[idx];
-            TF_RETURN_WITH_CONTEXT_IF_ERROR(tensor_memcpy(out_tensor, out_tensor_raw),
-                                            "tensor_memcpy failure on tensor name: ",
-                                            output_names_->s(idx));
+            TF_RETURN_WITH_CONTEXT_IF_ERROR(
+                tensor_memcpy(thread_pool_, out_tensor, out_tensor_raw),
+                "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
         }
         return Status::OK();
     }
@@ -76,7 +77,7 @@ Status RuntimeIO::finish() {
             out_tensor_raw = raw_output_tensors[idx];
         }
         TF_RETURN_WITH_CONTEXT_IF_ERROR(
-            tensor_memcpy(output_tensors_[idx], out_tensor_raw),
+            tensor_memcpy(thread_pool_, output_tensors_[idx], out_tensor_raw),
             "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
     }
     return Status::OK();

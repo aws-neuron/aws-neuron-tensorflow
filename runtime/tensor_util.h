@@ -5,13 +5,15 @@
 
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/lib/core/threadpool.h"
 
 namespace tensorflow {
 namespace neuron {
 
 typedef const AttrValue_ListValue AttrList;
 
-Status tensor_memcpy(Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
+void fast_memcpy(thread::ThreadPool *thread_pool, char *char_dst, const char *char_src, int64 total_size);
+Status tensor_memcpy(thread::ThreadPool *thread_pool, Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
 Status tensor_memset(Tensor *tensor, int ch);
 
 }  // namespace neuron

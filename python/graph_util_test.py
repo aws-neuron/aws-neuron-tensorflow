@@ -1042,6 +1042,60 @@ class TestStress(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
+class TestLargeIO(unittest.TestCase):
+
+    def test_large_io_even(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [4096, 4096], name='input0')
+            relu0 = tf.nn.relu(input0, name='relu0')
+            feed_dict = {input0.name: np.random.uniform(0, 1, size=input0.shape.as_list()).astype(np.float32)}
+            result_ref = sess.run('relu0:0', feed_dict)
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+        _assert_compiler_success(infer_graph)
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+                np.testing.assert_allclose(result_neuron, result_ref)
+            with tf.Session(graph=infer_graph, config=tf.ConfigProto(intra_op_parallelism_threads=1)) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+                np.testing.assert_allclose(result_neuron, result_ref)
+
+    def test_large_io_odd(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [4095, 4095], name='input0')
+            relu0 = tf.nn.relu(input0, name='relu0')
+            feed_dict = {input0.name: np.random.uniform(0, 1, size=input0.shape.as_list()).astype(np.float32)}
+            result_ref = sess.run('relu0:0', feed_dict)
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+        _assert_compiler_success(infer_graph)
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+                np.testing.assert_allclose(result_neuron, result_ref)
+            with tf.Session(graph=infer_graph, config=tf.ConfigProto(intra_op_parallelism_threads=1)) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+                np.testing.assert_allclose(result_neuron, result_ref)
+
+    def test_large_io_mid(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [231, 43], name='input0')
+            relu0 = tf.nn.relu(input0, name='relu0')
+            feed_dict = {input0.name: np.random.uniform(0, 1, size=input0.shape.as_list()).astype(np.float32)}
+            result_ref = sess.run('relu0:0', feed_dict)
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+        _assert_compiler_success(infer_graph)
+        if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
+                np.testing.assert_allclose(result_neuron, result_ref)
+
+
 class TestShapeInference(unittest.TestCase):
 
     def test_with_inputs_while_loop(self):

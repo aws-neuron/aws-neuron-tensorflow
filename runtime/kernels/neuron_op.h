@@ -15,6 +15,7 @@
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
+#include "tensorflow/core/lib/core/threadpool.h"
 #include "tensorflow/neuron/runtime/device.h"
 
 
@@ -27,7 +28,8 @@ public:
     ScopedRuntimeIO() {}
     Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
                  AttrList &output_names, const std::vector<Tensor*> &output_tensors,
-                 const uint32_t nn_id, SharedMemoryManager *shm_mgr) {
+                 const uint32_t nn_id, thread::ThreadPool *thread_pool,
+                 SharedMemoryManager *shm_mgr) {
         shm_mgr_ = shm_mgr;
         if (nullptr != shm_mgr_) {
             shm_ = shm_mgr_->apply_for_shm();
@@ -35,7 +37,7 @@ public:
             shm_ = nullptr;
         }
         return runtime_io_.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id, shm_);
+            input_names, input_tensors, output_names, output_tensors, nn_id, thread_pool, shm_);
     }
     Status finish() {
         return runtime_io_.finish();
