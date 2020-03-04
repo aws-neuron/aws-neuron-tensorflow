@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import signal
 import argparse
 import time
 import tempfile
@@ -1077,7 +1078,8 @@ def _wait_compiler(proc, timeout):
     try:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
-        proc.terminate()
+        proc.send_signal(signal.SIGINT)
+        proc.communicate()
         return None
     return proc.returncode
 
