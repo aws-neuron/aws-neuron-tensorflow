@@ -32,17 +32,19 @@ static Status NeuronOpShape(shape_inference::InferenceContext *ctx) {
         VLOG(1) << "Found invalid NodeDef; skipping shape inference";
         return Status::OK();
     }
+    std::vector<int> output_batch_axis;
+    TF_RETURN_IF_ERROR(ctx->GetAttr("output_batch_axis", &output_batch_axis));
     for (int idx = 0; idx < ctx->num_outputs(); ++idx) {
         TensorShapeProto shape_proto;
         output_shapes[idx].AsProto(&shape_proto);
         if (dynamic_batch_size) {
-            if (idx >= input_batch_axis.size()) {
-                VLOG(1) << "input_batch_axis[" << idx << "] is an out-of-bound"
+            if (idx >= output_batch_axis.size()) {
+                VLOG(1) << "output_batch_axis[" << idx << "] is an out-of-bound"
                         << " access; falling back to fixed shape";
             } else {
-                int axis = input_batch_axis[idx];
+                int axis = output_batch_axis[idx];
                 if (axis < 0 || axis >= shape_proto.dim_size()) {
-                    VLOG(1) << "input_batch_axis[" << idx << "] = " << axis
+                    VLOG(1) << "output_batch_axis[" << idx << "] = " << axis
                             << " goes out-of-bound for tensor " << idx
                             << "'s shape; falling back to fixed shape";
                 } else {
