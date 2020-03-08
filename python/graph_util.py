@@ -1084,12 +1084,17 @@ def _wait_compiler(proc, timeout):
     return proc.returncode
 
 
+_NC_HEADER_SIZE = 544
 def _neff_get_cores(neff_filename):
-    nc_header_size = 544
     with open(neff_filename, mode='rb') as f:
-        header = f.read(nc_header_size)
-    if len(header) != nc_header_size:
+        header = f.read(_NC_HEADER_SIZE)
+    if len(header) != _NC_HEADER_SIZE:
         return None
+    return _neff_get_cores_from_executable(header)
+
+
+def _neff_get_cores_from_executable(executable):
+    header = executable[:_NC_HEADER_SIZE]
     info = struct.unpack('168xI304xI64B', header)
     if len(info) != 66:  # 1 + 1 + 64
         return None

@@ -18,7 +18,8 @@ from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops, variables
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.python.graph_util import (
-    normalize_operators, most_popular_namescope, logging_show_info, register_neuron_op)
+    normalize_operators, most_popular_namescope, logging_show_info, register_neuron_op,
+    _neff_get_cores_from_executable)
 
 
 _neuron_cc_input_name = 'graph_def.pb'
@@ -27,23 +28,23 @@ _neuron_executable_name = 'graph_def.neff'
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.fuse')
-def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None,
+def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout=None,
          verbose=0, workdir=None, input_shapes=None, output_shapes=None,
-         dynamic_batch_size=False, executable=None):
+         batch_size=None, dynamic_batch_size=False, executable=b''):
     if func is None:
-        return partial(fuse, compiler_args=compiler_args, name=name, greedy=greedy,
-                       timeout=timeout, verbose=verbose, workdir=workdir,
-                       input_shapes=input_shapes, output_shapes=output_shapes,
-                       dynamic_batch_size=dynamic_batch_size, executable=executable)
+        return partial(
+            fuse, compiler_args=compiler_args, name=name, asynchronous=asynchronous, timeout=timeout,
+            verbose=verbose, workdir=workdir, input_shapes=input_shapes, output_shapes=output_shapes,
+            batch_size=batch_size, dynamic_batch_size=dynamic_batch_size, executable=executable)
     @wraps(func)
     def wrapper(*args, **kwargs):
         neuron_op = register_neuron_op()
         eager = executing_eagerly()
         if eager:
-            is_greedy = True
+            is_asynchronous = False
             ops.disable_eager_execution()
         else:
-            is_greedy = greedy
+            is_asynchronous = asynchronous
         inputs_mgr = TensorManager()
         inputs_mgr.track((args, kwargs))
         with session.Session(graph=ops.Graph()) as sess:
@@ -68,15 +69,25 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
         if output_shapes is not None:
             for ts, shape in zip(outputs, output_shapes):
                 ts.set_shape(shape)
+        if batch_size is not None:
+            for ts in placeholders:
+                shape = ts.shape.as_list()
+                shape[0] = batch_size
+                ts.set_shape(shape)
+            for ts in outputs:
+                shape = ts.shape.as_list()
+                shape[0] = batch_size
+                ts.set_shape(shape)
         graph_def = normalize_operators(sess.graph.as_graph_def()).SerializeToString()
         io_config = _io_config(placeholders, outputs)
-        if executable is None:
+        executable_content = executable
+        if not executable_content:
             compiler, tempdir = neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose)
             if not op_name:
                 op_name = None
-            executable_content = _get_executable(compiler, timeout, op_name) if is_greedy else ''
-        else:
-            executable_content = executable
+            if not is_asynchronous:
+                executable_content = _get_executable(compiler, timeout, op_name)
+        model_config = _get_model_config(executable_content)
         if eager:
             try:
                 ops.enable_eager_execution()
@@ -94,8 +105,9 @@ def fuse(func=None, *, compiler_args=None, name=None, greedy=False, timeout=None
                 output_shapes=[ts.shape for ts in outputs],
                 output_batch_axis=[batch_axis for ts in outputs],
                 executable=executable_content,
+                model_config=model_config,
             )
-        if not is_greedy and executable is None:
+        if is_asynchronous and not executable_content:
             iop = output_tensors[0].op
             iop.neuron_workspace = tempdir  # keep tempdir object alive
             iop.neuron_wait = partial(neuron_wait, op=iop, compiler=compiler, timeout=timeout)
@@ -121,19 +133,17 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose):
                '--io-config', io_config]
     if compiler_args is not None:
         command.extend(compiler_args)
-    if workdir is None:
-        if verbose:
-            popen_kwargs = {}
-        else:
-            popen_kwargs = dict(stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        logfd = None
+    logfd = None
+    popen_kwargs = {}
+    if verbose:
+        with logging_show_info():
+            logging.info('Calling neuron-cc with: {}'.format(' '.join(command)))
     else:
         logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
         logfd = open(logfile_path, 'w')
         popen_kwargs = dict(stdout=logfd, stderr=logfd)
-        if verbose:
-            with logging_show_info():
-                logging.info('Writing compiler logs to {}'.format(logfile_path))
+        with logging_show_info():
+            logging.info('Writing neuron-cc logs to {}'.format(logfile_path))
     proc = subprocess.Popen(command, cwd=tempdir.name, **popen_kwargs)
     Compiler = collections.namedtuple('Compiler', 'proc logfd workdir command')
     return Compiler(proc, logfd, tempdir.name, subprocess.list2cmdline(command)), tempdir
@@ -141,7 +151,10 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose):
 
 def neuron_wait(op, compiler, timeout):
     executable = _get_executable(compiler, timeout, op.name)
+    model_config = _get_model_config(executable)
     op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
+    model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
+    op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))
     op.neuron_wait = None
     op.neuron_workspace = None
 
@@ -154,6 +167,16 @@ def _get_executable(compiler, timeout, op_name):
         raise subprocess.SubprocessError(
             'Failed to compile op {} with command "{}"'.format(op_name, compiler.command))
     return open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb').read()
+
+
+def _get_model_config(executable):
+    if not executable:
+        return []
+    opt_num_cores, min_num_cores = _neff_get_cores_from_executable(executable)
+    est_infer_timeout = len(executable) / 1e8
+    infer_timeout = max(est_infer_timeout, 10)
+    model_config = [-1, opt_num_cores, opt_num_cores, infer_timeout]
+    return model_config
 
 
 def neuron_wait_all(sess):
