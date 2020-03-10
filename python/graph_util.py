@@ -423,7 +423,7 @@ def compiled_graph_op_counts(compiled_graph):
         for op in neuron_ops if op.get_attr('executable')
     )
     num_ops_tfn = len(compiled_graph.get_operations()) + num_ops_on_neuron - len(neuron_ops)
-    return num_ops_tfn, num_ops_on_neuron
+    return max(num_ops_tfn, 0), max(num_ops_on_neuron, 0)
 
 
 def _graph_def_to_graph(graph_def):
