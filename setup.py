@@ -18,10 +18,10 @@ setuptools.setup(
     version='_VERSION',
     description='TensorFlow Neuron integration',
     author='AWS Neuron SDK',
-    author_email='lhaiche@amazon.com',
+    author_email='aws-neuron-support@amazon.com',
     license='Apache 2.0',
     classifiers=[
-        'Development Status :: 1 - Planning',
+        'Development Status :: 4 - Beta',
         'Intended Audience :: Developers',
         'Intended Audience :: Education',
         'Intended Audience :: Science/Research',
@@ -37,7 +37,7 @@ setuptools.setup(
         'Topic :: Software Development :: Libraries',
         'Topic :: Software Development :: Libraries :: Python Modules',
     ],
-    keywords='tensorflow neuron',
+    keywords='tensorflow aws neuron',
     include_package_data=True,
     packages=setuptools.PEP420PackageFinder.find(),
     package_data={
@@ -45,6 +45,6 @@ setuptools.setup(
     },
     cmdclass={'bdist_wheel': bdist_wheel},
     install_requires=[
-        'tensorflow==1.15.0',
+        'tensorflow >= 1.15.0, < 1.16.0',
     ],
 )
