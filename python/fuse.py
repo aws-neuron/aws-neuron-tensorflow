@@ -82,7 +82,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         io_config = _io_config(placeholders, outputs)
         executable_content = executable
         if not executable_content:
-            compiler, tempdir = neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose)
+            compiler, tempdir = neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_name)
             if not op_name:
                 op_name = None
             if not is_asynchronous:
@@ -118,7 +118,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
     return wrapper
 
 
-def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose):
+def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_name):
     if workdir is None:
         tempdir = tempfile.TemporaryDirectory()
     else:
@@ -137,13 +137,16 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose):
     popen_kwargs = {}
     if verbose:
         with logging_show_info():
-            logging.info('Calling neuron-cc with: {}'.format(' '.join(command)))
+            logging.info('calling neuron-cc with: {}'.format(' '.join(command)))
     else:
         logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
         logfd = open(logfile_path, 'w')
         popen_kwargs = dict(stdout=logfd, stderr=logfd)
+        info_string = 'fusing subgraph {} with neuron-cc'.format(op_name)
+        if workdir is not None:
+            info_string = '{}; log file is at {}'.format(info_string, logfile_path)
         with logging_show_info():
-            logging.info('Writing neuron-cc logs to {}'.format(logfile_path))
+            logging.info(info_string)
     proc = subprocess.Popen(command, cwd=tempdir.name, **popen_kwargs)
     Compiler = collections.namedtuple('Compiler', 'proc logfd workdir command')
     return Compiler(proc, logfd, tempdir.name, subprocess.list2cmdline(command)), tempdir
