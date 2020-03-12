@@ -142,7 +142,7 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_na
         logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
         logfd = open(logfile_path, 'w')
         popen_kwargs = dict(stdout=logfd, stderr=logfd)
-        info_string = 'fusing subgraph {} with neuron-cc'.format(op_name)
+        info_string = 'fusing subgraph "{}" with neuron-cc'.format(op_name)
         if workdir is not None:
             info_string = '{}; log file is at {}'.format(info_string, logfile_path)
         with logging_show_info():

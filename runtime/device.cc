@@ -564,8 +564,13 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
     }
     tensorflow::mutex_lock lock(mutex_eg_);
     nn_id_to_shm_mgr_.emplace(std::piecewise_construct, std::forward_as_tuple(nn_id), std::forward_as_tuple());
-    TF_RETURN_IF_ERROR(nn_id_to_shm_mgr_[nn_id].initialize(
-        nrtd_address_, nn_id, max_num_infers, input_tensor_sizes, output_tensor_sizes));
+    Status status = nn_id_to_shm_mgr_[nn_id].initialize(
+        nrtd_address_, nn_id, max_num_infers, input_tensor_sizes, output_tensor_sizes);
+    if (!status.ok()) {
+        nn_id_to_shm_mgr_[nn_id].clear();
+        nn_id_to_shm_mgr_.erase(nn_id);
+        return status;
+    }
     *shm_mgr = &nn_id_to_shm_mgr_[nn_id];
     return Status::OK();
 }
