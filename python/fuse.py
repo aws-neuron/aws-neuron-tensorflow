@@ -7,7 +7,6 @@ import tempfile
 import collections
 import subprocess
 from functools import wraps, partial
-from distutils import spawn
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
@@ -19,7 +18,7 @@ from tensorflow.python.ops import array_ops, variables
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.python.graph_util import (
     normalize_operators, most_popular_namescope, logging_show_info, register_neuron_op,
-    _neff_get_cores_from_executable)
+    _neff_get_cores_from_executable, find_neuron_cc)
 
 
 _neuron_cc_input_name = 'graph_def.pb'
@@ -127,7 +126,7 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_na
         tempdir = TempDir(tempfile.mkdtemp(prefix=prefix))
     with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
         f.write(graph_def)
-    neuron_cc = spawn.find_executable('neuron-cc')
+    neuron_cc = find_neuron_cc()
     command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
                '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
                '--io-config', io_config]

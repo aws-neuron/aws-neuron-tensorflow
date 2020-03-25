@@ -5,6 +5,7 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import sys
 import os
 import signal
 import argparse
@@ -18,6 +19,7 @@ import subprocess
 import shlex
 import copy
 import collections
+import pkg_resources
 from distutils import spawn
 from contextlib import contextmanager
 import reprlib
@@ -358,7 +360,7 @@ def inference_graph_from_session(
         logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
         logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
         logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
-    if spawn.find_executable('neuron-cc') is None:
+    if find_neuron_cc() is None:
         logging.warning('***************************************************************')
         logging.warning('')
         logging.warning('  neuron-cc is not found.')
@@ -369,6 +371,11 @@ def inference_graph_from_session(
         logging.warning('')
         logging.warning('***************************************************************')
     return compiled_graph
+
+
+def find_neuron_cc():
+    path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
+    return spawn.find_executable('neuron-cc', path)
 
 
 def register_neuron_op():
@@ -742,7 +749,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     if output_tensors is None:
         output_tensors = {ts for op in _output_ops(graph) for ts in op.outputs}
     if op_whitelist is None:
-        neuron_cc = spawn.find_executable('neuron-cc')
+        neuron_cc = find_neuron_cc()
         if neuron_cc is None:
             return graph_def
         else:
@@ -915,7 +922,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     Compiler = collections.namedtuple('Compiler', 'command debug_logging workdir_path')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
-    neuron_cc = spawn.find_executable('neuron-cc')
+    neuron_cc = find_neuron_cc()
     if neuron_cc is None:
         return graph_def
     for node in _gd_neuron_nodes(graph_def):
