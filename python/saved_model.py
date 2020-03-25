@@ -29,7 +29,6 @@ from tensorflow.python.client import timeline
 from tensorflow.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.neuron.python.graph_util import logging_show_info
 from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
-from tensorflow.neuron.python.graph_util import register_neuron_op
 from tensorflow.neuron.python.graph_util import _NEURON_OP
 
 
@@ -47,7 +46,6 @@ def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch
         batch_size: (Optional) Batch size used in inference.
     Note: This function sends all unknown arguments to `tf.neuron.graph_util.inference_graph_from_session`.
     """
-    register_neuron_op()
     _check_export_dir(export_dir)
     # if `feed_dict` is not given, try to guess a `shape_feed_dict` from `batch_size`
     if 'shape_feed_dict' not in kwargs and 'feed_dict' not in kwargs:
@@ -131,7 +129,6 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
 
     Note: This function sends all unknown arguments to `tf.neuron.graph_util.inference_graph_from_session`.
     """
-    register_neuron_op()
     _check_export_dir(new_model_dir)
     kwargs = kwargs.copy()
     tags = _normalize_tags(tags, model_dir)

@@ -16,8 +16,9 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops
 from tensorflow.python.ops import array_ops, variables
 from tensorflow.python.eager.context import executing_eagerly
+from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_util import (
-    normalize_operators, most_popular_namescope, logging_show_info, register_neuron_op,
+    normalize_operators, most_popular_namescope, logging_show_info,
     _neff_get_cores_from_executable, find_neuron_cc)
 
 
@@ -37,7 +38,6 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             batch_size=batch_size, dynamic_batch_size=dynamic_batch_size, executable=executable)
     @wraps(func)
     def wrapper(*args, **kwargs):
-        neuron_op = register_neuron_op()
         eager = executing_eagerly()
         if eager:
             is_asynchronous = False
