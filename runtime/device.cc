@@ -116,7 +116,7 @@ Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
     for (size_t size : tensor_sizes) {
         std::string name = gen_shm_name(nn_id);
         if (name.empty()) {
-            return errors::Internal("cannot generate unique file name for shared memory");
+            return errors::ResourceExhausted("cannot generate unique file name for shared memory");
         }
         ShmFile shm_file(name);
         SYS_FAIL_RETURN(shm_file.shm_fd_ < 0, "shm_open");
@@ -271,7 +271,7 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
 
 Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_vector,
                                          const std::vector<int> &num_dup_vector) {
-    Status status = errors::Internal("No NeuronCore Group can be initialized.");
+    Status status = errors::ResourceExhausted("No NeuronCore Group can be initialized.");
     for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
         int num_cores_req = num_cores_req_vector[idx];
         int num_dup;
@@ -282,8 +282,10 @@ Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_v
         }
         status = device_array_[idx].initialize(nrtd_address_, num_cores_req, num_dup);
         if (!status.ok()) {
-            LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
-                         << " cores; stopping initialization.";
+            if (status.code() != tensorflow::error::Code::ABORTED) {
+                LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
+                             << " cores; stopping initialization.";
+            }
             break;
         }
         ++num_devices_;
@@ -311,7 +313,7 @@ Status NeuronDeviceManager::init_default_device(int64_t opt_device_size) {
             TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
         } else {
             // search for the largest possible ncg ... sorry
-            Status status = errors::Internal("No NeuronCore Group can be initialized.");
+            Status status = errors::ResourceExhausted("No NeuronCore Group can be initialized.");
             for (int num_cores = opt_device_size; num_cores >= MIN_NUM_CORES; --num_cores) {
                 status = device_array_[0].initialize(nrtd_address_, num_cores);
                 if (status.ok()) {
@@ -386,6 +388,10 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
 
 Status NeuronDevice::initialize(const std::string &nrtd_address,
                                 const int num_cores_req, const int num_dup) {
+    tensorflow::mutex_lock lock(mutex_eg_);
+    if (closed_) {
+        return errors::Aborted("neuron_device is closed");
+    }
     nrtd_address_ = nrtd_address;
     TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address_));
     if (num_dup == 1) {
@@ -399,8 +405,8 @@ Status NeuronDevice::initialize(const std::string &nrtd_address,
             uint32_t num_cores = 0;
             TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores, num_cores_req));
             if (num_cores != 1) {
-                return errors::Internal("NeuronCore group size ", num_cores,
-                                        " is not allowed in model duplication mode");
+                return errors::InvalidArgument(
+                    "NeuronCore group size ", num_cores, " is not allowed in model duplication mode");
             }
             vec_eg_id_.push_back(eg_id);
             num_cores_ = num_cores_req;
@@ -412,6 +418,10 @@ Status NeuronDevice::initialize(const std::string &nrtd_address,
 
 Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
                           const uint32_t timeout, const uint32_t ninfer) {
+    tensorflow::mutex_lock lock(mutex_eg_);
+    if (closed_) {
+        return errors::Aborted("neuron_device is closed");
+    }
     uint32_t first_nn_id = NRT_INVALID_NN_ID;
     std::vector<uint32_t> all_nn_ids;
     if (vec_eg_id_.size() == 1) {
@@ -439,17 +449,13 @@ Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
             return status;
         }
     } else {
-        return errors::Internal("NeuronDevice is uninitialized");
-    }
-    tensorflow::mutex_lock lock(mutex_eg_);
-    if (!vec_eg_id_.size()) {
-        return errors::Internal("NeuronDevice is uninitialized");
+        return errors::Unavailable("NeuronDevice is uninitialized");
     }
     if (nn_id_to_all_nn_ids_.count(first_nn_id)) {
         for (const uint32_t nid : all_nn_ids) {
             TF_LOG_IF_ERROR(runtime_.unload(nid));
         }
-        return errors::Internal("nn ", first_nn_id, " is already mapped");
+        return errors::AlreadyExists("nn ", first_nn_id, " is already mapped");
     }
     nn_id_to_all_nn_ids_[first_nn_id] = all_nn_ids;
     nn_id_to_active_idx_[first_nn_id] = 0;
@@ -568,7 +574,7 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
     }
     tensorflow::mutex_lock lock(mutex_eg_);
     if (closed_) {
-        return errors::Internal("neuron_device is not initialized");
+        return errors::Aborted("neuron_device is closed");
     }
     nn_id_to_shm_mgr_.emplace(std::piecewise_construct, std::forward_as_tuple(nn_id), std::forward_as_tuple());
     Status status = nn_id_to_shm_mgr_[nn_id].initialize(
@@ -584,6 +590,9 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
 
 void NeuronDevice::clear(bool from_global_state) {
     tensorflow::mutex_lock lock(mutex_eg_);
+    if (closed_) {
+        return;
+    }
     if (from_global_state) {
         closed_ = true;
     }
@@ -619,14 +628,14 @@ void NeuronDevice::clear(bool from_global_state) {
 
 Status NeuronDevice::start_ping(const uint32_t nn_id) {
     if (closed_) {
-        return errors::Internal("neuron_device is not initialized");
+        return errors::Aborted("neuron_device is closed");
     }
     return runtime_.start_ping(nn_id);
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
     if (closed_) {
-        return errors::Internal("neuron_device is not initialized");
+        return errors::Aborted("neuron_device is closed");
     }
     if (!running(nn_id) && is_busy()) {
         // if nn_id is not running, stop the current running model
@@ -677,7 +686,7 @@ void NeuronDevice::set_running(uint32_t nn_id) {
 
 Status NeuronDevice::get_active(uint32_t *active_nn_id, const uint32_t nn_id) {
     if (!nn_id_to_all_nn_ids_.count(nn_id)) {
-        return errors::Internal("no active id can be found from nn id ", nn_id);
+        return errors::InvalidArgument("no active id can be found from nn id ", nn_id);
     }
     size_t idx = nn_id_to_active_idx_[nn_id];
     nn_id_to_active_idx_[nn_id] = (idx + 1) % nn_id_to_all_nn_ids_[nn_id].size();

@@ -17,6 +17,17 @@ namespace tensorflow {
 namespace neuron {
 
 
+// Note: this macro must be used after ctx->allocate_output
+#define OK_IGNORE_ABORTED(CTX, ...) {                               \
+    Status status(__VA_ARGS__);                                     \
+    if (status.code() == tensorflow::error::Code::ABORTED) {        \
+        VLOG(1) << "ignored error " << status.error_message();      \
+        return;                                                     \
+    }                                                               \
+    OP_REQUIRES_OK(CTX, status);                                    \
+}
+
+
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 
 
@@ -214,13 +225,6 @@ Status NeuronOp::initialize() {
                     << "using regular grpc for transfering input/output tensors";
         }
     }
-    AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
-    for (auto idx = 0; idx < input_batch_axis.i_size(); ++idx) {
-        if (-1 != input_batch_axis.i(idx)) {
-            enable_dynamic_batch_size_ = true;
-            break;
-        }
-    }
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
     int64 init_acquire_amount = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
@@ -271,7 +275,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     thread::ThreadPool *thread_pool = ctx->device()->tensorflow_cpu_worker_threads()->workers;
     Timestamps timestamps;
     timestamps.mark_enter();
-    OP_REQUIRES_OK(ctx, initialize());
 
     AttrList &input_names = def().attr().at("input_names").list();
     AttrList &output_shapes = def().attr().at("output_shapes").list();
@@ -291,7 +294,14 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     AttrList &output_dtypes = def().attr().at("output_dtypes").list();
     AttrList &input_batch_axis = def().attr().at("input_batch_axis").list();
     AttrList &output_batch_axis = def().attr().at("output_batch_axis").list();
-    if (enable_dynamic_batch_size_ && input_names.s_size() == input_batch_axis.i_size() &&
+    bool enable_dynamic_batch_size = false;
+    for (auto idx = 0; idx < input_batch_axis.i_size(); ++idx) {
+        if (-1 != input_batch_axis.i(idx)) {
+            enable_dynamic_batch_size = true;
+            break;
+        }
+    }
+    if (enable_dynamic_batch_size && input_names.s_size() == input_batch_axis.i_size() &&
             output_names.s_size() == output_batch_axis.i_size()) {
         AttrList &input_shapes = def().attr().at("input_shapes").list();
         for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
@@ -396,6 +406,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
         }
 
+        OK_IGNORE_ABORTED(ctx, initialize());
+
         int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
         window_size = std::min(window_size, num_batches);
 
@@ -418,12 +430,12 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 output_tensors[idx] = &temp_outputs[idx];
             }
             ScopedRuntimeIO scoped_io;
-            OP_REQUIRES_OK(ctx, scoped_io.setup(
+            OK_IGNORE_ABORTED(ctx, scoped_io.setup(
                 input_names, input_tensors, output_names, output_tensors,
                 nn_id_, thread_pool, shm_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
                 &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
-            OP_REQUIRES_OK(ctx, scoped_io.finish());
+            OK_IGNORE_ABORTED(ctx, scoped_io.finish());
         }
 
         std::queue<ScopedRuntimeIO> scoped_io_queue;
@@ -435,11 +447,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 std::queue<RuntimeIO*> need_wait_infer_post;
                 int64_t first_need_wait_infer_post_bidx = num_batches - window_size;
                 neuron_device_->acquire_mutex(&mutex_lock_queue);
-                OP_REQUIRES_OK(ctx, neuron_device_->start_model_unsafe(nn_id_));
+                OK_IGNORE_ABORTED(ctx, neuron_device_->start_model_unsafe(nn_id_));
                 uint64 infer_timestamp = Env::Default()->NowMicros();
                 if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC_) {
                     // need an extra grpc call to re-establish channel in case of seeing grpc 14
-                    OP_REQUIRES_OK(ctx, neuron_device_->start_ping(nn_id_));
+                    OK_IGNORE_ABORTED(ctx, neuron_device_->start_ping(nn_id_));
                 }
                 // post ninfer ones
                 for (int64_t post_bidx = 0; post_bidx < window_size; ++post_bidx) {
@@ -469,7 +481,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_sliced_outputs[post_bidx][idx] : batch_output_tensors[idx];
                     }
                     scoped_io_queue.emplace();
-                    OP_REQUIRES_OK(ctx, scoped_io_queue.back().setup(
+                    OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
                         input_names, sliced_inputs, output_names, output_tensors,
                         nn_id_, thread_pool, shm_mgr_));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
@@ -520,7 +532,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_sliced_outputs[post_bidx][idx] : batch_output_tensors[idx];
                     }
                     scoped_io_queue.emplace();
-                    OP_REQUIRES_OK(ctx, scoped_io_queue.back().setup(
+                    OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
                         input_names, sliced_inputs, output_names, output_tensors,
                         nn_id_, thread_pool, shm_mgr_));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
@@ -541,7 +553,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     } else {
                         OP_REQUIRES_OK(ctx, neuron_device_->post_infer(runtime_io_back));
                     }
-                    OP_REQUIRES_OK(ctx, runtime_io_front->finish());
+                    OK_IGNORE_ABORTED(ctx, runtime_io_front->finish());
                     scoped_io_queue.pop();
                 }
 
@@ -566,41 +578,43 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
                 OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(runtime_io_front, wait_timestamps));
                 sem_res_queue.pop();
-                OP_REQUIRES_OK(ctx, runtime_io_front->finish());
+                OK_IGNORE_ABORTED(ctx, runtime_io_front->finish());
                 scoped_io_queue.pop();
             }
         }   // semaphore reservation queue goes out of scope
     } else if (profile_.enabled_) {
         VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors(ctx->num_outputs());
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
+        OK_IGNORE_ABORTED(ctx, initialize());
+        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
-        OP_REQUIRES_OK(ctx, scoped_io.setup(
+        OK_IGNORE_ABORTED(ctx, scoped_io.setup(
             input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, shm_mgr_));
-        OP_REQUIRES_OK(ctx, neuron_device_->infer(
+        OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
             &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
         OP_REQUIRES_OK(ctx, scoped_io.finish());
     } else {
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors(ctx->num_outputs());
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
+        OK_IGNORE_ABORTED(ctx, initialize());
+        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
-        OP_REQUIRES_OK(ctx, scoped_io.setup(
+        OK_IGNORE_ABORTED(ctx, scoped_io.setup(
             input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, shm_mgr_));
         {
             SemResQueue sem_res_queue;
-            OP_REQUIRES_OK(ctx, neuron_device_->infer_post(
+            OK_IGNORE_ABORTED(ctx, neuron_device_->infer_post(
                 &scoped_io.runtime_io_, &sem_res_queue, &infer_sem_, &timestamps, nn_id_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&scoped_io.runtime_io_, &timestamps));
         }
-        OP_REQUIRES_OK(ctx, scoped_io.finish());
+        OK_IGNORE_ABORTED(ctx, scoped_io.finish());
     }
     timestamps.mark_exit();
     VLOG(1) << timestamps.timing_string();

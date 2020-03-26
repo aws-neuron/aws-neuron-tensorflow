@@ -22,7 +22,7 @@ Status RuntimeIO::setup(
     if (nullptr != shm_) {
         mutex_lock_queue.emplace(shm_->mutex_);
         if (input_names.s_size() > (int64)shm_->input_ptrs_.size()) {
-            return errors::Internal("shared memory is invalid");
+            return errors::Aborted("shared memory is invalid");
         }
     }
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
@@ -60,7 +60,7 @@ Status RuntimeIO::finish() {
     if (nullptr != shm_) {
         mutex_lock_queue.emplace(shm_->mutex_);
         if (output_names_->s_size() > (int64)shm_->output_ptrs_.size()) {
-            return errors::Internal("shared memory is invalid");
+            return errors::Aborted("shared memory is invalid");
         }
     }
     if (nullptr == shm_) {
@@ -70,8 +70,8 @@ Status RuntimeIO::finish() {
         }
         for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
             if (map_name_raw.find(output_names_->s(idx)) == map_name_raw.end()) {
-                return errors::Internal("tensor name", output_names_->s(idx),
-                                        " not found in infer_response.ofmap()");
+                return errors::NotFound(
+                    "tensor name", output_names_->s(idx), " not found in infer_response.ofmap()");
             }
             raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
         }
@@ -167,7 +167,7 @@ Status RuntimeGRPC::load(uint32_t *nn_id, const uint32_t eg_id,
 
     #define WRITE_LOAD_REQUEST {                                                \
         if (!writer->Write(request)) {                                          \
-            return errors::Internal("neuron-rtd load failure - broken stream"); \
+            return errors::DataLoss("neuron-rtd load failure - broken stream"); \
         }                                                                       \
     }
     // eg_id
@@ -194,7 +194,7 @@ Status RuntimeGRPC::load(uint32_t *nn_id, const uint32_t eg_id,
         WRITE_LOAD_REQUEST;
     }
     if (!writer->WritesDone()) {
-        return errors::Internal("neuron-rtd load failure - broken stream");
+        return errors::DataLoss("neuron-rtd load failure - broken stream");
     }
     grpc::Status status = writer->Finish();
     NRT_CHECK_RETURN("load", status, response);
@@ -272,7 +272,7 @@ Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
 
 Status RuntimeGRPC::post_infer_post(RuntimeIO *runtime_io) {
     if (nullptr == runtime_io->rpc_infer_post_) {
-        return errors::Internal("runtime_io->rpc_infer_post_ is not initialized");
+        return errors::Unavailable("runtime_io->rpc_infer_post_ is not initialized");
     }
     runtime_io->rpc_infer_post_->StartCall();
     runtime_io->rpc_infer_post_->Finish(&runtime_io->post_response_, &runtime_io->post_status_,
@@ -317,7 +317,7 @@ Status RuntimeGRPC::setup_infer(RuntimeIO *runtime_io, int64_t post_tag) {
 
 Status RuntimeGRPC::post_infer(RuntimeIO *runtime_io) {
     if (nullptr == runtime_io->rpc_infer_) {
-        return errors::Internal("runtime_io->rpc_infer_ is not initialized");
+        return errors::Unavailable("runtime_io->rpc_infer_ is not initialized");
     }
     runtime_io->rpc_infer_->StartCall();
     runtime_io->rpc_infer_->Finish(&runtime_io->response_, &runtime_io->post_status_,

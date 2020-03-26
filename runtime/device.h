@@ -24,7 +24,7 @@ typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
 #define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
     if (failure_expr) {                                                     \
-        return errors::Unknown((fn_name), " failed with errno ", errno);    \
+        return errors::Internal((fn_name), " failed with errno ", errno);   \
     }                                                                       \
 }
 
