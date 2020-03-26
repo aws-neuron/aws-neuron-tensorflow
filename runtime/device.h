@@ -99,6 +99,7 @@ private:
     uint32_t nn_get_current_running();
     Status get_active(uint32_t *active_nn_id, const uint32_t nn_id);
     tensorflow::mutex mutex_eg_;
+    bool closed_ = false;
     RuntimeGRPC runtime_;
     std::vector<uint32_t> vec_eg_id_;
     uint32_t running_nn_id_;

@@ -161,6 +161,7 @@ void SharedMemoryManager::free_shm(SharedMemory *shm) {
 
 void SharedMemoryManager::clear() {
     for (auto &shm : shm_vec_) {
+        tensorflow::mutex_lock lock(shm.mutex_);
         for (const auto &path : shm.nrt_input_paths_) {
             TF_LOG_IF_ERROR(runtime_.shm_unmap(path, PROT_READ | PROT_WRITE));
         }
@@ -441,6 +442,9 @@ Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
         return errors::Internal("NeuronDevice is uninitialized");
     }
     tensorflow::mutex_lock lock(mutex_eg_);
+    if (!vec_eg_id_.size()) {
+        return errors::Internal("NeuronDevice is uninitialized");
+    }
     if (nn_id_to_all_nn_ids_.count(first_nn_id)) {
         for (const uint32_t nid : all_nn_ids) {
             TF_LOG_IF_ERROR(runtime_.unload(nid));
@@ -455,31 +459,32 @@ Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
 }
 
 void NeuronDevice::unload(const uint32_t nn_id) {
-    {
-        tensorflow::mutex_lock lock(mutex_eg_);
-        if (nn_id_to_shm_mgr_.count(nn_id)) {
-            nn_id_to_shm_mgr_[nn_id].clear();
-        }
-        nn_id_to_shm_mgr_.erase(nn_id);
-        if (!nn_id_to_all_nn_ids_.count(nn_id)) {
-            VLOG(1) << "model " << nn_id << " is not loaded";
-            return;
-        }
-        // stop
-        if (running(nn_id)) {
-            // stop all models
-            for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
-                TF_LOG_IF_ERROR(runtime_.stop(nid));
-            }
-            set_running(NRT_INVALID_NN_ID);
-        }
-
-        // unload all models
-        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
-            TF_LOG_IF_ERROR(runtime_.unload(nid));
-        }
-        nn_id_to_all_nn_ids_.erase(nn_id);
+    tensorflow::mutex_lock lock(mutex_eg_);
+    if (closed_) {
+        return;
     }
+    if (nn_id_to_shm_mgr_.count(nn_id)) {
+        nn_id_to_shm_mgr_[nn_id].clear();
+    }
+    nn_id_to_shm_mgr_.erase(nn_id);
+    if (!nn_id_to_all_nn_ids_.count(nn_id)) {
+        VLOG(1) << "model " << nn_id << " is not loaded";
+        return;
+    }
+    // stop
+    if (running(nn_id)) {
+        // stop all models
+        for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
+            TF_LOG_IF_ERROR(runtime_.stop(nid));
+        }
+        set_running(NRT_INVALID_NN_ID);
+    }
+
+    // unload all models
+    for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
+        TF_LOG_IF_ERROR(runtime_.unload(nid));
+    }
+    nn_id_to_all_nn_ids_.erase(nn_id);
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
@@ -522,8 +527,7 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
     Status status_wait = runtime_.infer_wait(runtime_io);
     if (profile->enabled_) profile->stop_session();
     TF_RETURN_IF_ERROR(status_post);
-    TF_RETURN_IF_ERROR(status_wait);
-    return runtime_io->finish();
+    return status_wait;
 }
 
 Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
@@ -563,6 +567,9 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
         return errors::InvalidArgument("shared memory requires using unix socket");
     }
     tensorflow::mutex_lock lock(mutex_eg_);
+    if (closed_) {
+        return errors::Internal("neuron_device is not initialized");
+    }
     nn_id_to_shm_mgr_.emplace(std::piecewise_construct, std::forward_as_tuple(nn_id), std::forward_as_tuple());
     Status status = nn_id_to_shm_mgr_[nn_id].initialize(
         nrtd_address_, nn_id, max_num_infers, input_tensor_sizes, output_tensor_sizes);
@@ -577,6 +584,9 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
 
 void NeuronDevice::clear(bool from_global_state) {
     tensorflow::mutex_lock lock(mutex_eg_);
+    if (from_global_state) {
+        closed_ = true;
+    }
     for (const auto &nn_id_pair : nn_id_to_all_nn_ids_) {
         const uint32_t nn_id = nn_id_pair.first;
         const std::vector<uint32_t> &all_nn_ids = nn_id_pair.second;
@@ -585,7 +595,6 @@ void NeuronDevice::clear(bool from_global_state) {
             for (const uint32_t nid : all_nn_ids) {
                 TF_LOG_IF_ERROR(runtime_.stop(nid));
             }
-            set_running(NRT_INVALID_NN_ID);
         }
         // unload all models
         for (const uint32_t nid : all_nn_ids) {
@@ -593,24 +602,30 @@ void NeuronDevice::clear(bool from_global_state) {
         }
         VLOG(1) << "unload from NeuronDevice::clear";
     }
-    for (auto &item : nn_id_to_shm_mgr_) {
-        item.second.clear();
-    }
-    nn_id_to_shm_mgr_.clear();
-    nn_id_to_all_nn_ids_.clear();
     for (const uint32_t eg_id : vec_eg_id_) {
         TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id, from_global_state));
     }
-    vec_eg_id_.clear();
     VLOG(1) << "destroy_eg from NeuronDevice::clear";
+    for (auto &item : nn_id_to_shm_mgr_) {
+        item.second.clear();
+    }
+    if (!from_global_state) {
+        set_running(NRT_INVALID_NN_ID);
+        nn_id_to_all_nn_ids_.clear();
+        nn_id_to_shm_mgr_.clear();
+        vec_eg_id_.clear();
+    }
 }
 
 Status NeuronDevice::start_ping(const uint32_t nn_id) {
+    if (closed_) {
+        return errors::Internal("neuron_device is not initialized");
+    }
     return runtime_.start_ping(nn_id);
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
-    if (vec_eg_id_.size() == 0) {
+    if (closed_) {
         return errors::Internal("neuron_device is not initialized");
     }
     if (!running(nn_id) && is_busy()) {

@@ -423,6 +423,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 nn_id_, thread_pool, shm_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
                 &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
+            OP_REQUIRES_OK(ctx, scoped_io.finish());
         }
 
         std::queue<ScopedRuntimeIO> scoped_io_queue;
@@ -582,6 +583,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, shm_mgr_));
         OP_REQUIRES_OK(ctx, neuron_device_->infer(
             &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
+        OP_REQUIRES_OK(ctx, scoped_io.finish());
     } else {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         std::vector<Tensor*> output_tensors(ctx->num_outputs());

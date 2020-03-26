@@ -1,6 +1,8 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
+#include <queue>
 #include <grpcpp/grpcpp.h>
+#include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/neuron/runtime/proto/nmgr.pb.h"
 #include "tensorflow/neuron/runtime/proto/nerr.pb.h"
 #include "tensorflow/neuron/runtime/runtime_grpc.h"
@@ -16,6 +18,13 @@ Status RuntimeIO::setup(
         const uint32_t nn_id, thread::ThreadPool *thread_pool, SharedMemory *shm) {
     thread_pool_ = thread_pool;
     shm_ = shm;
+    std::queue<tensorflow::mutex_lock> mutex_lock_queue;
+    if (nullptr != shm_) {
+        mutex_lock_queue.emplace(shm_->mutex_);
+        if (input_names.s_size() > (int64)shm_->input_ptrs_.size()) {
+            return errors::Internal("shared memory is invalid");
+        }
+    }
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
         nrt::infer_io *infer_io = request_.add_ifmap();
         infer_io->set_name(input_names.s(idx));
@@ -47,6 +56,13 @@ Status RuntimeIO::setup(
 
 Status RuntimeIO::finish() {
     std::vector<StringPiece> raw_output_tensors;
+    std::queue<tensorflow::mutex_lock> mutex_lock_queue;
+    if (nullptr != shm_) {
+        mutex_lock_queue.emplace(shm_->mutex_);
+        if (output_names_->s_size() > (int64)shm_->output_ptrs_.size()) {
+            return errors::Internal("shared memory is invalid");
+        }
+    }
     if (nullptr == shm_) {
         std::unordered_map<std::string, StringPiece> map_name_raw;
         for (const auto &infer_io : response_.ofmap()) {
