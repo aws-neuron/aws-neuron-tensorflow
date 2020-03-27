@@ -62,6 +62,12 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         outputs_mgr = TensorManager()
         outputs_mgr.track(func_outputs)
         outputs = outputs_mgr.tensors()
+        if dynamic_batch_size:
+            input_batch_axis = _dynamic_batch_size_axis(placeholders)
+            output_batch_axis = _dynamic_batch_size_axis(outputs)
+        else:
+            input_batch_axis = [-1 for _ in placeholders]
+            output_batch_axis = [-1 for _ in outputs]
         if input_shapes is not None:
             for ts, shape in zip(placeholders, input_shapes):
                 ts.set_shape(shape)
@@ -70,13 +76,17 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                 ts.set_shape(shape)
         if batch_size is not None:
             for ts in placeholders:
-                shape = ts.shape.as_list()
-                shape[0] = batch_size
-                ts.set_shape(shape)
+                if ts.shape.rank:
+                    shape = ts.shape.as_list()
+                    if shape[0] is None:
+                        shape[0] = batch_size
+                        ts.set_shape(shape)
             for ts in outputs:
-                shape = ts.shape.as_list()
-                shape[0] = batch_size
-                ts.set_shape(shape)
+                if ts.shape.rank:
+                    shape = ts.shape.as_list()
+                    if shape[0] is None:
+                        shape[0] = batch_size
+                        ts.set_shape(shape)
         graph_def = normalize_operators(sess.graph.as_graph_def()).SerializeToString()
         io_config = _io_config(placeholders, outputs)
         executable_content = executable
@@ -92,17 +102,16 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                 ops.enable_eager_execution()
             except ValueError:
                 ops.enable_eager_execution()
-        batch_axis = 0 if dynamic_batch_size else -1
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
                 input_tensors=input_tensors, graph_def=graph_def,
                 input_names=[ts.name for ts in placeholders],
                 input_shapes=[ts.shape for ts in placeholders],
-                input_batch_axis=[batch_axis for ts in placeholders],
+                input_batch_axis=input_batch_axis,
                 output_names=[ts.name for ts in outputs],
                 output_dtypes=[ts.dtype for ts in outputs],
                 output_shapes=[ts.shape for ts in outputs],
-                output_batch_axis=[batch_axis for ts in outputs],
+                output_batch_axis=output_batch_axis,
                 executable=executable_content,
                 model_config=model_config,
             )
@@ -115,6 +124,18 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         outputs_mgr.mapping = {inner: outer for inner, outer in zip(outputs, output_tensors)}
         return outputs_mgr.build(func_outputs)
     return wrapper
+
+
+def _dynamic_batch_size_axis(tensors):
+    tensor_batch_axis = []
+    for ts in tensors:
+        batch_axis = -1
+        if ts.shape.rank:
+            shape = ts.shape.as_list()
+            if shape[0] is None:
+                batch_axis = 0
+        tensor_batch_axis.append(batch_axis)
+    return tensor_batch_axis
 
 
 def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_name):

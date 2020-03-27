@@ -69,6 +69,36 @@ class TestFuse(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
             return relu0, sigmoid0
 
+    def test_dynamic_fixed_mix(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 32], name='input0')
+            input1 = tf.placeholder(tf.float32, [32, 16], name='input1')
+            output0_ref = tf.matmul(input0, input1)
+            output0 = fuse(batch_size=4, dynamic_batch_size=True)(tf.matmul)(input0, input1)
+            feed_dict0 = {
+                input0: np.random.uniform(-1, 1, size=[1, 32]),
+                input1: np.random.uniform(-1, 1, size=[32, 16]),
+            }
+            feed_dict1 = {
+                input0: np.random.uniform(-1, 1, size=[4, 32]),
+                input1: np.random.uniform(-1, 1, size=[32, 16]),
+            }
+            feed_dict2 = {
+                input0: np.random.uniform(-1, 1, size=[15, 32]),
+                input1: np.random.uniform(-1, 1, size=[32, 16]),
+            }
+            result0_ref = sess.run(output0_ref, feed_dict0)
+            result1_ref = sess.run(output0_ref, feed_dict1)
+            result2_ref = sess.run(output0_ref, feed_dict2)
+            if 'NEURON_RTD_ADDRESS' in os.environ:
+                result0_neuron = sess.run(output0, feed_dict0)
+                result1_neuron = sess.run(output0, feed_dict1)
+                result2_neuron = sess.run(output0, feed_dict2)
+                np.testing.assert_allclose(result0_neuron, result0_ref, rtol=1e-2, atol=1e-2)
+                np.testing.assert_allclose(result1_neuron, result1_ref, rtol=1e-2, atol=1e-2)
+                np.testing.assert_allclose(result2_neuron, result2_ref, rtol=5e-2, atol=1e-2)
+
     def test_nested_input_output(test):
         def nested_input_output(list_list_tuple, tuple_list):
             an0 = list_list_tuple[0][0][0]
