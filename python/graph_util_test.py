@@ -8,8 +8,9 @@ from __future__ import print_function
 import sys
 import os
 import copy
+import shutil
+import glob
 import time
-from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 import unittest
 import numpy as np
@@ -22,26 +23,6 @@ from tensorflow.python.platform import tf_logging as logging
 
 
 _RANDOM_SEED = 15213
-
-
-@contextmanager
-def _enable_tensorized_scheduler():
-    from distutils.version import LooseVersion
-    from functools import partial
-    import neuroncc
-    neuroncc_version = LooseVersion(neuroncc.__version__.split('+')[0])
-    if neuroncc_version > LooseVersion('1.0.7000'):
-        original_func = tf.neuron.graph_util.inference_graph_from_session
-        if neuroncc_version < LooseVersion('1.0.7500'):
-            flag = '--enable-tensorized-scheduler'
-        else:
-            flag = '--enable-experimental-tensorized-scheduler'
-        tf.neuron.graph_util.inference_graph_from_session = partial(
-            tf.neuron.graph_util.inference_graph_from_session, compiler_args=[flag])
-        try:
-            yield
-        finally:
-            tf.neuron.graph_util.inference_graph_from_session = original_func
 
 
 class TestInferenceGraphFromSession(unittest.TestCase):
@@ -123,7 +104,6 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
     def test_inputs_start_from_middle(self):
-      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -206,7 +186,6 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
     def test_graph_with_large_constants(self):
-      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -546,7 +525,6 @@ class TestDynamicBatchSize(unittest.TestCase):
                 np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
     def _body(self):
-      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         pix = 3
         with tf.Session(graph=tf.Graph()) as sess:
@@ -707,10 +685,9 @@ class TestSpecialOperator(unittest.TestCase):
                 np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
 
 
-class TestMiscUtils(unittest.TestCase):
+class TestSharedMemoryInfer(unittest.TestCase):
 
     def test_shared_memory_infer(self):
-      with _enable_tensorized_scheduler():
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
@@ -746,27 +723,36 @@ class TestMiscUtils(unittest.TestCase):
         _assert_compiler_success(infer_graph)
         assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
         if 'NEURON_RTD_ADDRESS' in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run(result_names, feed_dict)
+                assert len(result_neuron) == len(result_ref)
+                for res_neuron, res_ref in zip(result_neuron, result_ref):
+                    np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
-            @contextmanager
-            def set_neuron_rtd_shm_map():
-                neuron_rtd_shm_map_set = False
-                if 'NEURON_RTD_SHM_MAP' not in os.environ:
-                    os.environ['NEURON_RTD_SHM_MAP'] = 'yes'
-                    neuron_rtd_shm_map_set = True
-                try:
-                    yield
-                finally:
-                    if neuron_rtd_shm_map_set:
-                        os.environ.pop('NEURON_RTD_SHM_MAP')
+    def setUp(self):
+        self.neuron_rtd_shm_map_set = False
+        if 'NEURON_RTD_SHM_MAP' not in os.environ:
+            os.environ['NEURON_RTD_SHM_MAP'] = 'yes'
+            self.neuron_rtd_shm_map_set = True
 
-            with set_neuron_rtd_shm_map():
-                with tf.Session(graph=infer_graph) as sess:
-                    result_neuron = sess.run(result_names, feed_dict)
-                    assert len(result_neuron) == len(result_ref)
-                    for res_neuron, res_ref in zip(result_neuron, result_ref):
-                        np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
+    def tearDown(self):
+        if self.neuron_rtd_shm_map_set:
+            os.environ.pop('NEURON_RTD_SHM_MAP')
 
-    def test_neuron_device_sizes(self):
+
+class TestNeuronCoreGroupSizes(unittest.TestCase):
+
+    def setUp(self):
+        self.env_set = False
+        if 'NEURONCORE_GROUP_SIZES' not in os.environ:
+            os.environ['NEURONCORE_GROUP_SIZES'] = self._neuroncore_group_sizes
+            self.env_set = True
+
+    def tearDown(self):
+        if self.env_set:
+            os.environ.pop('NEURONCORE_GROUP_SIZES')
+
+    def body(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
@@ -784,29 +770,22 @@ class TestMiscUtils(unittest.TestCase):
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_RTD_ADDRESS' in os.environ:
-
-            @contextmanager
-            def set_neuron_device_sizes(env_var):
-                env_set = False
-                if 'NEURONCORE_GROUP_SIZES' not in os.environ:
-                    os.environ['NEURONCORE_GROUP_SIZES'] = env_var
-                    env_set = True
-                try:
-                    yield
-                finally:
-                    if env_set:
-                        os.environ.pop('NEURONCORE_GROUP_SIZES')
-
-            with set_neuron_device_sizes('[4,100,1]'):
-                with tf.Session(graph=infer_graph) as sess:
-                    result_neuron = sess.run('relu0:0', feed_dict)
-            with set_neuron_device_sizes('[1, 1, 1]'):
-                with tf.Session(graph=infer_graph) as sess:
-                    result_neuron = sess.run('relu0:0', feed_dict)
-            with set_neuron_device_sizes('[1,1,1,1,1,1,1]'):
-                with tf.Session(graph=infer_graph) as sess:
-                    result_neuron = sess.run('relu0:0', feed_dict)
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run('relu0:0', feed_dict)
             np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
+
+class TestNeuronCoreGroupSizesCase0(TestNeuronCoreGroupSizes):
+    _neuroncore_group_sizes = '[4,100,1]'
+    def test(self): self.body()
+class TestNeuronCoreGroupSizesCase1(TestNeuronCoreGroupSizes):
+    _neuroncore_group_sizes = '[1, 1, 1]'
+    def test(self): self.body()
+class TestNeuronCoreGroupSizesCase2(TestNeuronCoreGroupSizes):
+    _neuroncore_group_sizes = '[1,1,1,1,1,1,1]'
+    def test(self): self.body()
+
+
+class TestMiscUtils(unittest.TestCase):
 
     def test_opt_num_cores(self):
         np.random.seed(_RANDOM_SEED)
@@ -876,34 +855,18 @@ class TestMiscUtils(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron0, result_ref0):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
-    def test_neuron_cc_flags_env_must_compile(self):
-        np.random.seed(_RANDOM_SEED)
-        with tf.Session(graph=tf.Graph()) as sess:
-            fetch_list, feed_dict = self._gen_graph()
-            result_ref0 = sess.run(fetch_list, feed_dict)
-            with self._set_neuron_cc_flags('--must-compile --dump-prefix ./workdir --fp32-cast matmult'):
-                try:
-                    infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
-                        sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-                except ValueError as e:
-                    assert e.args[0].startswith('The following subgraphs failed')
-            with self._set_neuron_cc_flags('--i-am-not-recognized --must-compile'):
-                try:
-                    infer_graph1 = tf.neuron.graph_util.inference_graph_from_session(
-                        sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-                    assert False, 'This test needs to crash compiler with unknown argument'
-                except ValueError as e:
-                    assert e.args[0].startswith('The following subgraphs failed')
 
-    def test_neuron_cc_flags_env_recoverty(self):
-        np.random.seed(_RANDOM_SEED)
-        with tf.Session(graph=tf.Graph()) as sess:
-            fetch_list, feed_dict = self._gen_graph()
-            result_ref0 = sess.run(fetch_list, feed_dict)
-            with self._set_neuron_cc_flags('--dump-prefix ./workdir --fp32-cast matmult'):
-                infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
-                    sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-            _assert_compiler_success(infer_graph0)
+class TestNeuronCCFlagsEnv(unittest.TestCase):
+
+    def setUp(self):
+        self.env_set = False
+        if 'NEURON_CC_FLAGS' not in os.environ:
+            os.environ['NEURON_CC_FLAGS'] = self._neuron_cc_flags
+            self.env_set = True
+
+    def tearDown(self):
+        if self.env_set:
+            os.environ.pop('NEURON_CC_FLAGS')
 
     def _gen_graph(self):
         input0 = tf.placeholder(tf.float16, [1, 2, 2, 3], name='input0')
@@ -924,17 +887,44 @@ class TestMiscUtils(unittest.TestCase):
         }
         return ['relu0:0', 'relu1:0'], feed_dict
 
-    @contextmanager
-    def _set_neuron_cc_flags(self, env_var):
-        env_set = False
-        if 'NEURON_CC_FLAGS' not in os.environ:
-            os.environ['NEURON_CC_FLAGS'] = env_var
-            env_set = True
-        try:
-            yield
-        finally:
-            if env_set:
-                os.environ.pop('NEURON_CC_FLAGS')
+class TestNeuronCCFlagsEnvMustCompileSuccess(TestNeuronCCFlagsEnv):
+    _neuron_cc_flags = '--must-compile --dump-prefix ./workdir --fp32-cast matmult'
+    def test(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            fetch_list, feed_dict = self._gen_graph()
+            result_ref0 = sess.run(fetch_list, feed_dict)
+            infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+
+class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
+    _neuron_cc_flags = '--i-am-not-recognized --must-compile'
+    def test(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            fetch_list, feed_dict = self._gen_graph()
+            result_ref0 = sess.run(fetch_list, feed_dict)
+            with self.assertRaises(ValueError) as cm:
+                infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+                    sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            assert cm.exception.args[0].startswith('The following subgraphs failed')
+
+class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
+    _neuron_cc_flags = '--dump-prefix ./workdir_neuron_cc_flags_dump --fp32-cast matmult'
+    def test(self):
+        np.random.seed(_RANDOM_SEED)
+        workdir = './workdir_neuron_cc_flags_dump'
+        shutil.rmtree(workdir, ignore_errors=True)
+        with tf.Session(graph=tf.Graph()) as sess:
+            fetch_list, feed_dict = self._gen_graph()
+            result_ref0 = sess.run(fetch_list, feed_dict)
+            infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            _assert_compiler_success(infer_graph0)
+            assert os.path.isdir(workdir)
+            assert len(list(glob.glob(os.path.join(workdir, 'neuron_op_*', 'graph_def.pb')))) == 2
+            assert len(list(glob.glob(os.path.join(workdir, 'neuron_op_*', 'graph_def.neff')))) == 2
+            assert len(list(glob.glob(os.path.join(workdir, 'neuron_op_*', 'graph_def.neuron-cc.log')))) == 2
 
 
 class TestStress(unittest.TestCase):
