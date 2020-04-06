@@ -14,7 +14,7 @@ except ImportError:
     bdist_wheel = None
 
 setuptools.setup(
-    name='tensorflow-neuron-plugin',
+    name='tensorflow-neuron',
     version='_VERSION',
     description='TensorFlow Neuron integration',
     author='AWS Neuron SDK',

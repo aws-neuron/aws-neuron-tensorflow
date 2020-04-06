@@ -34,6 +34,8 @@ function main() {
         VERSION="$(git describe --tags)"
         VERSION="${VERSION:1}.dev$(date +'%Y%m%d')"
         echo "Determined version tag ${VERSION} from tensorflow git repo"
+    else
+        VERSION="$3"
     fi
 
     if [ ! -d bazel-bin/tensorflow ]; then
