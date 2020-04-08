@@ -162,6 +162,48 @@ class TestFuse(unittest.TestCase):
                                   'fuse_test.actualtest_fuse_eager_execution()'
         ]).returncode == 0
 
+    def test_fuse_grad(self):
+        np.random.seed(_RANDOM_SEED)
+
+        @fuse(batch_size=1, dynamic_batch_size=True)
+        def fused_matmul_matmul_grad(op, grad):
+            grad_temp = tf.matmul(grad, op.inputs[2], transpose_b=True)
+            grad_input = tf.matmul(grad_temp, op.inputs[1], transpose_b=True)
+            temp = tf.matmul(op.inputs[0], op.inputs[1])
+            grad_kernel1 = tf.matmul(temp, grad, transpose_a=True)
+            grad_kernel0 = tf.matmul(op.inputs[0], grad_temp, transpose_a=True)
+            return grad_input, grad_kernel0, grad_kernel1
+
+        @fuse(grad_func=fused_matmul_matmul_grad, batch_size=1, dynamic_batch_size=True)
+        def fused_matmul_matmul(tensor, kernel0, kernel1):
+            tensor = tf.matmul(tensor, kernel0)
+            return tf.matmul(tensor, kernel1)
+
+        with tf.Session(graph=tf.Graph()) as sess:
+            batch_size = 3
+            input0 = tf.placeholder(tf.float32, [None, 32], name='input0')
+            kernel0 = tf.Variable(np.random.uniform(-1, 1, size=[32, 16]).astype(np.float32))
+            kernel1 = tf.Variable(np.random.uniform(-1, 1, size=[16, 8]).astype(np.float32))
+            temp0 = fused_matmul_matmul(input0, kernel0, kernel1)
+            kernel2 = tf.Variable(np.random.uniform(-1, 1, size=[8, 4]).astype(np.float32))
+            kernel3 = tf.Variable(np.random.uniform(-1, 1, size=[4, 2]).astype(np.float32))
+            output0 = fused_matmul_matmul(temp0, kernel2, kernel3)
+            input1 = tf.placeholder(tf.float32, [None, 2], name='input1')
+            diff0 = output0 - input1
+            loss0 = tf.reduce_sum(diff0 * diff0, axis=-1)
+            opt = tf.train.GradientDescentOptimizer(0.0001)
+            update = opt.minimize(loss0)
+            feed_dict = {
+                input0: np.random.uniform(-1, 1, size=[batch_size, 32]),
+                input1: np.random.uniform(-1, 1, size=[batch_size, 2]),
+            }
+            if 'NEURON_RTD_ADDRESS' in os.environ:
+                sess.run(tf.global_variables_initializer())
+                loss0_np0 = sess.run(loss0, feed_dict)
+                sess.run(update, feed_dict)
+                loss0_np1 = sess.run(loss0, feed_dict)
+                assert loss0_np1.sum() < loss0_np0.sum()
+
 
 def actualtest_fuse_eager_execution():
     np.random.seed(_RANDOM_SEED)

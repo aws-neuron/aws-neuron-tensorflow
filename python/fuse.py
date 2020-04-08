@@ -24,18 +24,21 @@ from tensorflow.neuron.python.graph_util import (
 
 _neuron_cc_input_name = 'graph_def.pb'
 _neuron_executable_name = 'graph_def.neff'
+_neuron_grad_dict = {}
+_neuron_grad_func_set = set()
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.fuse')
 def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout=None,
          verbose=0, workdir=None, input_shapes=None, output_shapes=None,
-         batch_size=None, dynamic_batch_size=False, executable=b''):
+         batch_size=None, dynamic_batch_size=False, executable=b'', grad_func=None):
     if func is None:
         return partial(
             fuse, compiler_args=compiler_args, name=name, asynchronous=asynchronous, timeout=timeout,
             verbose=verbose, workdir=workdir, input_shapes=input_shapes, output_shapes=output_shapes,
-            batch_size=batch_size, dynamic_batch_size=dynamic_batch_size, executable=executable)
+            batch_size=batch_size, dynamic_batch_size=dynamic_batch_size, executable=executable,
+            grad_func=grad_func)
     @wraps(func)
     def wrapper(*args, **kwargs):
         eager = executing_eagerly()
@@ -44,12 +47,27 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             ops.disable_eager_execution()
         else:
             is_asynchronous = asynchronous
-        inputs_mgr = TensorManager()
+
+        # if this is a fused gradient, then change NeuronOp's inputs into something hackable
+        is_gradient = False
+        if args and _is_neuron_op(args[0]) and func in _neuron_grad_func_set:
+            input_list = args[0].inputs
+            new_input_list = list(input_list)
+            args[0]._inputs_val = new_input_list
+            is_gradient = True
+
+        inputs_mgr = TensorManager(is_gradient)
         inputs_mgr.track((args, kwargs))
         with session.Session(graph=ops.Graph()) as sess:
             inputs_mgr.build_placeholder_mapping()
             new_args, new_kwargs = inputs_mgr.build((args, kwargs))
             func_outputs = func(*new_args, **new_kwargs)
+
+        # restore NeuronOp's hacked inputs
+        if is_gradient:
+            args[0]._inputs_val = input_list
+            inputs_mgr.is_gradient = False
+
         input_tensors = inputs_mgr.tensors()
         placeholders = inputs_mgr.mapped_tensors()
         inputs_mgr.mapping = {value: key for key, value in inputs_mgr.mapping.items()}
@@ -121,9 +139,16 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             iop.neuron_wait = partial(neuron_wait, op=iop, compiler=compiler, timeout=timeout)
             if not hasattr(session.BaseSession._do_run, 'neuron_decorated'):
                 session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
+        if callable(grad_func):
+            _neuron_grad_dict[output_tensors[0]] = grad_func
+            _neuron_grad_func_set.add(getattr(grad_func, '__wrapped__', grad_func))
         outputs_mgr.mapping = {inner: outer for inner, outer in zip(outputs, output_tensors)}
         return outputs_mgr.build(func_outputs)
     return wrapper
+
+
+def _is_neuron_op(op):
+    return isinstance(op, ops.Operation) and op.type == 'NeuronOp'
 
 
 def _dynamic_batch_size_axis(tensors):
@@ -189,7 +214,8 @@ def _get_executable(compiler, timeout, op_name):
     if compiler.proc.returncode != 0:
         raise subprocess.SubprocessError(
             'Failed to compile op {} with command "{}"'.format(op_name, compiler.command))
-    return open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb').read()
+    with open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb') as f:
+        return f.read()
 
 
 def _get_model_config(executable):
@@ -204,7 +230,7 @@ def _get_model_config(executable):
 
 def neuron_wait_all(sess):
     for op in sess.graph.get_operations():
-        if op.type == 'NeuronOp' and hasattr(op, 'neuron_wait') and callable(op.neuron_wait):
+        if op.type == 'NeuronOp' and callable(getattr(op, 'neuron_wait', None)):
             op.neuron_wait()
 
 
@@ -221,9 +247,10 @@ def neuron_decorate_run(func):
 
 class TensorManager:
 
-    def __init__(self):
+    def __init__(self, is_gradient=False):
         self.mapping = collections.OrderedDict()
         self.new_op_names = set()
+        self.is_gradient = is_gradient
 
     def track(self, values):
         if isinstance(values, (ops.Tensor, variables.Variable)):
@@ -234,6 +261,8 @@ class TensorManager:
         elif isinstance(values, collections.Mapping):
             for key_val in values.items():
                 self.track(key_val)
+        elif self.is_gradient and _is_neuron_op(values):
+            self.track(values.inputs)
 
     def tensors(self):
         return list(self.mapping.keys())
@@ -272,6 +301,10 @@ class TensorManager:
                     values.pop(key)
                 values[new_key] = new_val
             return values
+        elif self.is_gradient and _is_neuron_op(values):
+            for idx, val in enumerate(values.inputs):
+                values.inputs[idx] = self.build(val)
+            return values
         else:
             return values
 
@@ -280,3 +313,8 @@ def _io_config(input_tensors, output_tensors):
     inputs = {ts.name: [ts.shape.as_list(), ts.dtype.name] for ts in input_tensors}
     outputs = [ts.name for ts in output_tensors]
     return json.dumps({'inputs': inputs, 'outputs': outputs})
+
+
+@ops.RegisterGradient('NeuronOp')
+def neuron_op_grad(op, grad):
+    return _neuron_grad_dict[op.outputs[0]](op, grad)
