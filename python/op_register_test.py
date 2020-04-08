@@ -20,7 +20,7 @@ class TestOpRegister(unittest.TestCase):
         tfn.saved_model.simple_save(sess, export_dir_test, {ph.name: ph}, {output.name: output})
 
     def test_clean_process(self):
-        assert subprocess.run([sys.executable, __file__, 'TestOpRegister.test_simple']).returncode == 0
+        subprocess.check_call([sys.executable, __file__, 'TestOpRegister.test_simple'])
 
 
 if __name__ == '__main__':
