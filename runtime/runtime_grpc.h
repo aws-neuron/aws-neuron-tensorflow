@@ -7,6 +7,7 @@
 #include "tensorflow/neuron/runtime/tensor_util.h"
 #include "tensorflow/neuron/runtime/shared_memory.h"
 #include "tensorflow/neuron/runtime/proto/nmgr_service.grpc.pb.h"
+#include "tensorflow/neuron/runtime/proto/nerr.pb.h"
 
 
 namespace tensorflow {
@@ -27,7 +28,8 @@ namespace neuron {
 })
 
 #define NRT_CHECK_RETURN(fn_name, grpc_status, response) {                      \
-    if (!((grpc_status).ok() && 0 == (response).status().code())) {             \
+    nrt::status nrtd_status = (response).status();                              \
+    if (!((grpc_status).ok() && nrt::nerr::NERR_OK == nrtd_status.code())) {    \
         return nrt_error_status((fn_name), (grpc_status), (response).status()); \
     }                                                                           \
 }

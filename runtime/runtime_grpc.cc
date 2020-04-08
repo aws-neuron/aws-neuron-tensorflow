@@ -4,7 +4,6 @@
 #include <grpcpp/grpcpp.h>
 #include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/neuron/runtime/proto/nmgr.pb.h"
-#include "tensorflow/neuron/runtime/proto/nerr.pb.h"
 #include "tensorflow/neuron/runtime/runtime_grpc.h"
 
 
