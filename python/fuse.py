@@ -169,6 +169,7 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_na
     else:
         TempDir = collections.namedtuple('TempDir', 'name')
         prefix = os.path.join(os.path.abspath(workdir), 'tmp')
+        os.makedirs(workdir, exist_ok=True)
         tempdir = TempDir(tempfile.mkdtemp(prefix=prefix))
     with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
         f.write(graph_def)

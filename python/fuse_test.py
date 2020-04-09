@@ -162,6 +162,29 @@ class TestFuse(unittest.TestCase):
                                   'fuse_test.actualtest_fuse_eager_execution()'
         ]).returncode == 0
 
+    @unittest.expectedFailure
+    def test_dangling_input(self):
+        np.random.seed(_RANDOM_SEED)
+
+        def func(tensor, kernel0, kernel1):
+            tensor = tf.matmul(tensor, kernel0)
+            return tensor
+
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [1, 32], name='input0')
+            kernel0 = tf.constant(np.random.rand(32, 16).astype(np.float32))
+            kernel1 = tf.constant(np.random.rand(16, 8).astype(np.float32))
+            output0_ref = func(input0, kernel0, kernel1)
+            fused_func = fuse(workdir='./workdir', verbose=1)(func)
+            output0 = fused_func(input0, kernel0, kernel1)
+            feed_dict = {
+                input0: np.random.uniform(-1, 1, size=[1, 32]),
+            }
+            result0_ref = sess.run(output0_ref, feed_dict)
+            if 'NEURON_RTD_ADDRESS' in os.environ:
+                result0_neuron = sess.run(output0, feed_dict)
+                np.testing.assert_allclose(result0_neuron, result0_ref, rtol=1e-2, atol=1e-2)
+
     def test_fuse_grad(self):
         np.random.seed(_RANDOM_SEED)
 
