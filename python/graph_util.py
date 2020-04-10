@@ -757,6 +757,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
                 return graph_def
             op_whitelist.discard('Placeholder')
             op_whitelist.discard('IdentityN')
+            op_whitelist.add('SquaredDifference')
     if no_fuse_ops is None:
         no_fuse_ops = []
     if force_fuse_ops is None:
