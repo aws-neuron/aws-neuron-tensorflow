@@ -52,10 +52,21 @@ public:
         } else {
             uint32_timeout = 10;
         }
+        // Deprecated name NEURON_INFER_TIMEOUT_SEC
         std::string infer_timeout_str = env_get("NEURON_INFER_TIMEOUT_SEC", "10");
         int int_timeout = stoi_no_throw(infer_timeout_str);
         if (int_timeout < 0) {
             LOG(WARNING) << "NEURON_INFER_TIMEOUT_SEC=" << infer_timeout_str
+                         << " is invalid; using default value " << uint32_timeout
+                         << " seconds.";
+        } else {
+            uint32_timeout = (uint32_t)int_timeout;
+        }
+        // New name NEURON_FRAMEWORK_INFER_TIMEOUT_SEC
+        infer_timeout_str = env_get("NEURON_FRAMEWORK_INFER_TIMEOUT_SEC", "10");
+        int_timeout = stoi_no_throw(infer_timeout_str);
+        if (int_timeout < 0) {
+            LOG(WARNING) << "NEURON_FRAMEWORK_INFER_TIMEOUT_SEC=" << infer_timeout_str
                          << " is invalid; using default value " << uint32_timeout
                          << " seconds.";
         } else {
