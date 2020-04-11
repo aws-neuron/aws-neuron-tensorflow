@@ -53,7 +53,7 @@ class TestSimpleSave(unittest.TestCase):
         # load two predictors from neuron saved and tf simple_saved models
         pred_ref = tf.contrib.predictor.from_saved_model(export_dir_ref)
         pred_test = tf.contrib.predictor.from_saved_model(export_dir_test)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             # Test for accuracy
             model_feed_dict = {
                 'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
@@ -94,7 +94,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
         pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
         assert len(pred_neuron.graph.get_operations()) == 5
         assert pred_neuron.graph.get_operations()[2].type == 'NeuronOp'
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             model_feed_dict = {
                 'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
                 'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
@@ -135,7 +135,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
         pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
         assert len(pred_neuron.graph.get_operations()) == 5
         assert pred_neuron.graph.get_operations()[2].type == 'NeuronOp'
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             result_ref = pred_ref(model_feed_dict)
             result_neuron = pred_neuron(model_feed_dict)
             for name in result_ref.keys():
@@ -268,7 +268,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
         pred_neuron1 = tf.contrib.predictor.from_saved_model(new_model_dir1, tags=tags, signature_def_key='sigdef1')
         pred_neuron2 = tf.contrib.predictor.from_saved_model(new_model_dir2, tags=tags, signature_def_key='sigdef2')
         _assert_compiler_success(pred_neuron0.graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             result_ref0 = pred_ref0(model_feed_dict0)
             result_ref1 = pred_ref1(model_feed_dict1)
             result_ref2 = pred_ref2(model_feed_dict2)
@@ -322,7 +322,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
         pred_ref = tf.contrib.predictor.from_saved_model(model_dir, signature_def_key='bla')
         pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir, signature_def_key='bla')
         _assert_compiler_success(pred_neuron.graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             result_ref = pred_ref(model_feed_dict)
             result_neuron = pred_neuron(model_feed_dict)
             for name in result_ref.keys():
@@ -373,7 +373,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
         pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
         pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
         _assert_compiler_success(pred_neuron.graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             result_ref = pred_ref(model_feed_dict)
             result_neuron = pred_neuron(model_feed_dict)
             for name in result_ref.keys():
@@ -461,7 +461,7 @@ class TestSavedModelCLIConvert(unittest.TestCase):
         assert pred_neuron_b3.graph.get_operations()[2].type == 'NeuronOp'
         assert len(pred_neuron_b4.graph.get_operations()) == 5
         assert pred_neuron_b4.graph.get_operations()[2].type == 'NeuronOp'
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             result_ref_b1 = pred_ref(model_feed_dict_b1)
             result_ref_b2 = pred_ref(model_feed_dict_b2)
             result_ref_b3 = pred_ref(model_feed_dict_b3)
@@ -515,7 +515,7 @@ class TestCoreBinding(unittest.TestCase):
             'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
         }
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             result_neuron = pred_neuron(model_feed_dict)
 
     def test_inspect(self):

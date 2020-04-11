@@ -59,7 +59,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph0)
         _assert_compiler_success(infer_graph1)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph0) as sess:
                 result_neuron0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
                 assert len(result_neuron0) == len(result_ref0)
@@ -96,7 +96,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 sess, feed_dict=feed_dict, output_tensors={'relu0:0', 'sigmoid0:0', relu1, 'add0:0'},
                 op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -138,7 +138,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
         _assert_compiler_success(infer_graph)
         assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(result_names, feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -178,7 +178,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
         for name in result_names:
             infer_graph.get_tensor_by_name(name)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(result_names, feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -221,7 +221,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
         _assert_compiler_success(infer_graph)
         assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 1
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(result_names, feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -277,7 +277,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
         _assert_compiler_success(infer_graph)
         assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 1
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(result_names, feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -309,7 +309,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, compiler_workdir='./workdir', output_tensors={output0})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(output0.name, feed_dict=feed_dict)
                 np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-4)
@@ -335,7 +335,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 sess, compiler_workdir='./workdir', output_tensors={output0},
                 no_fuse_ops={'while/kernel0'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron_list = [sess.run(output0.name, feed_dict) for _ in range(2)]
             for result_neuron, result_tf in zip(result_neuron_list, result_tf_list):
@@ -493,7 +493,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
         for name in result_names:
             infer_graph.get_tensor_by_name(name)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(result_names, feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -505,7 +505,7 @@ class TestDynamicBatchSize(unittest.TestCase):
 
     def test_simple(self):
         infer_graph, result_names, feed_dict_list, result_ref_list = self._body()
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
                     result_neuron = sess.run(result_names, feed_dict)
@@ -515,7 +515,7 @@ class TestDynamicBatchSize(unittest.TestCase):
 
     def test_multithread(self):
         infer_graph, result_names, feed_dict_list, result_ref_list = self._body()
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 for _ in range(3):
                     with ThreadPoolExecutor(max_workers=len(feed_dict_list)) as executor:
@@ -590,7 +590,7 @@ class TestSpecialOperator(unittest.TestCase):
             relu0 = tf.nn.relu(conv2d0, name='relu0')
             result_ref_nhwc = sess_ref.run('relu0:0', {'input0:0': input0_nchw.transpose([0, 2, 3, 1])})
             result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph0) as sess:
                 result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
                 np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
@@ -618,7 +618,7 @@ class TestSpecialOperator(unittest.TestCase):
             relu0 = tf.nn.relu(conv2d0, name='relu0')
             result_ref_nhwc = sess_ref.run('relu0:0', {'input0:0': input0_nchw.transpose([0, 2, 3, 1])})
             result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph0) as sess:
                 result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
                 np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
@@ -649,7 +649,7 @@ class TestSpecialOperator(unittest.TestCase):
             relu0 = tf.nn.relu(pool0, name='relu0')
             result_ref_nhwc = sess_ref.run('relu0:0', {'input0:0': input0_nchw.transpose([0, 2, 3, 1])})
             result_ref_nchw = result_ref_nhwc.transpose([0, 3, 1, 2])
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph0) as sess:
                 result_neuron_nchw = sess.run('relu0:0', {'input0:0': input0_nchw})
                 np.testing.assert_allclose(result_neuron_nchw, result_ref_nchw, rtol=1e-2, atol=1e-3)
@@ -679,7 +679,7 @@ class TestSpecialOperator(unittest.TestCase):
                 sess, input_tensors=[input0, input1], output_tensors=[batchmatmul0],
                 shape_feed_dict={input0: [1, 4, 2, 4], input1: [1, 4, 5]}, compiler_timeout=0.1)
             assert infer_graph_not_ok.get_operations()[-1].type == 'BatchMatMulV2'
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph_ok) as sess:
                 result_neuron = sess.run('batchmatmul0:0', feed_dict)
                 np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
@@ -722,7 +722,7 @@ class TestSharedMemoryInfer(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
         _assert_compiler_success(infer_graph)
         assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(result_names, feed_dict)
                 assert len(result_neuron) == len(result_ref)
@@ -769,7 +769,7 @@ class TestNeuronCoreGroupSizes(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run('relu0:0', feed_dict)
             np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
@@ -816,7 +816,7 @@ class TestMiscUtils(unittest.TestCase):
         for node in infer_graph_def.node:
             if node.op == 'NeuronOp':
                 node.attr['model_config'].list.i[:] = [3, 4, 5, 10]
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(infer_graph_def, name='')
                 result_neuron = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
@@ -848,7 +848,7 @@ class TestMiscUtils(unittest.TestCase):
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
                 compiler_workdir='./workdir', compiler_verbose=2)
         _assert_compiler_success(infer_graph0)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph0) as sess:
                 result_neuron0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
                 assert len(result_neuron0) == len(result_ref0)
@@ -947,7 +947,7 @@ class TestStress(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 latency_list = []
                 for _ in range(3):
@@ -1019,7 +1019,7 @@ class TestStress(unittest.TestCase):
                 with open(infer_graph_fn, 'wb') as f:
                     f.write(infer_graph.as_graph_def().SerializeToString())
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 for idx in range(10):
                     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1044,7 +1044,7 @@ class TestLargeIO(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run('relu0:0', feed_dict)
                 np.testing.assert_allclose(result_neuron, result_ref)
@@ -1062,7 +1062,7 @@ class TestLargeIO(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run('relu0:0', feed_dict)
                 np.testing.assert_allclose(result_neuron, result_ref)
@@ -1080,7 +1080,7 @@ class TestLargeIO(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run('relu0:0', feed_dict)
                 np.testing.assert_allclose(result_neuron, result_ref)
@@ -1113,7 +1113,7 @@ class TestShapeInference(unittest.TestCase):
             infer_graph = tf.neuron.graph_util.inference_graph_from_session(
                 sess, compiler_workdir='./workdir', output_tensors={output0}, feed_dict=feed_dict)
         _assert_compiler_success(infer_graph)
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
                 result_neuron = sess.run(output0.name, feed_dict=feed_dict)
                 np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-4)
@@ -1405,7 +1405,7 @@ class TestHelperFunction(unittest.TestCase):
         for node in compiled_graph_def.node:
             if node.op == 'NeuronOp':
                 assert node.attr['executable'].s != b''
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
                 output_neuron = [tensor.name for tensor in sg2]
@@ -1496,7 +1496,7 @@ class TestWhitelistPartition(unittest.TestCase):
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(subgraph_def, name='')
             assert len([op for op in sess.graph.get_operations() if op.type == 'Placeholder']) == 1
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             compiled_graph_def = compile_subgraphs(partitioned_graph_def, workdir='./workdir')
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
@@ -1532,7 +1532,7 @@ class TestWhitelistPartition(unittest.TestCase):
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
             no_fuse_ops=['add0'])
         assert len(partitioned_graph_def.node) == 8
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             compiled_graph_def = compile_subgraphs(
                 partitioned_graph_def, workdir='./workdir')
             with tf.Session(graph=tf.Graph()) as sess:
@@ -1569,7 +1569,7 @@ class TestWhitelistPartition(unittest.TestCase):
             op_whitelist={'Conv2D', 'Const', 'Relu'},
             no_fuse_ops=[conv2d2.op], force_fuse_ops=['add0', add5.op])
         assert len(partitioned_graph_def.node) == 12
-        if 'NEURON_RTD_ADDRESS' in os.environ:
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             compiled_graph_def = compile_subgraphs(
                 partitioned_graph_def, workdir='./workdir')
             with tf.Session(graph=tf.Graph()) as sess:

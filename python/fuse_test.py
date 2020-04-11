@@ -63,7 +63,7 @@ class TestFuse(unittest.TestCase):
                 io_shapes = [[1, 2, 2, 3], [1, 2, 2, 3]]
                 fuser = fuse(input_shapes=io_shapes, output_shapes=io_shapes, dynamic_batch_size=True)
             relu0, sigmoid0 = fuser(network_body)(input0, input1, kernel0, kernel1)
-            if 'NEURON_RTD_ADDRESS' in os.environ:
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
                 result_neuron = sess.run([relu0, sigmoid0], feed_dict)
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
@@ -91,7 +91,7 @@ class TestFuse(unittest.TestCase):
             result0_ref = sess.run(output0_ref, feed_dict0)
             result1_ref = sess.run(output0_ref, feed_dict1)
             result2_ref = sess.run(output0_ref, feed_dict2)
-            if 'NEURON_RTD_ADDRESS' in os.environ:
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
                 result0_neuron = sess.run(output0, feed_dict0)
                 result1_neuron = sess.run(output0, feed_dict1)
                 result2_neuron = sess.run(output0, feed_dict2)
@@ -147,7 +147,7 @@ class TestFuse(unittest.TestCase):
             ph_list, inputs = get_placeholders()
             outputs = fuse(nested_input_output)(*inputs)
             feed_dict = {ph: idx * np.ones([1]) for idx, ph in enumerate(ph_list)}
-            if 'NEURON_RTD_ADDRESS' in os.environ:
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
                 result_neuron = sess.run(outputs, feed_dict)
                 result_ref_unpacked = _unpack_recursive(result_ref)
                 result_neuron_unpacked = _unpack_recursive(result_neuron)
@@ -181,7 +181,7 @@ class TestFuse(unittest.TestCase):
                 input0: np.random.uniform(-1, 1, size=[1, 32]),
             }
             result0_ref = sess.run(output0_ref, feed_dict)
-            if 'NEURON_RTD_ADDRESS' in os.environ:
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
                 result0_neuron = sess.run(output0, feed_dict)
                 np.testing.assert_allclose(result0_neuron, result0_ref, rtol=1e-2, atol=1e-2)
 
@@ -220,7 +220,7 @@ class TestFuse(unittest.TestCase):
                 input0: np.random.uniform(-1, 1, size=[batch_size, 32]),
                 input1: np.random.uniform(-1, 1, size=[batch_size, 2]),
             }
-            if 'NEURON_RTD_ADDRESS' in os.environ:
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
                 sess.run(tf.global_variables_initializer())
                 loss0_np0 = sess.run(loss0, feed_dict)
                 sess.run(update, feed_dict)
@@ -237,7 +237,7 @@ def actualtest_fuse_eager_execution():
     input1 = tf.constant(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16))
     result_ref = network_body(input0, input1, kernel0, kernel1)
 
-    if 'NEURON_RTD_ADDRESS' in os.environ:
+    if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
         result_neuron = network_neuron(input0, input1, kernel0, kernel1)
         for res_neuron, res_ref in zip(result_neuron, result_ref):
             np.testing.assert_allclose(res_neuron.numpy(), res_ref.numpy(), rtol=1e-2, atol=1e-3)
