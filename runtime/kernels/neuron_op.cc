@@ -43,36 +43,22 @@ public:
     }
 
     void parse_timeout(AttrList &model_config) {
-        uint32_t uint32_timeout = 10;
         if (model_config_valid(model_config)) {
             int64 int64_timeout = model_config_timeout(model_config);
-            if (0 < int64_timeout) {
-                uint32_timeout = (uint32_t)int64_timeout;
+            if (int64_timeout > 0) {
+                timeout_ = (uint32_t)int64_timeout;
+                return;
             }
-        } else {
-            uint32_timeout = 10;
         }
-        // Deprecated name NEURON_INFER_TIMEOUT_SEC
-        std::string infer_timeout_str = env_get("NEURON_INFER_TIMEOUT_SEC", "10");
+        timeout_ = 10;
+        std::string infer_timeout_str = env_get("NEURON_FRAMEWORK_INFER_TIMEOUT_SEC", "10");
         int int_timeout = stoi_no_throw(infer_timeout_str);
-        if (int_timeout < 0) {
-            LOG(WARNING) << "NEURON_INFER_TIMEOUT_SEC=" << infer_timeout_str
-                         << " is invalid; using default value " << uint32_timeout
-                         << " seconds.";
-        } else {
-            uint32_timeout = (uint32_t)int_timeout;
-        }
-        // New name NEURON_FRAMEWORK_INFER_TIMEOUT_SEC
-        infer_timeout_str = env_get("NEURON_FRAMEWORK_INFER_TIMEOUT_SEC", "10");
-        int_timeout = stoi_no_throw(infer_timeout_str);
-        if (int_timeout < 0) {
+        if (int_timeout <= 0) {
             LOG(WARNING) << "NEURON_FRAMEWORK_INFER_TIMEOUT_SEC=" << infer_timeout_str
-                         << " is invalid; using default value " << uint32_timeout
-                         << " seconds.";
+                         << " is invalid; using default value " << timeout_ << " seconds.";
         } else {
-            uint32_timeout = (uint32_t)int_timeout;
+            timeout_ = (uint32_t)int_timeout;
         }
-        timeout_ = uint32_timeout;
     }
 
     void parse_ninfer(AttrList &model_config, NeuronDevice *neuron_device) {
