@@ -10,7 +10,7 @@
  * limitations under the License.
  * ==============================================================================*/
 
-#include "neuron_op.h"
+#include "tensorflow/neuron/runtime/kernels/neuron_op.h"
 
 
 namespace tensorflow {
