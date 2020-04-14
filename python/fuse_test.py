@@ -35,12 +35,17 @@ class TestFuse(unittest.TestCase):
         assert relu0.shape.as_list() == [1, 2, 2, 3]
         assert sigmoid0.shape.as_list() == [1, 2, 2, 3]
 
+    def test_verbose(self):
+        relu0, sigmoid0 = self._body_fuse(1, verbose=1)
+        assert relu0.shape.as_list() == [1, 2, 2, 3]
+        assert sigmoid0.shape.as_list() == [1, 2, 2, 3]
+
     def test_dynamic_batch_size(self):
         relu0, sigmoid0 = self._body_fuse(None)
         assert relu0.shape.as_list() == [None, 2, 2, 3]
         assert sigmoid0.shape.as_list() == [None, 2, 2, 3]
 
-    def _body_fuse(self, batch_size):
+    def _body_fuse(self, batch_size, verbose=0):
         np.random.seed(_RANDOM_SEED)
         kernel0 = np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16)
         kernel1 = np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16)
@@ -58,7 +63,7 @@ class TestFuse(unittest.TestCase):
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [batch_size, 2, 2, 3], name='input0')
             input1 = tf.placeholder(tf.float16, [batch_size, 2, 2, 3], name='input1')
-            fuser = fuse
+            fuser = fuse(verbose=verbose)
             if batch_size is None:
                 io_shapes = [[1, 2, 2, 3], [1, 2, 2, 3]]
                 fuser = fuse(input_shapes=io_shapes, output_shapes=io_shapes, dynamic_batch_size=True)

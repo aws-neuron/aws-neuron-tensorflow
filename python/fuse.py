@@ -6,6 +6,8 @@ import json
 import tempfile
 import collections
 import subprocess
+import multiprocessing
+from concurrent.futures import ThreadPoolExecutor
 from functools import wraps, partial
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
@@ -107,13 +109,16 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                         ts.set_shape(shape)
         graph_def = normalize_operators(sess.graph.as_graph_def()).SerializeToString()
         io_config = _io_config(placeholders, outputs)
+        neuron_get_cc_job_func = partial(
+            neuron_get_cc_job, graph_def=graph_def, workdir=workdir,
+            io_config=io_config, compiler_args=compiler_args, verbose=verbose,
+            timeout=timeout, op_name=op_name)
         executable_content = executable
-        if not executable_content:
-            compiler, tempdir = neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_name)
-            if not op_name:
-                op_name = None
-            if not is_asynchronous:
-                executable_content = _get_executable(compiler, timeout, op_name)
+        if not executable_content and not is_asynchronous:
+            neuron_cc_job, neff_path = neuron_get_cc_job_func()
+            neuron_cc_job()
+            with open(neff_path, 'rb') as f:
+                executable_content = f.read()
         model_config = _get_model_config(executable_content)
         if eager:
             try:
@@ -134,9 +139,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                 model_config=model_config,
             )
         if is_asynchronous and not executable_content:
-            iop = output_tensors[0].op
-            iop.neuron_workspace = tempdir  # keep tempdir object alive
-            iop.neuron_wait = partial(neuron_wait, op=iop, compiler=compiler, timeout=timeout)
+            output_tensors[0].op.neuron_get_cc_job = neuron_get_cc_job_func
             if not hasattr(session.BaseSession._do_run, 'neuron_decorated'):
                 session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
         if callable(grad_func):
@@ -163,7 +166,7 @@ def _dynamic_batch_size_axis(tensors):
     return tensor_batch_axis
 
 
-def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_name):
+def neuron_get_cc_job(graph_def, workdir, io_config, compiler_args, verbose, timeout, op_name):
     if workdir is None:
         tempdir = tempfile.TemporaryDirectory()
     else:
@@ -179,44 +182,25 @@ def neuron_cc_popen(graph_def, workdir, io_config, compiler_args, verbose, op_na
                '--io-config', io_config]
     if compiler_args is not None:
         command.extend(compiler_args)
-    logfd = None
-    popen_kwargs = {}
+    neff_path = os.path.join(tempdir.name, _neuron_executable_name)
     if verbose:
         with logging_show_info():
             logging.info('calling neuron-cc with: {}'.format(' '.join(command)))
+        def neuron_cc_job():
+            local_tempdir = tempdir  # keep tempdir alive when neuron-cc is running
+            subprocess.check_call(command, cwd=tempdir.name, timeout=timeout)
     else:
         logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
-        logfd = open(logfile_path, 'w')
-        popen_kwargs = dict(stdout=logfd, stderr=logfd)
         info_string = 'fusing subgraph "{}" with neuron-cc'.format(op_name)
         if workdir is not None:
             info_string = '{}; log file is at {}'.format(info_string, logfile_path)
         with logging_show_info():
             logging.info(info_string)
-    proc = subprocess.Popen(command, cwd=tempdir.name, **popen_kwargs)
-    Compiler = collections.namedtuple('Compiler', 'proc logfd workdir command')
-    return Compiler(proc, logfd, tempdir.name, subprocess.list2cmdline(command)), tempdir
-
-
-def neuron_wait(op, compiler, timeout):
-    executable = _get_executable(compiler, timeout, op.name)
-    model_config = _get_model_config(executable)
-    op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
-    model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
-    op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))
-    op.neuron_wait = None
-    op.neuron_workspace = None
-
-
-def _get_executable(compiler, timeout, op_name):
-    compiler.proc.wait(timeout=timeout)
-    if compiler.logfd is not None:
-        compiler.logfd.close()
-    if compiler.proc.returncode != 0:
-        raise subprocess.SubprocessError(
-            'Failed to compile op {} with command "{}"'.format(op_name, compiler.command))
-    with open(os.path.join(compiler.workdir, _neuron_executable_name), 'rb') as f:
-        return f.read()
+        def neuron_cc_job():
+            local_tempdir = tempdir
+            with open(logfile_path, 'w') as logfd:
+                subprocess.check_call(command, cwd=tempdir.name, stdout=logfd, stderr=logfd, timeout=timeout)
+    return neuron_cc_job, neff_path
 
 
 def _get_model_config(executable):
@@ -229,18 +213,30 @@ def _get_model_config(executable):
     return model_config
 
 
-def neuron_wait_all(sess):
-    for op in sess.graph.get_operations():
-        if op.type == 'NeuronOp' and callable(getattr(op, 'neuron_wait', None)):
-            op.neuron_wait()
-
-
 def neuron_decorate_run(func):
     @wraps(func)
     def wrapper(sess, *args, **kwargs):
-        if not hasattr(sess, 'neuron_wait_all_executed'):
-            neuron_wait_all(sess)
-        sess.neuron_wait_all_executed = None
+        if not hasattr(sess, 'neuron_compiler_all_executed'):
+            neuron_cc_job_list = []
+            neuron_op_list = []
+            for op in sess.graph.get_operations():
+                if op.type == 'NeuronOp' and callable(getattr(op, 'neuron_get_cc_job', None)):
+                    neuron_cc_job, neff_path = op.neuron_get_cc_job()
+                    neuron_cc_job_list.append(neuron_cc_job)
+                    neuron_op_list.append([op, neff_path])
+            with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+                futures = [executor.submit(job) for job in neuron_cc_job_list]
+                for fut in futures:
+                    fut.result()
+            for op, neff_path in neuron_op_list:
+                with open(neff_path, 'rb') as f:
+                    executable = f.read()
+                model_config = _get_model_config(executable)
+                op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
+                model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
+                op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))
+                op.neuron_get_cc_job = None
+        sess.neuron_compiler_all_executed = None
         return func(sess, *args, **kwargs)
     wrapper.neuron_decorated = True
     return wrapper
