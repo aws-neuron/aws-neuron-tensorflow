@@ -236,6 +236,37 @@ class TestFuse(unittest.TestCase):
                 loss0_np1 = sess.run(loss0, feed_dict)
                 assert loss0_np1.sum() < loss0_np0.sum()
 
+    def test_fuse_variables(self):
+
+        def func_with_variables(input0):
+            np.random.seed(_RANDOM_SEED)
+            kernel0 = tf.Variable(np.random.uniform(-1, 1, size=[32, 16]).astype(np.float32))
+            kernel1 = tf.Variable(np.random.uniform(-1, 1, size=[16, 8]).astype(np.float32))
+            temp0 = tf.matmul(input0, kernel0)
+            temp1 = tf.matmul(temp0, kernel1)
+            kernel2 = tf.Variable(np.random.uniform(-1, 1, size=[8, 4]).astype(np.float32))
+            kernel3 = tf.Variable(np.random.uniform(-1, 1, size=[4, 2]).astype(np.float32))
+            temp2 = tf.matmul(temp1, kernel2)
+            output0 = tf.matmul(temp2, kernel3)
+            return output0
+
+        batch_size = 5
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 32], name='input0')
+            output0 = func_with_variables(input0)
+            feed_dict = {input0.name: np.random.uniform(-1, 1, size=[batch_size, 32])}
+            sess.run(tf.global_variables_initializer())
+            output0_np_ref = sess.run(output0, feed_dict)
+
+        func_with_variables = fuse(batch_size=1, dynamic_batch_size=True)(func_with_variables)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(input0.dtype, input0.shape, name=input0.op.name)
+            output0 = func_with_variables(input0)
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+                sess.run(tf.global_variables_initializer())
+                output0_np_neuron = sess.run(output0, feed_dict)
+                np.testing.assert_allclose(output0_np_neuron, output0_np_ref, rtol=3e-2, atol=1e-5)
+
 
 def actualtest_fuse_eager_execution():
     np.random.seed(_RANDOM_SEED)

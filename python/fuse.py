@@ -9,13 +9,17 @@ import subprocess
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps, partial
+from contextlib import contextmanager
+import numpy
+import tensorflow
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
 from tensorflow.core.framework import attr_value_pb2
+from tensorflow.core.framework import graph_pb2
 from tensorflow.python.client import session
-from tensorflow.python.framework import ops
+from tensorflow.python.framework import ops, constant_op
 from tensorflow.python.ops import array_ops, variables
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op
@@ -24,6 +28,8 @@ from tensorflow.neuron.python.graph_util import (
     _neff_get_cores_from_executable, find_neuron_cc)
 
 
+_neuron_sess_do_run_decorated = False
+_neuron_graph_to_hook = {}
 _neuron_cc_input_name = 'graph_def.pb'
 _neuron_executable_name = 'graph_def.neff'
 _neuron_grad_dict = {}
@@ -60,10 +66,18 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
 
         inputs_mgr = TensorManager(is_gradient)
         inputs_mgr.track((args, kwargs))
-        with session.Session(graph=ops.Graph()) as sess:
-            inputs_mgr.build_placeholder_mapping()
-            new_args, new_kwargs = inputs_mgr.build((args, kwargs))
-            func_outputs = func(*new_args, **new_kwargs)
+
+        default_graph = ops.get_default_graph()
+        if default_graph not in _neuron_graph_to_hook:
+            _neuron_graph_to_hook[default_graph] = NeuronGraphHook(default_graph)
+        graph_hook = _neuron_graph_to_hook[default_graph]
+
+        fuse_graph = ops.Graph()
+        with graph_hook.fuse_graph_scope() as latest_fg_var_list:
+            with fuse_graph.as_default():
+                inputs_mgr.build_placeholder_mapping()
+                new_args, new_kwargs = inputs_mgr.build((args, kwargs))
+                func_outputs = func(*new_args, **new_kwargs)
 
         # restore NeuronOp's hacked inputs
         if is_gradient:
@@ -75,7 +89,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         inputs_mgr.mapping = {value: key for key, value in inputs_mgr.mapping.items()}
         inputs_mgr.build((args, kwargs))
         if name is None:
-            op_name = most_popular_namescope(op.name for op in sess.graph.get_operations()
+            op_name = most_popular_namescope(op.name for op in fuse_graph.get_operations()
                                              if op.name not in inputs_mgr.new_op_names)
         else:
             op_name = name
@@ -109,12 +123,11 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                     if shape[0] is None:
                         shape[0] = batch_size
                         ts.set_shape(shape)
-        graph_def = normalize_operators(sess.graph.as_graph_def()).SerializeToString()
         io_config = _io_config(placeholders, outputs)
         neuron_get_cc_job_func = partial(
-            neuron_get_cc_job, graph_def=graph_def, workdir=workdir,
-            io_config=io_config, compiler_args=compiler_args, verbose=verbose,
-            timeout=timeout, op_name=op_name)
+            graph_hook.neuron_get_cc_job, fuse_graph, latest_fg_var_list,
+            workdir=workdir, io_config=io_config, compiler_args=compiler_args,
+            verbose=verbose, timeout=timeout, op_name=op_name)
         executable_content = executable
         if not executable_content and not is_asynchronous:
             neuron_cc_job, neff_path = neuron_get_cc_job_func()
@@ -127,9 +140,10 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                 ops.enable_eager_execution()
             except ValueError:
                 ops.enable_eager_execution()
+        serialized_graph_def = fuse_graph.as_graph_def().SerializeToString()
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
-                input_tensors=input_tensors, graph_def=graph_def,
+                input_tensors=input_tensors, graph_def=serialized_graph_def,
                 input_names=[ts.name for ts in placeholders],
                 input_shapes=[ts.shape for ts in placeholders],
                 input_batch_axis=input_batch_axis,
@@ -141,9 +155,11 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                 model_config=model_config,
             )
         if is_asynchronous and not executable_content:
-            output_tensors[0].op.neuron_get_cc_job = neuron_get_cc_job_func
-            if not hasattr(session.BaseSession._do_run, 'neuron_decorated'):
+            graph_hook.map_cc_job_func[output_tensors[0].op] = neuron_get_cc_job_func
+            global _neuron_sess_do_run_decorated
+            if not _neuron_sess_do_run_decorated:
                 session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
+                _neuron_sess_do_run_decorated = True
         if callable(grad_func):
             _neuron_grad_dict[output_tensors[0]] = grad_func
             _neuron_grad_func_set.add(getattr(grad_func, '__wrapped__', grad_func))
@@ -168,43 +184,6 @@ def _dynamic_batch_size_axis(tensors):
     return tensor_batch_axis
 
 
-def neuron_get_cc_job(graph_def, workdir, io_config, compiler_args, verbose, timeout, op_name):
-    if workdir is None:
-        tempdir = tempfile.TemporaryDirectory()
-    else:
-        TempDir = collections.namedtuple('TempDir', 'name')
-        prefix = os.path.join(os.path.abspath(workdir), 'tmp')
-        os.makedirs(workdir, exist_ok=True)
-        tempdir = TempDir(tempfile.mkdtemp(prefix=prefix))
-    with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
-        f.write(graph_def)
-    neuron_cc = find_neuron_cc()
-    command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
-               '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
-               '--io-config', io_config]
-    if compiler_args is not None:
-        command.extend(compiler_args)
-    neff_path = os.path.join(tempdir.name, _neuron_executable_name)
-    if verbose:
-        with logging_show_info():
-            logging.info('calling neuron-cc with: {}'.format(' '.join(command)))
-        def neuron_cc_job():
-            local_tempdir = tempdir  # keep tempdir alive when neuron-cc is running
-            return subprocess.run(command, cwd=tempdir.name, timeout=timeout)
-    else:
-        logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
-        info_string = 'fusing subgraph "{}" with neuron-cc'.format(op_name)
-        if workdir is not None:
-            info_string = '{}; log file is at {}'.format(info_string, logfile_path)
-        with logging_show_info():
-            logging.info(info_string)
-        def neuron_cc_job():
-            local_tempdir = tempdir
-            with open(logfile_path, 'w') as logfd:
-                return subprocess.run(command, cwd=tempdir.name, stdout=logfd, stderr=logfd, timeout=timeout)
-    return neuron_cc_job, neff_path
-
-
 def _get_model_config(executable):
     if not executable:
         return []
@@ -218,29 +197,37 @@ def _get_model_config(executable):
 def neuron_decorate_run(func):
     @wraps(func)
     def wrapper(sess, *args, **kwargs):
-        if not hasattr(sess, 'neuron_compiler_all_executed'):
-            neuron_cc_job_list = []
-            neuron_op_list = []
-            for op in sess.graph.get_operations():
-                if op.type == 'NeuronOp' and callable(getattr(op, 'neuron_get_cc_job', None)):
-                    neuron_cc_job, neff_path = op.neuron_get_cc_job()
-                    neuron_cc_job_list.append(neuron_cc_job)
-                    neuron_op_list.append([op, neff_path])
-            with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
-                futures = [executor.submit(job) for job in neuron_cc_job_list]
-                for fut in futures:
-                    fut.result().check_returncode()
-            for op, neff_path in neuron_op_list:
-                with open(neff_path, 'rb') as f:
-                    executable = f.read()
-                model_config = _get_model_config(executable)
-                op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
-                model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
-                op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))
-                op.neuron_get_cc_job = None
-        sess.neuron_compiler_all_executed = None
+        graph_hook = _neuron_graph_to_hook.get(sess.graph, None)
+        if graph_hook is None or graph_hook.compiler_all_executed:
+            return func(sess, *args, **kwargs)
+        decorated_do_run = session.BaseSession._do_run
+        session.BaseSession._do_run = decorated_do_run.__wrapped__
+        with session.Session(graph=sess.graph) as temp_sess:
+            temp_sess.run(variables.global_variables_initializer())
+            var_dg_list_numpy = temp_sess.run(graph_hook.var_dg_list)
+        graph_hook.var_dg_to_numpy = {
+            var: var_np for var, var_np in zip(graph_hook.var_dg_list, var_dg_list_numpy)
+        }
+        session.BaseSession._do_run = decorated_do_run
+        neuron_cc_job_list = []
+        neuron_op_neff_path_list = []
+        for op, get_cc_job_func in graph_hook.map_cc_job_func.items():
+            neuron_cc_job, neff_path = get_cc_job_func()
+            neuron_cc_job_list.append(neuron_cc_job)
+            neuron_op_neff_path_list.append([op, neff_path])
+        with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
+            futures = [executor.submit(job) for job in neuron_cc_job_list]
+            for fut in futures:
+                fut.result().check_returncode()
+        for op, neff_path in neuron_op_neff_path_list:
+            with open(neff_path, 'rb') as f:
+                executable = f.read()
+            model_config = _get_model_config(executable)
+            op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
+            model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
+            op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))
+        graph_hook.compiler_all_executed = True
         return func(sess, *args, **kwargs)
-    wrapper.neuron_decorated = True
     return wrapper
 
 
@@ -306,6 +293,105 @@ class TensorManager:
             return values
         else:
             return values
+
+
+class NeuronGraphHook:
+
+    tensorflowVariable = variables.VariableV1
+
+    def __init__(self, graph):
+        self.outer_graph = graph
+        self.var_dg_list = []
+        self.graph_var_fg_to_dg = {}
+        self.compiler_all_executed = False
+        self.map_cc_job_func = {}
+
+    @contextmanager
+    def fuse_graph_scope(self):
+        latest_fg_var_list = []
+
+        def fuseVariable(initial_value, *args, **kwargs):
+            with self.outer_graph.as_default():
+                var_dg = self.tensorflowVariable(initial_value, *args, **kwargs)
+            initial_value_numpy = numpy.zeros(var_dg.shape, var_dg.dtype.as_numpy_dtype)
+            with ops.name_scope(var_dg.op.name):
+                initial_value_const = constant_op.constant_v1(
+                    initial_value_numpy, name='neuron_initial_value_const')
+            var_fg = self.tensorflowVariable(initial_value_const, *args, **kwargs)
+            latest_fg_var_list.append(var_fg)
+            self.var_dg_list.append(var_dg)
+            if var_fg.graph not in self.graph_var_fg_to_dg:
+                self.graph_var_fg_to_dg[var_fg.graph] = {}
+            self.graph_var_fg_to_dg[var_fg.graph][var_fg] = var_dg
+            return var_fg
+
+        tensorflow.Variable = fuseVariable
+        latest_fg_var_list = []
+        try:
+            yield latest_fg_var_list
+        finally:
+            tensorflow.Variable = self.tensorflowVariable
+
+    def neuron_get_cc_job(self, fuse_graph, latest_fg_var_list, workdir,
+                          io_config, compiler_args, verbose, timeout, op_name):
+        var_fg_name_to_numpy = {}
+        for var_fg in latest_fg_var_list:
+            var_dg = self.graph_var_fg_to_dg[fuse_graph][var_fg]
+            var_fg_name_to_numpy[var_fg.op.name] = self.var_dg_to_numpy[var_dg]
+        node_rename_map = {}
+        remove_node_names = set()
+        with fuse_graph.as_default():
+            for op in fuse_graph.get_operations():
+                if op.name in var_fg_name_to_numpy:
+                    remove_node_names.add(op.name)
+                    consumers = op.outputs[0].consumers()
+                    remove_node_names.update(cop.name for cop in consumers if cop.type == 'Assign')
+                    var_numpy = var_fg_name_to_numpy[op.name]
+                    with ops.name_scope(op_name):
+                        const = constant_op.constant_v1(var_numpy, name='neuron_const')
+                    node_rename_map[const.op.name] = op.name
+        fuse_graph_def = fuse_graph.as_graph_def()
+        graph_def = graph_pb2.GraphDef()
+        graph_def.node.MergeFrom(
+            node for node in fuse_graph_def.node if node.name not in remove_node_names)
+        for node in graph_def.node:
+            if node.name in node_rename_map:
+                node.name = node_rename_map[node.name]
+        if workdir is None:
+            tempdir = tempfile.TemporaryDirectory()
+        else:
+            TempDir = collections.namedtuple('TempDir', 'name')
+            prefix = os.path.join(os.path.abspath(workdir), 'tmp')
+            os.makedirs(workdir, exist_ok=True)
+            tempdir = TempDir(tempfile.mkdtemp(prefix=prefix))
+        graph_def = normalize_operators(graph_def)
+        with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
+            f.write(graph_def.SerializeToString())
+        neuron_cc = find_neuron_cc()
+        command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
+                   '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
+                   '--io-config', io_config]
+        if compiler_args is not None:
+            command.extend(compiler_args)
+        neff_path = os.path.join(tempdir.name, _neuron_executable_name)
+        info_string = 'fusing subgraph "{}" with neuron-cc'.format(op_name)
+        if not verbose:
+            logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
+            if workdir is not None:
+                info_string = '{}; log file is at {}'.format(info_string, logfile_path)
+        def neuron_cc_job():
+            with logging_show_info():
+                logging.info(info_string)
+                if verbose:
+                    logging.info('calling neuron-cc with: {}'.format(' '.join(command)))
+            local_tempdir = tempdir  # keep tempdir alive
+            call_neuron_cc = partial(subprocess.run, command, cwd=local_tempdir.name, timeout=timeout)
+            if verbose:
+                return call_neuron_cc()
+            else:
+                with open(logfile_path, 'w') as logfd:
+                    return call_neuron_cc(stdout=logfd, stderr=logfd)
+        return neuron_cc_job, neff_path
 
 
 def _io_config(input_tensors, output_tensors):
