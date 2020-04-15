@@ -20,7 +20,7 @@ from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.client import session
 from tensorflow.python.framework import ops, constant_op
-from tensorflow.python.ops import array_ops, variables
+from tensorflow.python.ops import array_ops, variables, variable_scope
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_util import (
@@ -28,7 +28,7 @@ from tensorflow.neuron.python.graph_util import (
     _neff_get_cores_from_executable, find_neuron_cc)
 
 
-_neuron_sess_do_run_decorated = False
+_neuron_sess_run_decorated = False
 _neuron_graph_to_hook = {}
 _neuron_cc_input_name = 'graph_def.pb'
 _neuron_executable_name = 'graph_def.neff'
@@ -156,10 +156,10 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             )
         if is_asynchronous and not executable_content:
             graph_hook.map_cc_job_func[output_tensors[0].op] = neuron_get_cc_job_func
-            global _neuron_sess_do_run_decorated
-            if not _neuron_sess_do_run_decorated:
-                session.BaseSession._do_run = neuron_decorate_run(session.BaseSession._do_run)
-                _neuron_sess_do_run_decorated = True
+            global _neuron_sess_run_decorated
+            if not _neuron_sess_run_decorated:
+                session.Session.run = neuron_decorate_run(session.Session.run)
+                _neuron_sess_run_decorated = True
         if callable(grad_func):
             _neuron_grad_dict[output_tensors[0]] = grad_func
             _neuron_grad_func_set.add(getattr(grad_func, '__wrapped__', grad_func))
@@ -200,15 +200,19 @@ def neuron_decorate_run(func):
         graph_hook = _neuron_graph_to_hook.get(sess.graph, None)
         if graph_hook is None or graph_hook.compiler_all_executed:
             return func(sess, *args, **kwargs)
-        decorated_do_run = session.BaseSession._do_run
-        session.BaseSession._do_run = decorated_do_run.__wrapped__
-        with session.Session(graph=sess.graph) as temp_sess:
-            temp_sess.run(variables.global_variables_initializer())
-            var_dg_list_numpy = temp_sess.run(graph_hook.var_dg_list)
-        graph_hook.var_dg_to_numpy = {
-            var: var_np for var, var_np in zip(graph_hook.var_dg_list, var_dg_list_numpy)
-        }
-        session.BaseSession._do_run = decorated_do_run
+        graph_hook.var_dg_to_numpy = {}
+        if graph_hook.var_dg_list:
+            decorated_run = session.Session.run
+            session.Session.run = decorated_run.__wrapped__
+            with session.Session(graph=sess.graph) as temp_sess:
+                try:
+                    temp_sess.run(*args, **kwargs)
+                except:
+                    pass
+                var_dg_list_numpy = temp_sess.run(graph_hook.var_dg_list)
+            for var, var_np in zip(graph_hook.var_dg_list, var_dg_list_numpy):
+                graph_hook.var_dg_to_numpy[var] = var_np
+            session.Session.run = decorated_run
         neuron_cc_job_list = []
         neuron_op_neff_path_list = []
         for op, get_cc_job_func in graph_hook.map_cc_job_func.items():
@@ -298,6 +302,7 @@ class TensorManager:
 class NeuronGraphHook:
 
     tensorflowVariable = variables.VariableV1
+    original_get_variable = variable_scope.VariableScope.get_variable
 
     def __init__(self, graph):
         self.outer_graph = graph
@@ -312,25 +317,55 @@ class NeuronGraphHook:
 
         def fuseVariable(initial_value, *args, **kwargs):
             with self.outer_graph.as_default():
-                var_dg = self.tensorflowVariable(initial_value, *args, **kwargs)
+                var_dg = NeuronGraphHook.tensorflowVariable(initial_value, *args, **kwargs)
             initial_value_numpy = numpy.zeros(var_dg.shape, var_dg.dtype.as_numpy_dtype)
             with ops.name_scope(var_dg.op.name):
                 initial_value_const = constant_op.constant_v1(
                     initial_value_numpy, name='neuron_initial_value_const')
-            var_fg = self.tensorflowVariable(initial_value_const, *args, **kwargs)
-            latest_fg_var_list.append(var_fg)
-            self.var_dg_list.append(var_dg)
-            if var_fg.graph not in self.graph_var_fg_to_dg:
-                self.graph_var_fg_to_dg[var_fg.graph] = {}
-            self.graph_var_fg_to_dg[var_fg.graph][var_fg] = var_dg
+            var_fg = NeuronGraphHook.tensorflowVariable(initial_value_const, *args, **kwargs)
+            self._register_var_fg_dg(var_fg, var_dg, latest_fg_var_list)
+            return var_fg
+
+        new_var_store = variable_scope._VariableStore()  # to avoid var_fg name conflict
+
+        def fuse_get_variable(var_scope, var_store, name, *args, **kwargs):
+            with self.outer_graph.as_default():
+                var_dg = NeuronGraphHook.original_get_variable(var_scope, var_store, name, *args, **kwargs)
+            initial_value_numpy = numpy.zeros(var_dg.shape, var_dg.dtype.as_numpy_dtype)
+            with ops.name_scope(var_dg.op.name):
+                initial_value_const = constant_op.constant_v1(
+                    initial_value_numpy, name='neuron_initial_value_const')
+            # remove shape as initializer is a constant
+            if len(args) > 0:
+                args = list(args)
+                args[0] = None
+                args = tuple(args)
+            else:
+                kwargs['shape'] = None
+            if len(args) > 2:
+                args = list(args)
+                args[2] = initial_value_const
+                args = tuple(args)
+            else:
+                kwargs['initializer'] = initial_value_const
+            var_fg = NeuronGraphHook.original_get_variable(var_scope, new_var_store, name, *args, **kwargs)
+            self._register_var_fg_dg(var_fg, var_dg, latest_fg_var_list)
             return var_fg
 
         tensorflow.Variable = fuseVariable
-        latest_fg_var_list = []
+        variable_scope.VariableScope.get_variable = fuse_get_variable
         try:
             yield latest_fg_var_list
         finally:
-            tensorflow.Variable = self.tensorflowVariable
+            tensorflow.Variable = NeuronGraphHook.tensorflowVariable
+            variable_scope.VariableScope.get_variable = NeuronGraphHook.original_get_variable
+
+    def _register_var_fg_dg(self, var_fg, var_dg, latest_fg_var_list):
+        latest_fg_var_list.append(var_fg)
+        self.var_dg_list.append(var_dg)
+        if var_fg.graph not in self.graph_var_fg_to_dg:
+            self.graph_var_fg_to_dg[var_fg.graph] = {}
+        self.graph_var_fg_to_dg[var_fg.graph][var_fg] = var_dg
 
     def neuron_get_cc_job(self, fuse_graph, latest_fg_var_list, workdir,
                           io_config, compiler_args, verbose, timeout, op_name):

@@ -236,7 +236,7 @@ class TestFuse(unittest.TestCase):
                 loss0_np1 = sess.run(loss0, feed_dict)
                 assert loss0_np1.sum() < loss0_np0.sum()
 
-    def test_fuse_variables(self):
+    def test_fuse_variable(self):
 
         def func_with_variables(input0):
             np.random.seed(_RANDOM_SEED)
@@ -266,6 +266,41 @@ class TestFuse(unittest.TestCase):
                 sess.run(tf.global_variables_initializer())
                 output0_np_neuron = sess.run(output0, feed_dict)
                 np.testing.assert_allclose(output0_np_neuron, output0_np_ref, rtol=3e-2, atol=1e-5)
+
+    def test_fuse_layers_dense(self):
+
+        def init():
+            return tf.truncated_normal_initializer(stddev=0.2)
+
+        def func_with_variables(input0):
+            np.random.seed(_RANDOM_SEED)
+            temp0 = tf.layers.dense(input0, 16, 'relu', name='dense0', kernel_initializer=init())
+            temp1 = tf.layers.dense(temp0, 8, 'relu', name='dense1', kernel_initializer=init())
+            temp2 = tf.layers.dense(temp1, 4, 'relu', name='dense2', kernel_initializer=init())
+            output0 = tf.layers.dense(temp2, 2, 'relu', name='dense3', kernel_initializer=init())
+            return output0
+
+        checkpoint_directory = './training_checkpoints'
+        checkpoint_prefix = os.path.join(checkpoint_directory, 'ckpt')
+        batch_size = 5
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 32], name='input0')
+            feed_dict = {input0.name: np.random.uniform(-1, 1, size=[batch_size, 32])}
+            output0 = func_with_variables(input0)
+            saver = tf.compat.v1.train.Saver()
+            sess.run(tf.global_variables_initializer())
+            save_path = saver.save(sess, 'my-model', global_step=0)
+            output0_np_ref = sess.run(output0, feed_dict)
+
+        func_with_variables = fuse(batch_size=1, dynamic_batch_size=True, verbose=True)(func_with_variables)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(input0.dtype, input0.shape, name=input0.op.name)
+            output0 = func_with_variables(input0)
+            saver = tf.compat.v1.train.Saver()
+            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+                saver.restore(sess, save_path)
+                output0_np_neuron = sess.run(output0, feed_dict)
+                np.testing.assert_allclose(output0_np_neuron, output0_np_ref, rtol=3e-2, atol=1e-3)
 
 
 def actualtest_fuse_eager_execution():
