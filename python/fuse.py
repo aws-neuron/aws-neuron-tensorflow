@@ -326,9 +326,12 @@ class NeuronGraphHook:
             self._register_var_fg_dg(var_fg, var_dg, latest_fg_var_list)
             return var_fg
 
+        current_var_scope = variable_scope.get_variable_scope().name
         new_var_store = variable_scope._VariableStore()  # to avoid var_fg name conflict
 
         def fuse_get_variable(var_scope, var_store, name, *args, **kwargs):
+            var_scope_name = var_scope._name
+            var_scope._name = os.path.join(current_var_scope, var_scope.name)
             with self.outer_graph.as_default():
                 var_dg = NeuronGraphHook.original_get_variable(var_scope, var_store, name, *args, **kwargs)
             initial_value_numpy = numpy.zeros(var_dg.shape, var_dg.dtype.as_numpy_dtype)
@@ -349,6 +352,7 @@ class NeuronGraphHook:
             else:
                 kwargs['initializer'] = initial_value_const
             var_fg = NeuronGraphHook.original_get_variable(var_scope, new_var_store, name, *args, **kwargs)
+            var_scope._name = var_scope_name
             self._register_var_fg_dg(var_fg, var_dg, latest_fg_var_list)
             return var_fg
 
