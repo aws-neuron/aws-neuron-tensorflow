@@ -136,10 +136,11 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
                 executable_content = f.read()
         model_config = _get_model_config(executable_content)
         if eager:
-            try:
-                ops.enable_eager_execution()
-            except ValueError:
-                ops.enable_eager_execution()
+            # hack to allow enable_eager_execution; see tensorflow/python/framework/ops.py
+            global_default_graph = ops._default_graph_stack._global_default_graph
+            ops._default_graph_stack._global_default_graph = None
+            ops.enable_eager_execution()
+            ops._default_graph_stack._global_default_graph = global_default_graph
         serialized_graph_def = fuse_graph.as_graph_def().SerializeToString()
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
