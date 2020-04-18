@@ -25,7 +25,7 @@ from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_util import (
     normalize_operators, most_popular_namescope, logging_show_info,
-    _neff_get_cores_from_executable, find_neuron_cc)
+    _neff_get_cores_from_executable, find_neuron_cc, erase_large_constants)
 
 
 _neuron_sess_run_decorated = False
@@ -141,10 +141,10 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             ops._default_graph_stack._global_default_graph = None
             ops.enable_eager_execution()
             ops._default_graph_stack._global_default_graph = global_default_graph
-        serialized_graph_def = fuse_graph.as_graph_def().SerializeToString()
+        fuse_graph_def = erase_large_constants(fuse_graph.as_graph_def())
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
-                input_tensors=input_tensors, graph_def=serialized_graph_def,
+                input_tensors=input_tensors, graph_def=fuse_graph_def.SerializeToString(),
                 input_names=[ts.name for ts in placeholders],
                 input_shapes=[ts.shape for ts in placeholders],
                 input_batch_axis=input_batch_axis,
@@ -390,10 +390,12 @@ class NeuronGraphHook:
                     with ops.name_scope(op_name):
                         const = constant_op.constant_v1(var_numpy, name='neuron_const')
                     node_rename_map[const.op.name] = op.name
-        fuse_graph_def = fuse_graph.as_graph_def()
-        graph_def = graph_pb2.GraphDef()
-        graph_def.node.MergeFrom(
-            node for node in fuse_graph_def.node if node.name not in remove_node_names)
+        graph_def = fuse_graph.as_graph_def()
+        if remove_node_names:
+            fuse_graph_def = graph_def
+            graph_def = graph_pb2.GraphDef()
+            graph_def.node.MergeFrom(
+                node for node in fuse_graph_def.node if node.name not in remove_node_names)
         for node in graph_def.node:
             if node.name in node_rename_map:
                 node.name = node_rename_map[node.name]

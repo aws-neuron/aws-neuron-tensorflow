@@ -193,20 +193,6 @@ def inference_graph_from_session(
         dtypes.qint16.as_datatype_enum: numpy.int16,
         dtypes.qint32.as_datatype_enum: numpy.int32,
     })
-    gd_dtype_val_map = {
-        dtypes.bool.as_datatype_enum: 'bool_val',
-        dtypes.complex128.as_datatype_enum: 'dcomplex_val',
-        dtypes.float64.as_datatype_enum: 'double_val',
-        dtypes.float32.as_datatype_enum: 'float_val',
-        dtypes.half.as_datatype_enum: 'half_val',
-        dtypes.int64.as_datatype_enum: 'int64_val',
-        dtypes.int32.as_datatype_enum: 'int_val',
-        dtypes.complex64.as_datatype_enum: 'scomplex_val',
-        dtypes.string.as_datatype_enum: 'string_val',
-        dtypes.uint32.as_datatype_enum: 'uint32_val',
-        dtypes.uint64.as_datatype_enum: 'uint64_val',
-        dtypes.variant.as_datatype_enum: 'variant_val',
-    }
 
     # record constants
     evaluated_map = {}
@@ -375,6 +361,41 @@ def inference_graph_from_session(
         logging.warning('')
         logging.warning('***************************************************************')
     return compiled_graph
+
+
+gd_dtype_val_map = {
+    dtypes.bool.as_datatype_enum: 'bool_val',
+    dtypes.complex128.as_datatype_enum: 'dcomplex_val',
+    dtypes.float64.as_datatype_enum: 'double_val',
+    dtypes.float32.as_datatype_enum: 'float_val',
+    dtypes.half.as_datatype_enum: 'half_val',
+    dtypes.int64.as_datatype_enum: 'int64_val',
+    dtypes.int32.as_datatype_enum: 'int_val',
+    dtypes.complex64.as_datatype_enum: 'scomplex_val',
+    dtypes.string.as_datatype_enum: 'string_val',
+    dtypes.uint32.as_datatype_enum: 'uint32_val',
+    dtypes.uint64.as_datatype_enum: 'uint64_val',
+    dtypes.variant.as_datatype_enum: 'variant_val',
+}
+
+
+def erase_large_constants(graph_def):
+    large_constants = {}
+    for node in graph_def.node:
+        if node.op == 'Const' and node.attr['value'].ByteSize() > _LARGE_CONST_SIZE:
+            tensor_content = node.attr['value'].tensor.tensor_content
+            if tensor_content:
+                large_constants[node.name] = 'tensor_content', tensor_content
+                node.attr['value'].tensor.tensor_content = b''
+            else:
+                gd_dtype = node.attr['dtype'].type
+                val_name = gd_dtype_val_map.get(gd_dtype, None)
+                if val_name is not None:
+                    value = getattr(node.attr['value'].tensor, val_name, None)
+                    if value:
+                        large_constants[node.name] = val_name, copy.deepcopy(value)
+                        node.attr['value'].tensor.ClearField(val_name)
+    return graph_def
 
 
 def find_neuron_cc():
