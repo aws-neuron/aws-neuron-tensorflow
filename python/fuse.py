@@ -84,7 +84,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         outputs = outputs_mgr.tensors()
         if dynamic_batch_size:
             input_batch_axis = _dynamic_batch_size_axis(placeholders)
-            output_batch_axis = _dynamic_batch_size_axis(outputs)
+            output_batch_axis = [0 for _ in outputs]  # todo: infer from graph + placeholders
         else:
             input_batch_axis = [-1 for _ in placeholders]
             output_batch_axis = [-1 for _ in outputs]
