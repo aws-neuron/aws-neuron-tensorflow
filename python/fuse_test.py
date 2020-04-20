@@ -45,7 +45,11 @@ class TestFuse(unittest.TestCase):
         assert relu0.shape.as_list() == [None, 2, 2, 3]
         assert sigmoid0.shape.as_list() == [None, 2, 2, 3]
 
-    def _body_fuse(self, batch_size, verbose=0):
+    def test_compiler_crash(self):
+        with self.assertRaises(subprocess.CalledProcessError):
+            relu0, sigmoid0 = self._body_fuse(1, compiler_args=['--i-am-not-recognized'])
+
+    def _body_fuse(self, batch_size, verbose=0, compiler_args=None):
         np.random.seed(_RANDOM_SEED)
         kernel0 = np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16)
         kernel1 = np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16)
@@ -63,7 +67,7 @@ class TestFuse(unittest.TestCase):
         with tf.Session(graph=tf.Graph()) as sess:
             input0 = tf.placeholder(tf.float16, [batch_size, 2, 2, 3], name='input0')
             input1 = tf.placeholder(tf.float16, [batch_size, 2, 2, 3], name='input1')
-            fuser = fuse(verbose=verbose)
+            fuser = fuse(verbose=verbose, compiler_args=compiler_args)
             if batch_size is None:
                 io_shapes = [[1, 2, 2, 3], [1, 2, 2, 3]]
                 fuser = fuse(input_shapes=io_shapes, output_shapes=io_shapes, dynamic_batch_size=True)

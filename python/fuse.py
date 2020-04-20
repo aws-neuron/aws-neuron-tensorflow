@@ -84,7 +84,9 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         outputs = outputs_mgr.tensors()
         if dynamic_batch_size:
             input_batch_axis = _dynamic_batch_size_axis(placeholders)
-            output_batch_axis = [0 for _ in outputs]  # todo: infer from graph + placeholders
+            output_batch_axis = _dynamic_batch_size_axis(outputs)
+            if dynamic_batch_size == 'force':
+                output_batch_axis = [0 for _ in outputs]  # todo: infer from graph + placeholders
         else:
             input_batch_axis = [-1 for _ in placeholders]
             output_batch_axis = [-1 for _ in outputs]
@@ -188,7 +190,7 @@ def neuron_get_cc_job(graph_def, workdir, io_config, compiler_args, verbose, tim
             logging.info('calling neuron-cc with: {}'.format(' '.join(command)))
         def neuron_cc_job():
             local_tempdir = tempdir  # keep tempdir alive when neuron-cc is running
-            subprocess.check_call(command, cwd=tempdir.name, timeout=timeout)
+            return subprocess.run(command, cwd=tempdir.name, timeout=timeout)
     else:
         logfile_path = os.path.join(tempdir.name, 'log-fe.txt')
         info_string = 'fusing subgraph "{}" with neuron-cc'.format(op_name)
@@ -199,7 +201,7 @@ def neuron_get_cc_job(graph_def, workdir, io_config, compiler_args, verbose, tim
         def neuron_cc_job():
             local_tempdir = tempdir
             with open(logfile_path, 'w') as logfd:
-                subprocess.check_call(command, cwd=tempdir.name, stdout=logfd, stderr=logfd, timeout=timeout)
+                return subprocess.run(command, cwd=tempdir.name, stdout=logfd, stderr=logfd, timeout=timeout)
     return neuron_cc_job, neff_path
 
 
@@ -227,7 +229,7 @@ def neuron_decorate_run(func):
             with ThreadPoolExecutor(max_workers=multiprocessing.cpu_count()) as executor:
                 futures = [executor.submit(job) for job in neuron_cc_job_list]
                 for fut in futures:
-                    fut.result()
+                    fut.result().check_returncode()
             for op, neff_path in neuron_op_list:
                 with open(neff_path, 'rb') as f:
                     executable = f.read()
