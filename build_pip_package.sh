@@ -48,9 +48,15 @@ function main() {
     cp -R bazel-bin/tensorflow/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/neuron "${TFPYDIR}/"
     sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
 
+    # Before we leave the top-level directory, make sure we know how to
+    # call python.
+    if [[ -e tools/python_bin_path.sh ]]; then
+        source tools/python_bin_path.sh
+    fi
+
     echo $(date) : "=== Building wheel"
     cd "${TMPDIR}"
-    python setup.py -q bdist_wheel ${PLATFORM}
+    "${PYTHON_BIN_PATH:-python}" setup.py -q bdist_wheel ${PLATFORM}
     mkdir -p "${DSTDIR}"
     cp "${TMPDIR}"/dist/* "${DSTDIR}"
     echo $(date) : "=== Output wheel file is in: ${DSTDIR}"
