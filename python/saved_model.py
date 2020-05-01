@@ -139,6 +139,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                          for ts in signature_def.inputs.values()}
         output_tensors = {sess.graph.get_tensor_by_name(ts.name)
                           for ts in signature_def.outputs.values()}
+        saved_model_main_op = meta_graph.collection_def['saved_model_main_op'].node_list.value
         inputs = {}
         for key, value in signature_def.inputs.items():
             if key not in inputs:
@@ -157,7 +158,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         # get inference graph
         infer_graph = inference_graph_from_session.__wrapped__(
             sess, input_tensors=input_tensors, output_tensors=output_tensors,
-            **kwargs)
+            protected_op_names=saved_model_main_op, **kwargs)
 
     # load inference graph into a session and export as a SavedModel
     with tf_session.Session(graph=infer_graph) as sess:
@@ -169,8 +170,11 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         for tensor in signature_def.outputs.values():
             infer_tensor = infer_graph.get_tensor_by_name(tensor.name)
             tensor.tensor_shape.CopyFrom(infer_tensor.shape.as_proto())
+        saved_model_main_op = [sess.graph.get_operation_by_name(name) for name in saved_model_main_op]
+        main_op = saved_model_main_op[0] if saved_model_main_op else None
         builder.add_meta_graph_and_variables(sess, tags, signature_def_map=signature_def_map,
-                                             strip_default_attrs=strip_default_attrs)
+                                             strip_default_attrs=strip_default_attrs,
+                                             main_op=main_op)
         builder.save()
     num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(infer_graph)
     on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0

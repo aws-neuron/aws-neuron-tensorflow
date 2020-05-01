@@ -6,6 +6,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
+import glob
 import shutil
 import subprocess
 import json
@@ -378,6 +379,75 @@ class TestConvertToInferenceModel(unittest.TestCase):
             result_neuron = pred_neuron(model_feed_dict)
             for name in result_ref.keys():
                 np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+
+    def test_estimator_table_init(self):
+        embedding_ids = [str(x) for x in range(10)]
+        emedding_vocab_file = './estimator_table_init_ids.txt'
+        with open(emedding_vocab_file, 'w') as f:
+            for idx in embedding_ids:
+                f.write('{}\n'.format(idx))
+        embedding_identity_column = tf.feature_column.embedding_column(
+            tf.feature_column.categorical_column_with_identity("embedding_identity", 11), dimension=8)
+        embedding_list_column = tf.feature_column.embedding_column(
+            tf.feature_column.categorical_column_with_vocabulary_list("embedding_list", embedding_ids), dimension=8)
+        embedding_file_column = tf.feature_column.embedding_column(
+            tf.feature_column.categorical_column_with_vocabulary_file("embedding_file", emedding_vocab_file), dimension=8)
+        feature_columns = [embedding_identity_column, embedding_list_column, embedding_file_column]
+        def input_fn():
+            dataset = tf.data.experimental.RandomDataset()
+            dataset = dataset.map(lambda x: (
+                {
+                    'embedding_identity': x % 10,
+                    'embedding_list': str(x % 10),
+                    'embedding_file': str(x % 10),
+                },
+                float(x % 9973) / 9973,
+            ))
+            dataset = dataset.batch(128)
+            return dataset
+        def model_fn(features, labels, mode, params, config):
+            column_tensors = {}
+            dense_tensor = tf.feature_column.input_layer(
+                features, feature_columns, cols_to_output_tensors=column_tensors, trainable=True)
+            net = tf.keras.layers.Concatenate()(list(column_tensors.values()))
+            net = tf.keras.layers.Dense(4)(net)
+            net = tf.keras.layers.Dense(2)(net)
+            logits = tf.keras.layers.Dense(1)(net)
+            head = tf.contrib.estimator.binary_classification_head()
+            optimizer = tf.contrib.opt.AdamWOptimizer(weight_decay=1e-2)
+            return head.create_estimator_spec(features=features, mode=mode, logits=logits,
+                                              labels=labels, optimizer=optimizer)
+        model_dir = './estimator_table_init'
+        shutil.rmtree(model_dir, ignore_errors=True)
+        estimator = tf.estimator.Estimator(model_dir=model_dir, model_fn=model_fn)
+        estimator.train(input_fn, steps=10)
+        export_dir_base = './estimator_table_init_saved_model'
+        feature_spec = tf.feature_column.make_parse_example_spec(feature_columns)
+        serving_input_receiver_fn = tf.estimator.export.build_parsing_serving_input_receiver_fn(feature_spec)
+        shutil.rmtree(export_dir_base, ignore_errors=True)
+        estimator.export_saved_model(export_dir_base, serving_input_receiver_fn)
+        real_model_dir = glob.glob(os.path.join('./estimator_table_init_saved_model', '*'))[0]
+
+        embedding_identity = tf.train.Feature(int64_list=tf.train.Int64List(value=np.random.randint(10, size=10)))
+        embedding_file = tf.train.Feature(bytes_list=tf.train.BytesList(value=[emedding_vocab_file.encode()]))
+        embedding_list = tf.train.Feature(bytes_list=tf.train.BytesList(value=[b'0123456789']))
+        feature = {
+            'embedding_identity': embedding_identity,
+            'embedding_file': embedding_file,
+            'embedding_list': embedding_list,
+        }
+        example_proto = tf.train.Example(features=tf.train.Features(feature=feature))
+        model_feed_dict = {'inputs': [example_proto.SerializeToString()]}
+        pred_ref = tf.contrib.predictor.from_saved_model(real_model_dir)
+        result_ref = pred_ref(model_feed_dict)
+
+        neuron_model_dir = './estimator_table_init_saved_model_neuron'
+        shutil.rmtree(neuron_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(real_model_dir, neuron_model_dir, model_feed_dict=model_feed_dict)
+        pred_neuron = tf.contrib.predictor.from_saved_model(neuron_model_dir)
+        result_neuron = pred_neuron(model_feed_dict)
+        np.testing.assert_equal(result_neuron['classes'], result_ref['classes'])
+        np.testing.assert_allclose(result_neuron['scores'], result_ref['scores'], rtol=1e-2, atol=1e-3)
 
 
 class TestSavedModelCLIConvert(unittest.TestCase):

@@ -56,6 +56,7 @@ _LARGE_CONST_SIZE = 1024
 def inference_graph_from_session(
         sess=None, input_tensors=None, output_tensors=None,
         shape_feed_dict=None, feed_dict=None, dynamic_batch_size=False,
+        protected_op_names=None,
         op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
         grappler=False, max_num_compilers=None,
         compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True,
@@ -148,7 +149,10 @@ def inference_graph_from_session(
         output_ops = _output_ops(sess.graph, output_names)
 
     # convert variables to constants
-    protected_op_names = {op.name for op in output_ops}
+    if protected_op_names is None:
+        protected_op_names = set()
+    protected_op_names = set(protected_op_names)
+    protected_op_names.update(op.name for op in output_ops)
     protected_op_names.update(sess.graph.get_tensor_by_name(name).op.name
                               for name in input_names)
     if feed_dict is not None:
