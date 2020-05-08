@@ -111,7 +111,9 @@ def inference_graph_from_session(
         parser = argparse.ArgumentParser()
         parser.add_argument('--must-compile', action='store_true')
         parser.add_argument('--dump-prefix', default=None)
+        parser.add_argument('--verbose', type=int, default=None)
         tf_neuron_args, neuron_cc_args = parser.parse_known_args(shlex.split(os.environ['NEURON_CC_FLAGS']))
+        compiler_verbose = tf_neuron_args.verbose
         if tf_neuron_args.must_compile:
             compiler_recovery = False
             compiler_verbose = 1
@@ -936,7 +938,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         workdir_base = os.path.abspath(workdir)
     if timeout is None:
         timeout = 1800
-    Compiler = collections.namedtuple('Compiler', 'command debug_logging workdir_path')
+    Compiler = collections.namedtuple('Compiler', 'command write_log_to_file verbose workdir_path')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
     neuron_cc = find_neuron_cc()
@@ -974,8 +976,8 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             command.extend(extend_args)
         if verbose is not None:
             command.extend(['--verbose', str(verbose)])
-        debug_logging = workdir is not None or verbose is not None
-        subgraph_compilers[node.name] = Compiler(command, debug_logging, workdir_path)
+        write_log_to_file = workdir is not None and verbose is None
+        subgraph_compilers[node.name] = Compiler(command, write_log_to_file, verbose, workdir_path)
     if max_num_compilers is None:
         num_cpu = multiprocessing.cpu_count()
         try:
@@ -1064,20 +1066,24 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
     compiler = subgraph_compilers[node_name]
     if compiler is None:
         return None
-    command, debug_logging, workdir_path = compiler
+    command, write_log_to_file, verbose, workdir_path = compiler
     logfile = os.path.join(workdir_path, 'graph_def.neuron-cc.log')
     info_string = 'fusing subgraph {} with neuron-cc'.format(node_name)
-    if debug_logging:
+    if write_log_to_file:
         info_string = '{}; log file is at {}'.format(info_string, logfile)
     with logging_show_info():
         logging.info(info_string)
-    with open(logfile, 'w') as logfd:
-        proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
+    if verbose:
+        proc = subprocess.Popen(command, cwd=workdir_path)
         returncode = _wait_compiler(proc, timeout)
+    else:
+        with open(logfile, 'w') as logfd:
+            proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
+            returncode = _wait_compiler(proc, timeout)
     if returncode != 0:
         command = subprocess.list2cmdline(command)
         logging.warning("Failed to fuse subgraph {} with '{}'".format(node_name, command))
-        if debug_logging:
+        if write_log_to_file:
             logging.warning("neuron-cc error message:")
             full_neuron_cc_log = []
             neuron_cc_error_message = []
