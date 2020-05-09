@@ -316,15 +316,15 @@ def inference_graph_from_session(
         args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers,
         verbose=compiler_verbose)
 
+    if dynamic_batch_size:
+        compiled_graph_def = mark_batch_axis(compiled_graph_def)
+
     if compiler_recovery:
         compiled_graph_def = restore_compiler_failures(compiled_graph_def, graph)
         compiled_graph_def = nchw_to_nhwc(compiled_graph_def)
     for node in compiled_graph_def.node:
         if node.name in large_constants:
             _restore_large_constants(node, large_constants[node.name])
-
-    if dynamic_batch_size:
-        compiled_graph_def = mark_batch_axis(compiled_graph_def)
 
     # rename NeuronOp's for better visualization
     name_change_map = {}
@@ -610,10 +610,6 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
                     new_shape = constant_op.constant_v1(shape_np, name=op.inputs[1].op.name)
                     new_shape._handle_data = None
                     op._update_input(1, new_shape)
-                with graph.as_default():  # need to guarantee all op names match in both graphs
-                    new_shape = constant_op.constant_v1(shape_np, name=new_shape.op.name)
-                    oop = graph.get_operation_by_name(op.name)
-                    oop._update_input(1, new_shape)
             _infer_shape(op)
             if op.type == 'TensorArrayGatherV3' and op.inputs[1].name in evaluated_map:
                 output_shape = [evaluated_map[op.inputs[1].name].size]
