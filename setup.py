@@ -1,17 +1,18 @@
 import setuptools
+from wheel.bdist_wheel import bdist_wheel
 
-try:
-    from wheel.bdist_wheel import bdist_wheel as _bdist_wheel
-    class bdist_wheel(_bdist_wheel):
-        def finalize_options(self):
-            _bdist_wheel.finalize_options(self)
-            self.root_is_pure = False
-        def get_tag(self):
-            python, abi, plat = _bdist_wheel.get_tag(self)
-            python, abi = 'py3', 'none'
-            return python, abi, plat
-except ImportError:
-    bdist_wheel = None
+
+class tfn_bdist_wheel(bdist_wheel):
+
+    def finalize_options(self):
+        super().finalize_options()
+        self.root_is_pure = False
+
+    def get_tag(self):
+        python, abi, plat = super().get_tag()
+        python, abi = 'py3', 'none'
+        return python, abi, plat
+
 
 setuptools.setup(
     name='tensorflow-neuron-plugin',
@@ -41,9 +42,9 @@ setuptools.setup(
     include_package_data=True,
     packages=setuptools.PEP420PackageFinder.find(),
     package_data={
-        '': ['*'],
+        'tensorflow-plugins': ['_aws_neuron_whitelist_partition_swig.so'],
     },
-    cmdclass={'bdist_wheel': bdist_wheel},
+    cmdclass={'bdist_wheel': tfn_bdist_wheel},
     install_requires=[
         'tensorflow >= 1.15.0, < 1.16.0',
         'tensorboard-neuron >= 1.15.0, < 1.16.0',
