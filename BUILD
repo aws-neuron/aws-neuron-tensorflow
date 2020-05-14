@@ -10,7 +10,7 @@ py_library(
     srcs = [
         "python/graph_util.py",
     ],
-    deps = ["//tensorflow/neuron/convert:whitelist_partition_swig"],
+    deps = ["//tensorflow/neuron/convert:aws_neuron_whitelist_partition_swig"],
 )
 
 py_library(

@@ -5,8 +5,8 @@ load("//tensorflow:tensorflow.bzl", "tf_copts")
 
 
 tf_py_wrap_cc(
-    name = "whitelist_partition_swig",
-    srcs = ["whitelist_partition.i"],
+    name = "aws_neuron_whitelist_partition_swig",
+    srcs = ["aws_neuron_whitelist_partition.i"],
     copts = tf_copts(),
     deps = [
         ":convert_graph",

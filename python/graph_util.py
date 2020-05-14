@@ -44,7 +44,7 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.framework import meta_graph
-from tensorflow.neuron.convert.whitelist_partition_swig import WhitelistPartition
+from tensorflow.neuron.convert.aws_neuron_whitelist_partition_swig import WhitelistPartition
 
 
 _NEURON_OP = 'NeuronOp'
