@@ -3,13 +3,14 @@ package(default_visibility = ["//visibility:public"])
 load("//tensorflow:tensorflow.bzl", "tf_py_wrap_cc")
 load("//tensorflow:tensorflow.bzl", "tf_copts")
 
+
 tf_py_wrap_cc(
     name = "whitelist_partition_swig",
     srcs = ["whitelist_partition.i"],
     copts = tf_copts(),
     deps = [
         ":convert_graph",
-        "//tensorflow/neuron/runtime:neuron_op",
+        "//tensorflow/neuron/runtime:all_ops",
         "//tensorflow/c:tf_status_helper",
         "//third_party/python_runtime:headers",
     ],
@@ -22,7 +23,6 @@ cc_library(
     copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         ":segment",
-        "//tensorflow/neuron:all_ops",
         "//tensorflow/core:core_cpu_headers_lib",
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",

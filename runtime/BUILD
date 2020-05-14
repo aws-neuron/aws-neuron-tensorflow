@@ -2,30 +2,29 @@ package(default_visibility = ["//visibility:public"])
 
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
+load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_kernel_library")
+
 
 cc_library(
     name = "all_ops",
     deps = [
-        ":neuron_op",
-    ],
-)
-
-cc_library(
-    name = "neuron_op",
-    srcs = ["kernels/neuron_op.cc"],
-    hdrs = [
-        "kernels/neuron_op.h",
-    ],
-    copts = ["-std=c++14"],
-    deps = [
-        ":device",
         ":neuron_op_op_lib",
+        ":neuron_op_kernel",
     ],
-    alwayslink = 1,
 )
 
 tf_gen_op_libs(
     op_lib_names = ["neuron_op"],
+)
+
+tf_kernel_library(
+    name = "neuron_op_kernel",
+    srcs = ["kernels/neuron_op.cc"],
+    hdrs = ["kernels/neuron_op.h"],
+    copts = ["-std=c++14"],
+    deps = [
+        ":device",
+    ],
 )
 
 cc_library(
