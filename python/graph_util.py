@@ -232,21 +232,7 @@ def inference_graph_from_session(
     tf_graph_util.extract_sub_graph = extract_sub_graph
 
     # strip out large constants
-    large_constants = {}
-    for node in graph_def.node:
-        if node.op == 'Const' and node.attr['value'].ByteSize() > _LARGE_CONST_SIZE:
-            tensor_content = node.attr['value'].tensor.tensor_content
-            if tensor_content:
-                large_constants[node.name] = 'tensor_content', tensor_content
-                node.attr['value'].tensor.tensor_content = b''
-            else:
-                gd_dtype = node.attr['dtype'].type
-                val_name = gd_dtype_val_map.get(gd_dtype, None)
-                if val_name is not None:
-                    value = getattr(node.attr['value'].tensor, val_name, None)
-                    if value:
-                        large_constants[node.name] = val_name, copy.deepcopy(value)
-                        node.attr['value'].tensor.ClearField(val_name)
+    large_constants = erase_large_constants(graph_def)
 
     # setup op exclusions
     no_fuse_ops = set() if no_fuse_ops is None else set(no_fuse_ops)
@@ -382,6 +368,7 @@ gd_dtype_val_map = {
 
 
 def erase_large_constants(graph_def):
+    # modifies graph_def in-place
     large_constants = {}
     for node in graph_def.node:
         if node.op == 'Const' and node.attr['value'].ByteSize() > _LARGE_CONST_SIZE:
@@ -397,7 +384,7 @@ def erase_large_constants(graph_def):
                     if value:
                         large_constants[node.name] = val_name, copy.deepcopy(value)
                         node.attr['value'].tensor.ClearField(val_name)
-    return graph_def
+    return large_constants
 
 
 def find_neuron_cc():
