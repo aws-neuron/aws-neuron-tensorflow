@@ -10,7 +10,6 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 from functools import wraps, partial
 from contextlib import contextmanager
-import numpy
 import tensorflow
 from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
@@ -20,7 +19,7 @@ from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.client import session
 from tensorflow.python.framework import ops, constant_op
-from tensorflow.python.ops import array_ops, variables, variable_scope
+from tensorflow.python.ops import array_ops, variables, variable_scope, init_ops
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_util import (
@@ -320,11 +319,9 @@ class NeuronGraphHook:
         def fuseVariable(initial_value, *args, **kwargs):
             with self.outer_graph.as_default():
                 var_dg = NeuronGraphHook.tensorflowVariable(initial_value, *args, **kwargs)
-            initial_value_numpy = numpy.zeros(var_dg.shape, var_dg.dtype.as_numpy_dtype)
             with ops.name_scope(var_dg.op.name):
-                initial_value_const = constant_op.constant_v1(
-                    initial_value_numpy, name='neuron_initial_value_const')
-            var_fg = NeuronGraphHook.tensorflowVariable(initial_value_const, *args, **kwargs)
+                zeros_initializer = partial(init_ops.Zeros(var_dg.dtype), shape=var_dg.shape)
+            var_fg = NeuronGraphHook.tensorflowVariable(zeros_initializer, *args, **kwargs)
             self._register_var_fg_dg(var_fg, var_dg, latest_fg_var_list)
             return var_fg
 
@@ -336,23 +333,14 @@ class NeuronGraphHook:
             var_scope._name = os.path.join(current_var_scope, var_scope.name)
             with self.outer_graph.as_default():
                 var_dg = NeuronGraphHook.original_get_variable(var_scope, var_store, name, *args, **kwargs)
-            initial_value_numpy = numpy.zeros(var_dg.shape, var_dg.dtype.as_numpy_dtype)
             with ops.name_scope(var_dg.op.name):
-                initial_value_const = constant_op.constant_v1(
-                    initial_value_numpy, name='neuron_initial_value_const')
-            # remove shape as initializer is a constant
-            if len(args) > 0:
+                zeros_initializer = init_ops.Zeros(var_dg.dtype)
+            if len(args) > 3:  # get_variable(name, shape=None, dtype=None, initializer=None, ...
                 args = list(args)
-                args[0] = None
+                args[3] = zeros_initializer
                 args = tuple(args)
             else:
-                kwargs['shape'] = None
-            if len(args) > 2:
-                args = list(args)
-                args[2] = initial_value_const
-                args = tuple(args)
-            else:
-                kwargs['initializer'] = initial_value_const
+                kwargs['initializer'] = zeros_initializer
             var_fg = NeuronGraphHook.original_get_variable(var_scope, new_var_store, name, *args, **kwargs)
             var_scope._name = var_scope_name
             self._register_var_fg_dg(var_fg, var_dg, latest_fg_var_list)
