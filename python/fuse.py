@@ -414,6 +414,8 @@ class NeuronGraphHook:
             with logging_show_info():
                 logging.info(info_string)
                 if verbose:
+                    if isinstance(verbose, int):
+                        command.extend(['--verbose', str(int(verbose))])
                     logging.info('calling neuron-cc with: {}'.format(' '.join(command)))
             local_tempdir = tempdir  # keep tempdir alive
             call_neuron_cc = partial(subprocess.run, command, cwd=local_tempdir.name, timeout=timeout)
