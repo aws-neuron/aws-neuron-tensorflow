@@ -236,6 +236,7 @@ class TestFuse(unittest.TestCase):
                 loss0_np1 = sess.run(loss0, feed_dict)
                 assert loss0_np1.sum() < loss0_np0.sum()
 
+    @unittest.skipIf(not hasattr(tf.neuron, 'neuron_op'), 'tensorflow-neuron-monolithic does not allow tf.Variable to be hacked')
     def test_fuse_variable(self):
 
         def func_with_variables(input0):

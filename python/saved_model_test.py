@@ -452,7 +452,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
 
 class TestSavedModelCLIConvert(unittest.TestCase):
 
-    @unittest.skipIf(not hasattr(tfn, '_module_wrapper'), 'tensorflow-neuron-plugin does not support saved_model_cli')
+    @unittest.skipIf(hasattr(tfn, 'neuron_op'), 'tensorflow-neuron-plugin does not support saved_model_cli')
     def test_saved_model_cli_convert_neuron(self):
         np.random.seed(_RANDOM_SEED)
         model_dir = './original_saved_model2'
