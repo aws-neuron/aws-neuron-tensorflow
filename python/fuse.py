@@ -24,7 +24,7 @@ from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_util import (
     normalize_operators, most_popular_namescope, logging_show_info,
-    _neff_get_cores_from_executable, find_neuron_cc, erase_large_constants)
+    get_model_config, find_neuron_cc, erase_large_constants)
 
 
 _neuron_sess_run_decorated = False
@@ -133,7 +133,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             neuron_cc_job()
             with open(neff_path, 'rb') as f:
                 executable_content = f.read()
-        model_config = _get_model_config(executable_content)
+        model_config = get_model_config(executable_content)
         if eager:
             # hack to allow enable_eager_execution; see tensorflow/python/framework/ops.py
             global_default_graph = ops._default_graph_stack._global_default_graph
@@ -185,16 +185,6 @@ def _dynamic_batch_size_axis(tensors):
     return tensor_batch_axis
 
 
-def _get_model_config(executable):
-    if not executable:
-        return []
-    opt_num_cores, min_num_cores = _neff_get_cores_from_executable(executable)
-    est_infer_timeout = len(executable) / 1e8
-    infer_timeout = max(est_infer_timeout, 10)
-    model_config = [-1, opt_num_cores, opt_num_cores, infer_timeout]
-    return model_config
-
-
 def neuron_decorate_run(func):
     @wraps(func)
     def wrapper(sess, *args, **kwargs):
@@ -227,7 +217,7 @@ def neuron_decorate_run(func):
         for op, neff_path in neuron_op_neff_path_list:
             with open(neff_path, 'rb') as f:
                 executable = f.read()
-            model_config = _get_model_config(executable)
+            model_config = get_model_config(executable)
             op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
             model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
             op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))

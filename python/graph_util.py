@@ -1101,6 +1101,20 @@ def _wait_compiler(proc, timeout):
     return proc.returncode
 
 
+def get_model_config(executable):
+    default_model_config = [-1, -1, -1, 10]
+    if not executable:
+        return default_model_config
+    tuple_cores = _neff_get_cores_from_executable(executable)
+    if tuple_cores is None:
+        return default_model_config
+    opt_num_cores, min_num_cores = tuple_cores
+    est_infer_timeout = len(executable) / 1e8
+    infer_timeout = max(est_infer_timeout, 10)
+    model_config = [-1, opt_num_cores, opt_num_cores, infer_timeout]
+    return model_config
+
+
 _NC_HEADER_SIZE = 544
 def _neff_get_cores(neff_filename):
     with open(neff_filename, mode='rb') as f:
