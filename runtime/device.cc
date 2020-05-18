@@ -36,6 +36,7 @@ void sigint_handler(int sig) {
 class ShmFile {
 public:
     ShmFile(const std::string &name) {
+        name_ = name;
         shm_open_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
         if (shm_open_fd_ >= 0) {
             if (::fchmod(shm_open_fd_, S_IRWXU | S_IRWXG | S_IRWXO) < 0) {
@@ -48,6 +49,7 @@ public:
     ~ShmFile() {
         if (shm_open_fd_ >= 0) {
             ::close(shm_open_fd_);
+            SYS_FAIL_LOG(shm_unlink(name_.c_str()) < 0, "shm_unlink");
         }
     }
     ShmFile(const ShmFile &shm_file) = delete;
@@ -57,6 +59,7 @@ public:
     int shm_fd_ = -1;
 private:
     int shm_open_fd_ = -1;
+    std::string name_;
 };
 
 
@@ -170,9 +173,6 @@ void SharedMemoryManager::clear() {
             SYS_FAIL_LOG(munmap(shm.input_ptrs_[idx], shm.input_sizes_[idx]) < 0, "munmap");
         }
         shm.input_ptrs_.clear();
-        for (const auto &name : shm.input_paths_) {
-            SYS_FAIL_LOG(shm_unlink(name.c_str()) < 0, "shm_unlink");
-        }
         shm.input_paths_.clear();
         for (const auto &path : shm.nrt_output_paths_) {
             TF_LOG_IF_ERROR(runtime_.shm_unmap(path, PROT_READ | PROT_WRITE));
@@ -182,9 +182,6 @@ void SharedMemoryManager::clear() {
             SYS_FAIL_LOG(munmap(shm.output_ptrs_[idx], shm.output_sizes_[idx]) < 0, "munmap");
         }
         shm.output_ptrs_.clear();
-        for (const auto &name : shm.output_paths_) {
-            SYS_FAIL_LOG(shm_unlink(name.c_str()) < 0, "shm_unlink");
-        }
         shm.output_paths_.clear();
     }
     num_shms_ = 0;
