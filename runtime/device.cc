@@ -37,9 +37,10 @@ class ShmFile {
 public:
     ShmFile(const std::string &name) {
         name_ = name;
-        shm_open_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, S_IRWXU | S_IRWXG | S_IRWXO);
+        mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+        shm_open_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, mode);
         if (shm_open_fd_ >= 0) {
-            if (::fchmod(shm_open_fd_, S_IRWXU | S_IRWXG | S_IRWXO) < 0) {
+            if (::fchmod(shm_open_fd_, mode) < 0) {
                 shm_open_fd_ = -1;
             } else {
                 shm_fd_ = shm_open_fd_;
