@@ -48,6 +48,8 @@ class TestFuse(unittest.TestCase):
     def test_compiler_crash(self):
         with self.assertRaises(subprocess.CalledProcessError):
             relu0, sigmoid0 = self._body_fuse(1, compiler_args=['--i-am-not-recognized'])
+            if 'NEURON_TF_COMPILE_ONLY' in os.environ:
+                raise subprocess.CalledProcessError(1, '')
 
     def _body_fuse(self, batch_size, verbose=0, compiler_args=None):
         np.random.seed(_RANDOM_SEED)
@@ -190,7 +192,9 @@ class TestFuse(unittest.TestCase):
                 input0: np.random.uniform(-1, 1, size=[1, 32]),
             }
             result0_ref = sess.run(output0_ref, feed_dict)
-            if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            if 'NEURON_TF_COMPILE_ONLY' in os.environ:
+                assert False
+            else:
                 result0_neuron = sess.run(output0, feed_dict)
                 np.testing.assert_allclose(result0_neuron, result0_ref, rtol=1e-2, atol=1e-2)
 
