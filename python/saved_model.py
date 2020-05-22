@@ -93,7 +93,7 @@ def _infer_input_shapes(input_tensors, batch_size):
 def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                model_shape_feed_dict=None, model_feed_dict=None,
                                tags=None, signature_def_key=None, strip_default_attrs=False,
-                               **kwargs):
+                               config_proto=None, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -129,10 +129,12 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
 
     Note: This function sends all unknown arguments to `tf.neuron.graph_util.inference_graph_from_session`.
     """
+    if config_proto is None:
+        config_proto = config_pb2.ConfigProto(allow_soft_placement=True)
     _check_export_dir(new_model_dir)
     kwargs = kwargs.copy()
     tags = _normalize_tags(tags, model_dir)
-    with tf_session.Session(graph=ops.Graph()) as sess:
+    with tf_session.Session(graph=ops.Graph(), config=config_proto) as sess:
         meta_graph = tf_saved_model.loader.load.__wrapped__(sess, tags, model_dir)
         signature_def_key, signature_def = _get_signature_def(meta_graph, signature_def_key)
         input_tensors = {sess.graph.get_tensor_by_name(ts.name)
@@ -161,7 +163,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             protected_op_names=saved_model_main_op, **kwargs)
 
     # load inference graph into a session and export as a SavedModel
-    with tf_session.Session(graph=infer_graph) as sess:
+    with tf_session.Session(graph=infer_graph, config=config_proto) as sess:
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
         signature_def_map = {signature_def_key: signature_def}
         for tensor in signature_def.inputs.values():
