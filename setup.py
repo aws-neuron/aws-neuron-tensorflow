@@ -15,7 +15,7 @@ class tfn_bdist_wheel(bdist_wheel):
 
 
 setuptools.setup(
-    name='tensorflow-neuron-plugin',
+    name='tensorflow-neuron',
     version='_VERSION',
     description='TensorFlow Neuron integration',
     author='AWS Neuron SDK',
