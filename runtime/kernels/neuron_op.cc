@@ -651,8 +651,12 @@ Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_ten
     return Status::OK();
 }
 
+#ifdef NEURONTFSERV
+REGISTER_KERNEL_BUILDER(Name(kNeuronOp).Device(DEVICE_CPU), NeuronOp);
+#else
 // need to override kernel_builder as NeuronName to prevent multiple kernel registrations
 REGISTER_KERNEL_BUILDER(NeuronName(), NeuronOp);
+#endif  // NEURONTFSERV
 
 }  // namespace neuron
 }  // namespace tensorflow
