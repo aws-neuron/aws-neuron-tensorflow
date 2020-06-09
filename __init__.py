@@ -15,7 +15,7 @@
 
 import sys as _sys
 import os as _os
-_site_packages_dirs = [_p for _p in _sys.path if 'site-packages' in _p or 'dist-packages' in _p]
+_site_packages_dirs = [_p for _p in _sys.path if 'site-packages' in _p]
 for s in _site_packages_dirs:
     _sys.path.append(_os.path.join(s, 'tensorflow-plugins'))
 from tensorflow.neuron.python import graph_util
