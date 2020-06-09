@@ -14,22 +14,6 @@
 
 
 namespace tensorflow {
-
-
-namespace register_kernel {
-class NeuronName {
-public:
-    const KernelDef* Build() {
-        // hack to make use of the fact that Exit kernel doesn't have any dtype constraints
-        KernelDef* r = new KernelDef(GetRegisteredKernelsForOp("Exit").kernel(0));
-        r->set_op(GetRegisteredKernelsForOp(kNeuronOp).kernel_size() ? "_no_register" : kNeuronOp);
-        r->set_device_type(DEVICE_CPU);
-        return r;
-    }
-};
-}  // namespace register_kernel
-
-
 namespace neuron {
 
 
@@ -651,8 +635,8 @@ Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_ten
     return Status::OK();
 }
 
-// need to override kernel_builder as NeuronName to prevent multiple kernel registrations
-REGISTER_KERNEL_BUILDER(NeuronName(), NeuronOp);
+
+REGISTER_KERNEL_BUILDER(Name("NeuronOp").Device(DEVICE_CPU), NeuronOp);
 
 }  // namespace neuron
 }  // namespace tensorflow
