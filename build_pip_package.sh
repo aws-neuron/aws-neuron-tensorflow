@@ -43,6 +43,8 @@ function main() {
         exit 1
     fi
     TMPDIR="$(mktemp -d -t tmp.XXXXXXXXXX)"
+    mkdir -p "${TMPDIR}/tensorflow/neuron"
+    cp tensorflow/neuron/show_install_error.py "${TMPDIR}/tensorflow/neuron/__init__.py"
     TFPYDIR="${TMPDIR}/tensorflow_core"
     mkdir -p "${TFPYDIR}"
     cp -R bazel-bin/tensorflow/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/neuron "${TFPYDIR}/"
