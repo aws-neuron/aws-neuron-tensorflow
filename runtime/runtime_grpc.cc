@@ -196,6 +196,26 @@ Status RuntimeGRPC::load(uint32_t *nn_id, const uint32_t eg_id,
         return errors::DataLoss("neuron-rtd load failure - broken stream");
     }
     grpc::Status status = writer->Finish();
+    if (status.ok()) {
+        std::string msg_header_likely(
+            "We are not sure about the actual reason, but here is the most likely cause: ");
+        std::string msg_body(
+            "Neuron runtime could not load the compiled SavedModel provided because it is "
+            "compiled with a neuron-cc that is not compatible with the runtime version used. "
+            "Please make sure you upgrade the Neuron runtime version used. "
+        );
+        std::string msg_rt(" (neuron-rtd error message: " + response.status().details() + ")");
+        bool neff_unsupported(nrt::nerr::NERR_UNSUPPORTED_VERSION == response.status().code());
+        bool neff_invalid(nrt::nerr::NERR_INVALID == response.status().code());
+        bool neff_unsupported_parsed(
+            response.status().details().find("NEFF version mismatch") != std::string::npos);
+        if (neff_unsupported || (neff_invalid && neff_unsupported_parsed)) {
+            return errors::InvalidArgument(msg_body, msg_rt);
+        }
+        if (neff_invalid && "" == response.status().details()) {
+            return errors::InvalidArgument(msg_header_likely, msg_body, msg_rt);
+        }
+    }
     NRT_CHECK_RETURN("load", status, response);
     *nn_id = response.h_nn().id();
     return Status::OK();
