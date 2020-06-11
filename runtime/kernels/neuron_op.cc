@@ -185,7 +185,7 @@ Status NeuronOp::initialize() {
     model_config.parse_ninfer(model_config_attr, neuron_device_);
     StringPiece executable(def().attr().at("executable").s());
     TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
-                                            model_config.ninfer_));
+                                            model_config.ninfer_, profile_.enabled_));
     VLOG(1) << "loaded " << def().name() << " as " << nn_id_
             << "; number of NEFFs: " << neuron_device_->num_executable();
 

@@ -414,8 +414,9 @@ Status NeuronDevice::initialize(const std::string &nrtd_address,
     return Status::OK();
 }
 
-Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
-                          const uint32_t timeout, const uint32_t ninfer) {
+Status NeuronDevice::load(
+        uint32_t *nn_id, const StringPiece &executable,
+        const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled) {
     tensorflow::mutex_lock lock(mutex_eg_);
     if (closed_) {
         return errors::Aborted("neuron_device is closed");
@@ -423,13 +424,14 @@ Status NeuronDevice::load(uint32_t *nn_id, const StringPiece &executable,
     uint32_t first_nn_id = NRT_INVALID_NN_ID;
     std::vector<uint32_t> all_nn_ids;
     if (vec_eg_id_.size() == 1) {
-        TF_RETURN_IF_ERROR(runtime_.load(&first_nn_id, vec_eg_id_[0], executable, timeout, ninfer));
+        TF_RETURN_IF_ERROR(runtime_.load(
+            &first_nn_id, vec_eg_id_[0], executable, timeout, ninfer, profile_enabled));
         all_nn_ids.push_back(first_nn_id);
     } else if (vec_eg_id_.size() > 1) {
         Status status;
         for (const uint32_t eg_id : vec_eg_id_) {
             uint32_t this_nn_id = NRT_INVALID_NN_ID;
-            status = runtime_.load(&this_nn_id, eg_id, executable, timeout, ninfer);
+            status = runtime_.load(&this_nn_id, eg_id, executable, timeout, ninfer, profile_enabled);
             if (!status.ok()) {
                 LOG(WARNING) << "stop duplicating nn " << first_nn_id
                              << " due to error " << status.error_message();

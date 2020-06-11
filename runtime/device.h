@@ -65,7 +65,7 @@ public:
     Status initialize(const std::string &nrtd_address,
                       const int num_cores_req, const int num_dup=1);
     Status load(uint32_t *nn_id, const StringPiece &executable,
-                const uint32_t timeout, const uint32_t ninfer);
+                const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
     Status wait_infer_post(RuntimeIO *runtime_io);

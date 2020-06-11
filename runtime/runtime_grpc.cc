@@ -154,9 +154,9 @@ Status RuntimeGRPC::create_eg(uint32_t *eg_id, uint32_t *num_cores,
     return Status::OK();
 }
 
-Status RuntimeGRPC::load(uint32_t *nn_id, const uint32_t eg_id,
-                         const StringPiece &executable,
-                         const uint32_t timeout, const uint32_t ninfer) {
+Status RuntimeGRPC::load(
+        uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
+        const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled) {
     // load
     grpc::ClientContext context;
     nrt::load_response response;
@@ -182,6 +182,10 @@ Status RuntimeGRPC::load(uint32_t *nn_id, const uint32_t eg_id,
     nrt::model_params *model_params = request.mutable_model_params();
     model_params->mutable_timeout()->set_data(timeout);
     model_params->mutable_ninfer()->set_data(ninfer);
+    if (profile_enabled) {
+        model_params->mutable_enable_tracing()->set_data(1);
+        model_params->mutable_enable_node_profiling()->set_data(1);
+    }
     WRITE_LOAD_REQUEST;
 
     // neff file content

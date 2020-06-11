@@ -89,7 +89,7 @@ public:
     Status initialize(const std::string &nrtd_address);
     Status create_eg(uint32_t *eg_id, uint32_t *num_cores, const int num_cores_req);
     Status load(uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
-                const uint32_t timeout, const uint32_t ninfer);
+                const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
     Status start(const uint32_t nn_id);
     Status post_start(RuntimeStarter *starter, const uint32_t nn_id);
     Status wait_start(RuntimeStarter *starter);
