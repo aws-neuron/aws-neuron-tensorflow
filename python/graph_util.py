@@ -113,10 +113,12 @@ def inference_graph_from_session(
         parser.add_argument('--dump-prefix', default=None)
         parser.add_argument('--verbose', type=int, default=None)
         tf_neuron_args, neuron_cc_args = parser.parse_known_args(shlex.split(os.environ['NEURON_CC_FLAGS']))
-        compiler_verbose = tf_neuron_args.verbose
+        if tf_neuron_args.verbose is not None:
+            compiler_verbose = tf_neuron_args.verbose
         if tf_neuron_args.must_compile:
             compiler_recovery = False
-            compiler_verbose = 1
+            if compiler_verbose is None:
+                compiler_verbose = 1
             logging.warning('Enabling must-compile according to NEURON_CC_FLAGS environment variable; '
                             'neuron-cc failures will be thrown as exceptions')
         if tf_neuron_args.dump_prefix is not None:
