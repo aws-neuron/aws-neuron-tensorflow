@@ -101,6 +101,12 @@ void ProfilerInterface::stop_session() {
         if (!status.ok()) {
             LOG(ERROR) << "neuron-profile stop-session failed";
         }
+        status = subprocess_run(
+            "neuron-profile", "neuron-profile", "show-session", "-s",
+            session_filename_.c_str());
+        if (!status.ok()) {
+            LOG(ERROR) << "neuron-profile show-session failed";
+        }
         session_filename_ = "";
     }
 }
