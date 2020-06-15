@@ -5,6 +5,7 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include "tensorflow/core/lib/core/errors.h"
+#include "tensorflow/core/platform/env.h"
 #include "tensorflow/neuron/runtime/profiler.h"
 
 
@@ -58,6 +59,12 @@ void ProfilerInterface::initialize(const std::string &profile_dir,
 
 void ProfilerInterface::dump_info(const std::string &graph_def,
                                   const std::string &executable) {
+    Status status = Env::Default()->RecursivelyCreateDir(profile_dir_);
+    if (!status.ok()) {
+        LOG(ERROR) << "Cannot create directory for neuron-profile; turning off profiler ...";
+        enabled_ = false;
+        return;
+    }
     std::string filename_base = profile_dir_ + "/" + mangled_op_name_;
     std::string filename_pb = filename_base + ".pb";
     std::string filename_neff = filename_base + ".neff";
