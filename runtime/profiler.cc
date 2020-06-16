@@ -74,6 +74,10 @@ void ProfilerInterface::dump_info(const std::string &graph_def,
 
 void ProfilerInterface::start_session(const std::string &nrtd_address,
                                       const uint32_t nn_id) {
+    if (!enabled_) {
+        VLOG(1) << "Skipping start_session as profiler is not enabled";
+        return;
+    }
     std::ostringstream filename_stream;
     filename_stream << profile_dir_ << "/" << mangled_op_name_ << "-"
                     << nn_id << "-" << session_id_ << ".ntff";
@@ -98,6 +102,10 @@ void ProfilerInterface::start_session(const std::string &nrtd_address,
 }
 
 void ProfilerInterface::stop_session() {
+    if (!enabled_) {
+        VLOG(1) << "Skipping stop_session as profiler is not enabled";
+        return;
+    }
     if (!session_filename_.empty()) {
         std::ostringstream cmd_stream;
         cmd_stream << "neuron-profile stop-session -s " << session_filename_;
