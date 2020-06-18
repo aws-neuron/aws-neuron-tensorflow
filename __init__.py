@@ -22,4 +22,5 @@ _sys.path.pop()  # assume graph_util does not hack _sys.path (which is true as o
 from tensorflow.neuron.python import saved_model
 from tensorflow.neuron.python import predictor
 from tensorflow.neuron.python.fuse import fuse
+from tensorflow.neuron.python.performance import measure_performance
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op

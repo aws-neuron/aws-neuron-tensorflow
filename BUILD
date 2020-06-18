@@ -20,6 +20,7 @@ py_library(
         "python/saved_model_test.py",
         "python/keras_test.py",
         "python/fuse_test.py",
+        "python/performance_test.py",
         "python/op_register_test.py",
     ],
     deps = [
@@ -75,6 +76,14 @@ py_library(
 )
 
 py_library(
+    name = "performance_py",
+    srcs = [
+        "python/performance.py",
+    ],
+    deps = [":neuron_op_py"],
+)
+
+py_library(
     name = "neuron_py",
     srcs = ["__init__.py"],
     deps = [
@@ -83,6 +92,7 @@ py_library(
         ":predictor_py",
         ":neuron_op_py",
         ":fuse_py",
+        ":performance_py",
         ":unittest_py",
         "//tensorflow/python:framework",
         "//tensorflow/python:array_ops",
