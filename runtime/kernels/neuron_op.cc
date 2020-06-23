@@ -64,7 +64,7 @@ public:
     void parse_ninfer(AttrList &model_config, NeuronDevice *neuron_device) {
         int64 max_num_threads = DEFAULT_MAX_NUM_INFER;
         if (model_config_valid(model_config)) {
-            int64 opt_num_infer = model_config_opt_num_infer(model_config);
+            int64 opt_num_infer = model_config_this_opt_num_cores(model_config);
             if (opt_num_infer > 0 && opt_num_infer <= HARD_MAX_NUM_THREADS) {
                 // add some extras for CPU nodes
                 max_num_threads = opt_num_infer + NRTD_NUM_CPU_THREADS;
