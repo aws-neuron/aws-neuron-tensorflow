@@ -5,6 +5,7 @@ import os
 import sys
 import subprocess
 import unittest
+import pkg_resources
 import numpy as np
 import tensorflow as tf
 from tensorflow.neuron import fuse
@@ -234,7 +235,8 @@ class TestFuse(unittest.TestCase):
                 loss0_np1 = sess.run(loss0, feed_dict)
                 assert loss0_np1.sum() < loss0_np0.sum()
 
-    @unittest.skipIf(not hasattr(tf.neuron, 'neuron_op'), 'tensorflow-neuron-monolithic does not allow tf.Variable to be hacked')
+    @unittest.skipIf('tensorflow-neuron' in {item.key for item in pkg_resources.working_set},
+                     'tensorflow-neuron-monolithic does not allow tf.Variable to be hacked')
     def test_fuse_variable(self):
 
         def func_with_variables(input0):
