@@ -80,6 +80,15 @@ Status ConvertGraphDefToNeuron(string *new_graph_def, const string &graph_def,
                                const string &op_whitelist, const string &no_fuse_ops,
                                const string &force_fuse_ops, const int min_seg_size);
 
+Status CreateNeuronGraphDef(GraphDef *new_graph_def,
+                            const GraphDef &graph_def,
+                            const std::vector<std::string> &inputs,
+                            const std::vector<std::string> &outputs,
+                            const int minimum_segment_size,
+                            const std::set<std::string> &op_whitelist,
+                            const std::set<std::string> &no_fuse_ops,
+                            const std::set<std::string> &force_fuse_ops);
+
 }  // namespace convert
 }  // namespace neuron
 }  // namespace tensorflow

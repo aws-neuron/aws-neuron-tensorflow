@@ -684,16 +684,18 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
 // This function is the base function which does:
 // Step 1: Find Neuron Segments.
 // Step 2: Calls functions to create Neuron subgraphs.
-static tensorflow::Status BuildNeuronOp(
-    GraphDef& in_graph_def, const std::vector<string>& inputs,
-    const std::vector<string>& tensor_output_names,
-    tensorflow::GraphDef& new_graph_def, const int minimum_segment_size,
-    std::set<std::string>* op_whitelist,
-    std::set<std::string>* no_fuse_ops, std::set<std::string>* force_fuse_ops) {
+Status CreateNeuronGraphDef(GraphDef *new_graph_def,
+                            const GraphDef &graph_def,
+                            const std::vector<std::string> &inputs,
+                            const std::vector<std::string> &outputs,
+                            const int minimum_segment_size,
+                            const std::set<std::string> &op_whitelist,
+                            const std::set<std::string> &no_fuse_ops,
+                            const std::set<std::string> &force_fuse_ops) {
 
   // For storing just names without tensor
   std::vector<string> output_names;
-  for (auto name : tensor_output_names) {
+  for (auto name : outputs) {
     output_names.push_back(split(name, ":")[0]);
   }
 
@@ -702,22 +704,27 @@ static tensorflow::Status BuildNeuronOp(
 
   VLOG(1) << "Building Neuron Op\n";
 
-  // Creating Identity node for all output nodes.
-  TF_RETURN_IF_ERROR(PreProcessingGraphDef(tensor_output_names, in_graph_def));
-
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
-                                             in_graph_def.library());
+                                             graph_def.library());
+  tensorflow::Graph temp_graph(flib);
+  TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
+      tensorflow::GraphConstructorOptions(), graph_def, &temp_graph));
+
+  GraphDef temp_graph_def;
+  temp_graph.ToGraphDef(&temp_graph_def);
+  TF_RETURN_IF_ERROR(PreProcessingGraphDef(outputs, temp_graph_def));
+
   tensorflow::Graph graph(flib);
 
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-      tensorflow::GraphConstructorOptions(), in_graph_def, &graph));
+      tensorflow::GraphConstructorOptions(), temp_graph_def, &graph));
 
-  std::unordered_map<string, tensorflow::Node*> node_map;
+  std::unordered_map<std::string, tensorflow::Node*> node_map;
   TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
 
   segment_options.minimum_segment_size = minimum_segment_size;
 
-  std::unordered_map<string, int> neuron_op_index_to_name_map;
+  std::unordered_map<std::string, int> neuron_op_index_to_name_map;
 
   // ############################ STEP 1: #################################
   // Making a graph with  with only loops in Neuron ops.
@@ -727,7 +734,7 @@ static tensorflow::Status BuildNeuronOp(
   tensorflow::Graph loop_graph(flib);
 
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-      tensorflow::GraphConstructorOptions(), in_graph_def, &loop_graph));
+      tensorflow::GraphConstructorOptions(), graph_def, &loop_graph));
   int start_neuron_op_index = 0;
 
   // Only do loops segmentation if all the ops in "loop_ops" list
@@ -742,9 +749,9 @@ static tensorflow::Status BuildNeuronOp(
   for (int i = 0; i < loop_graph.num_node_ids(); ++i) {
     tensorflow::Node* node = loop_graph.FindNodeId(i);
     bool is_source_or_sink = node->IsSink() || node->IsSource();
-    bool in_whitelist = op_whitelist->count(node->type_string());
-    bool no_fuse = no_fuse_ops->count(node->name());
-    bool force_fuse = force_fuse_ops->count(node->name());
+    bool in_whitelist = op_whitelist.count(node->type_string());
+    bool no_fuse = no_fuse_ops.count(node->name());
+    bool force_fuse = force_fuse_ops.count(node->name());
     if (!((in_whitelist && !is_source_or_sink && !no_fuse) || force_fuse)) {
       segment_options.exclude_node_list.insert(node->name());
     }
@@ -780,33 +787,16 @@ static tensorflow::Status BuildNeuronOp(
   if (normal_segments.size()) {
     PreProcessSegmentsForResources(loop_graph, normal_segments, loop_segments,
                                    &neuron_op_index_to_name_map);
-    TF_RETURN_IF_ERROR(ProcessSegments(graph, tensor_output_names, node_map,
+    TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map,
                                        normal_segments, start_neuron_op_index,
                                        &neuron_op_index_to_name_map));
   }
 
   // ################### STEP 2 DONE #######################
 
-  graph.ToGraphDef(&new_graph_def);
-  VLOG(2) << "new_graph_def: " << new_graph_def.DebugString();
+  graph.ToGraphDef(new_graph_def);
+  VLOG(2) << "new_graph_def: " << new_graph_def->DebugString();
   return tensorflow::Status::OK();
-}
-
-static Status CreateNeuronGraphDef(GraphDef &in_graph_def,
-                                   const std::vector<string> &inputs,
-                                   const std::vector<string> &outputs,
-                                   const int minimum_segment_size,
-                                   std::set<std::string> *op_whitelist,
-                                   std::set<std::string> *no_fuse_ops,
-                                   std::set<std::string> *force_fuse_ops,
-                                   GraphDef &new_graph_def) {
-  OpRegistryInterface *op_registry = OpRegistry::Global();
-  // Add default attributes to all nodes in the graph def, This
-  // should solve the index_type problem for faster rcnn
-  TF_CHECK_OK(AddDefaultAttrsToGraphDef(&in_graph_def, *op_registry, 0, true));
-
-  return BuildNeuronOp(in_graph_def, inputs, outputs, new_graph_def,
-                       minimum_segment_size, op_whitelist, no_fuse_ops, force_fuse_ops);
 }
 
 // This is the first function that gets called from python (whitelist_partition)
@@ -853,9 +843,8 @@ Status ConvertGraphDefToNeuron(string *new_graph_def_str,
   }
 
   uint64 start_convert_us = Env::Default()->NowMicros();
-  Status status = CreateNeuronGraphDef(graph_def, inputs, outputs, min_seg_size,
-                                       &op_whitelist, &no_fuse_ops, &force_fuse_ops,
-                                       new_graph_def);
+  Status status = CreateNeuronGraphDef(&new_graph_def, graph_def, inputs, outputs,
+                                       min_seg_size, op_whitelist, no_fuse_ops, force_fuse_ops);
   new_graph_def.SerializeToString(new_graph_def_str);
   uint64 convert_time_us = Env::Default()->NowMicros() - start_convert_us;
   VLOG(1) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
