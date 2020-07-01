@@ -11,6 +11,7 @@ tf_py_wrap_cc(
     deps = [
         ":convert_graph",
         "//tensorflow/neuron/runtime:all_ops",
+        "//tensorflow/neuron/grappler:fuse_supported_operators",
         "//tensorflow/c:tf_status_helper",
         "//third_party/python_runtime:headers",
     ],
