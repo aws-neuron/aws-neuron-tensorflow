@@ -570,6 +570,37 @@ class TestDynamicBatchSize(unittest.TestCase):
         assert len([op for op in infer_graph.get_operations() if op.type == 'NeuronOp']) == 2
         return infer_graph, result_names, feed_dict_list, result_ref_list
 
+    def test_unknown_rank(self):
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, None, name='input0')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            relu0 = tf.nn.relu(conv2d0, name='relu0')
+            feed_dict_compile = {
+                'input0:0': np.random.uniform(-1, 1, size=[3, 8, 8, 3]).astype(np.float16),
+            }
+            feed_dict_list = []
+            for batch_size in 1, 2, 3, 5, 11, 12, 1023:
+                feed_dict = {
+                    'input0:0': np.random.uniform(-1, 1, size=[batch_size, 8, 8, 3]).astype(np.float16),
+                }
+                feed_dict_list.append(feed_dict)
+            result_names = ['relu0:0']
+            result_ref_list = [sess.run(result_names, feed_dict) for feed_dict in feed_dict_list]
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Relu'},
+                feed_dict=feed_dict_compile, output_tensors=result_names,
+                dynamic_batch_size=True,
+                compiler_workdir='./workdir')
+        _assert_compiler_success(infer_graph)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
+                    result_neuron = sess.run(result_names, feed_dict)
+                    assert len(result_neuron) == len(result_ref)
+                    for res_neuron, res_ref in zip(result_neuron, result_ref):
+                        np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
+
 
 class TestSpecialOperator(unittest.TestCase):
 

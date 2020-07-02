@@ -1201,6 +1201,8 @@ def _batch_axis(node, subgraph, names_key):
 
 def _one_batch_axis(subgraph, name):
     shape = subgraph.get_tensor_by_name(name.decode()).shape
+    if shape.rank is None:
+        return 0
     return 0 if len(shape) > 0 and tensor_shape.dimension_value(shape[0]) is None else -1
 
 
