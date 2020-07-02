@@ -144,6 +144,12 @@ std::vector<string> split_tensor(string out_tensor) {
   return result;
 }
 
+static bool IsPlaceholder(const NodeDef& node) {
+  const auto& op = node.op();
+  return op == "Placeholder" || op == "PlaceholderV2" ||
+         op == "PlaceholderWithDefault";
+}
+
 // This function creates subgraph graph def and adds to main graph.
 tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
   string neuron_op_name = tensorflow::strings::StrCat("neuron_op_", sg_params.neuron_op_index);
@@ -228,6 +234,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     auto placeholder_name = sg_params.graph->NewName(
       outside_node->name() + std::to_string(outside_node_index));
     std::vector<PartialTensorShape> v_partial_shape;
+    PartialTensorShape partial_shape;
     input_dtypes.push_back(outside_node->output_type(outside_node_index));
     if (GetNodeAttr(outside_node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
         input_shapes.push_back(v_partial_shape[outside_node_index]);
@@ -235,6 +242,15 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
             NodeDefBuilder(placeholder_name, "Placeholder")
                 .Attr("shape", v_partial_shape[outside_node_index])
                 .Attr("_output_shapes", v_partial_shape[outside_node_index])
+                .Attr("dtype", outside_node->output_type(outside_node_index))
+                .Finalize(&placeholder_def));
+    } else if (IsPlaceholder(outside_node->def()) &&
+               GetNodeAttr(outside_node->attrs(), "shape", &partial_shape).ok()) {
+        input_shapes.push_back(partial_shape);
+        TF_RETURN_IF_ERROR(
+            NodeDefBuilder(placeholder_name, "Placeholder")
+                .Attr("shape", partial_shape)
+                .Attr("_output_shapes", partial_shape)
                 .Attr("dtype", outside_node->output_type(outside_node_index))
                 .Finalize(&placeholder_def));
     } else {

@@ -44,7 +44,6 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.framework import meta_graph
-from tensorflow.neuron.convert.aws_neuron_whitelist_partition_swig import WhitelistPartition
 
 
 _NEURON_OP = 'NeuronOp'
@@ -777,30 +776,35 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     if minimum_segment_size is None:
         num_ops = len([node for node in graph_def.node if node.op != 'Placeholder'])
         minimum_segment_size = min(2, max(1, num_ops))
-    graph_def_str = graph_def.SerializeToString()
-    input_names = [compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors]
-    inputs = AttrValue.ListValue(s=input_names).SerializeToString()
-    output_names = [compat.as_bytes(getattr(ts, 'name', ts)) for ts in output_tensors]
-    outputs = AttrValue.ListValue(s=output_names).SerializeToString()
-    op_whitelist = [compat.as_bytes(name) for name in op_whitelist]
-    op_whitelist = AttrValue.ListValue(s=op_whitelist).SerializeToString()
-    no_fuse_ops = [compat.as_bytes(getattr(op, 'name', op)) for op in no_fuse_ops]
-    no_fuse_ops = AttrValue.ListValue(s=no_fuse_ops).SerializeToString()
-    force_fuse_ops = [compat.as_bytes(getattr(op, 'name', op)) for op in force_fuse_ops]
-    force_fuse_ops = AttrValue.ListValue(s=force_fuse_ops).SerializeToString()
-    new_graph_def_str = WhitelistPartition(graph_def_str, inputs, outputs, op_whitelist,
-                                           no_fuse_ops, force_fuse_ops, minimum_segment_size)
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = 2
+    rewriter_config.optimizers.append('')
+    fuser_config = rewriter_config.custom_optimizers.add()
+    fuser_config.name = 'aws_neuron_fuse_supported_operators'
+    param_map = fuser_config.parameter_map
+    param_map['inputs'].list.s.extend(compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors)
+    output_names = [compat.as_str(getattr(ts, 'name', ts)) for ts in output_tensors]
+    param_map['outputs'].list.s.extend(compat.as_bytes(name) for name in output_names)
+    param_map['minimum_segment_size'].i = minimum_segment_size
+    param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
+    param_map['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
+    param_map['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
+    graph.get_collection_ref(ops.GraphKeys.TRAIN_OP).extend(graph.get_tensor_by_name(name) for name in output_names)
+    meta_graph_def = meta_graph.create_meta_graph_def(graph=graph)
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # unify `NeuronOp`'s same-name outputs across the graph
-    graph_def = graph_pb2.GraphDef()
-    graph_def.ParseFromString(new_graph_def_str)
+    new_tensor_name_to_old_tensor_name = {}
     tensor_name_map = {}
     for node in _gd_neuron_nodes(graph_def):
         output_names = [name for name in node.attr['output_names'].list.s]
         tensor_name_to_out_name = {}
         for idx, out_name in enumerate(output_names):
-            tensor_name = _gd_tensor_name('{}:{}'.format(node.name, idx))
-            tensor_name_to_out_name[tensor_name] = out_name
+            tensor_name = '{}:{}'.format(node.name, idx)
+            tensor_name_to_out_name[_gd_tensor_name(tensor_name)] = out_name
+            new_tensor_name_to_old_tensor_name[tensor_name] = out_name.decode()
         new_output_names = []
         new_output_dtypes = []
         new_output_shapes = []
@@ -846,6 +850,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         new_input_names = []
         new_input_dtypes = []
         new_input_shapes = []
+        new_input_op_names = []
         for ts_name, ph_name, in_dtype, in_shape in zip(
                 node.input, node.attr['input_names'].list.s,
                 node.attr['input_dtypes'].list.type, node.attr['input_shapes'].list.shape):
@@ -855,6 +860,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
                 new_input_names.append(ph_name)
                 new_input_dtypes.append(in_dtype)
                 new_input_shapes.append(in_shape)
+                new_input_op_names.append(ph_op_name)
         node.input[:] = new_inputs
         node.attr['input_names'].list.s[:] = new_input_names
         node.attr['input_dtypes'].list.type[:] = new_input_dtypes
@@ -862,6 +868,18 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         new_subgraph_def = graph_pb2.GraphDef()
         new_subgraph_def.node.MergeFrom(
             sn for sn in subgraph_def.node if sn.name not in discard_ph_op_names)
+        input_name_map = {}
+        for ph_op_name, gd_tensor_name in zip(new_input_op_names, new_inputs):
+            if ':' not in gd_tensor_name:
+                gd_tensor_name = '{}:0'.format(gd_tensor_name)
+            input_name_map[ph_op_name] = gd_tensor_name
+        for sg_node in new_subgraph_def.node:
+            if sg_node.name in input_name_map:
+                if sg_node.attr['shape'].shape.unknown_rank:
+                    tensor_name = input_name_map[sg_node.name]
+                    tensor_name = new_tensor_name_to_old_tensor_name.get(tensor_name, tensor_name)
+                    shape_proto = graph.get_tensor_by_name(tensor_name).shape.as_proto()
+                    sg_node.attr['shape'].shape.CopyFrom(shape_proto)
         # this converting back and forth is for topologically sorting the graph
         new_subgraph_def = _graph_def_to_graph(new_subgraph_def).as_graph_def(add_shapes=True)
         node.attr['graph_def'].s = new_subgraph_def.SerializeToString()

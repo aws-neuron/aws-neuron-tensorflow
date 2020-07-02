@@ -16,8 +16,7 @@ import unittest
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
-from tensorflow.neuron.python.graph_util import (
-    shape_inference, shape_inference_with_inputs, whitelist_partition, compile_subgraphs)
+from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
 
@@ -1179,15 +1178,15 @@ class TestShapeInference(unittest.TestCase):
         shape0 = TensorShape([2, 16]).as_proto()
         shape1 = TensorShape([2, 8]).as_proto()
         shape_feed_dict2 = {'input0:0': shape0, 'input1:0': shape1}
-        shaped_graph = shape_inference(graph, shape_feed_dict0)
+        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict0)
         inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
-        shaped_graph = shape_inference(graph, shape_feed_dict1)
+        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict1)
         inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
-        shaped_graph = shape_inference(graph, shape_feed_dict2)
+        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict2)
         inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
@@ -1215,7 +1214,7 @@ class TestShapeInference(unittest.TestCase):
             exp0.name: [1, 3, 5],
             sigmoid0.name: [1, 3, 5],
         }
-        shaped_graph = shape_inference(graph, shape_feed_dict)
+        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict)
         inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
@@ -1253,7 +1252,7 @@ class TestShapeInference(unittest.TestCase):
             exp0.name: [1, 3, 5],
             sigmoid0.name: [1, 3, 5],
         }
-        shaped_graph = shape_inference(graph, shape_feed_dict)
+        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict)
         inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
@@ -1269,7 +1268,7 @@ class TestShapeInference(unittest.TestCase):
             evaluated_map_tf = {ts.name: ts.name for ts in stridedslice0.op.inputs}
             evaluated_map = sess.run(evaluated_map_tf)
         shape_feed_dict0 = {input0: [3, 1, 1, 1, 1, 2]}
-        shaped_graph = shape_inference(sess.graph, shape_feed_dict0, evaluated_map=evaluated_map)
+        shaped_graph = graph_util.shape_inference(sess.graph, shape_feed_dict0, evaluated_map=evaluated_map)
         assert evaluated_map[stridedslice0.name].shape == stridedslice0.shape
 
     def test_with_inputs_simple(self):
@@ -1296,7 +1295,7 @@ class TestShapeInference(unittest.TestCase):
             }
             feed_dict = {input0: np.random.rand(1, 16), 'input1:0': np.random.rand(1, 8)}
             subgraph_shapes = {None: {ts.name: ts.name for op in sess.graph.get_operations() for ts in op.outputs}}
-            new_subgraph_shapes = shape_inference_with_inputs(sess, sess.graph, feed_dict, subgraph_shapes)
+            new_subgraph_shapes = graph_util.shape_inference_with_inputs(sess, sess.graph, feed_dict, subgraph_shapes)
         inferred_shapes = _get_inferred_shapes(new_subgraph_shapes[None])
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
@@ -1432,11 +1431,11 @@ class TestHelperFunction(unittest.TestCase):
             sg3 = tf.identity_n(sg3)
 
         graph_def = graph.as_graph_def()
-        compiled_graph_def = compile_subgraphs(graph_def, workdir='./workdir')
+        compiled_graph_def = graph_util.compile_subgraphs(graph_def, workdir='./workdir')
         for node in compiled_graph_def.node:
             if node.op == 'NeuronOp':
                 assert node.attr['executable'].s != b''
-        compiled_graph_def = compile_subgraphs(graph_def)
+        compiled_graph_def = graph_util.compile_subgraphs(graph_def)
         for node in compiled_graph_def.node:
             if node.op == 'NeuronOp':
                 assert node.attr['executable'].s != b''
@@ -1479,19 +1478,19 @@ class TestWhitelistPartition(unittest.TestCase):
             add0 = tf.add(conv2d0, conv2d1, name='add0')
             relu0 = tf.nn.relu(add0, name='relu0')
             sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
-        partitioned_graph_def0 = whitelist_partition(
+        partitioned_graph_def0 = graph_util.whitelist_partition(
             graph.as_graph_def(add_shapes=True), input_tensors={'input0:0', 'input1:0'},
             output_tensors={'add0:0', 'relu0:0', 'sigmoid0:0'},
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-        partitioned_graph_def1 = whitelist_partition(
+        partitioned_graph_def1 = graph_util.whitelist_partition(
             graph.as_graph_def(add_shapes=True), input_tensors={'conv2d0:0', 'input1:0'},
             output_tensors={'add0:0', 'relu0:0', 'sigmoid0:0'},
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-        partitioned_graph_def2 = whitelist_partition(
+        partitioned_graph_def2 = graph_util.whitelist_partition(
             graph.as_graph_def(add_shapes=True),
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         assert len(partitioned_graph_def0.node) == 6
-        assert len(partitioned_graph_def0.node[3].attr['output_names'].list.s) == 2
+        assert len(partitioned_graph_def0.node[2].attr['output_names'].list.s) == 2
         assert len(partitioned_graph_def1.node) == 8
         assert len(partitioned_graph_def2.node) == 5
         graph = tf.Graph()
@@ -1518,7 +1517,7 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, add0], feed_dict)
-        partitioned_graph_def = whitelist_partition(
+        partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), input_tensors={'input0:0'},
             output_tensors={'add0:0', 'relu0:0'},
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
@@ -1532,7 +1531,7 @@ class TestWhitelistPartition(unittest.TestCase):
             tf.import_graph_def(subgraph_def, name='')
             assert len([op for op in sess.graph.get_operations() if op.type == 'Placeholder']) == 1
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            compiled_graph_def = compile_subgraphs(partitioned_graph_def, workdir='./workdir')
+            compiled_graph_def = graph_util.compile_subgraphs(partitioned_graph_def, workdir='./workdir')
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
                 result_neuron = sess.run([relu0.name, add0.name], feed_dict)
@@ -1562,13 +1561,13 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, relu1, relu2], feed_dict)
-        partitioned_graph_def = whitelist_partition(
+        partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True),
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
             no_fuse_ops=['add0'])
         assert len(partitioned_graph_def.node) == 8
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            compiled_graph_def = compile_subgraphs(
+            compiled_graph_def = graph_util.compile_subgraphs(
                 partitioned_graph_def, workdir='./workdir')
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
@@ -1599,13 +1598,13 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, relu1, relu2], feed_dict)
-        partitioned_graph_def = whitelist_partition(
+        partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True),
             op_whitelist={'Conv2D', 'Const', 'Relu'},
             no_fuse_ops=[conv2d2.op], force_fuse_ops=['add0', add5.op])
         assert len(partitioned_graph_def.node) == 12
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            compiled_graph_def = compile_subgraphs(
+            compiled_graph_def = graph_util.compile_subgraphs(
                 partitioned_graph_def, workdir='./workdir')
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
