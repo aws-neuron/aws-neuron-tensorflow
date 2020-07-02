@@ -594,7 +594,6 @@ static tensorflow::Status ProcessSegments(
 void PreProcessSegmentsForResources(
     tensorflow::Graph &graph,
     tensorflow::tensorrt::segment::SegmentNodesVector &normal_segments,
-    tensorflow::tensorrt::segment::SegmentNodesVector &loop_segments,
     std::unordered_map<string, int> *neuron_op_index_to_name_map) {
   /*
   For each segment:
@@ -726,28 +725,11 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   std::unordered_map<std::string, int> neuron_op_index_to_name_map;
 
-  // ############################ STEP 1: #################################
-  // Making a graph with  with only loops in Neuron ops.
-
-  tensorflow::tensorrt::segment::SegmentNodesVector loop_segments;
-
-  tensorflow::Graph loop_graph(flib);
-
-  TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-      tensorflow::GraphConstructorOptions(), graph_def, &loop_graph));
   int start_neuron_op_index = 0;
 
-  // Only do loops segmentation if all the ops in "loop_ops" list
-  // are in whitelist.
-
-  // ###################  STEP 2 #########################################
-  /// Once the loops are in the graph , we will use that graph to form normal
-  /// segments. We will add NeuronOp to whitelist , so that they are engulfed if
-  /// needed.
-
   // Setup exclude_node_list
-  for (int i = 0; i < loop_graph.num_node_ids(); ++i) {
-    tensorflow::Node* node = loop_graph.FindNodeId(i);
+  for (int i = 0; i < graph.num_node_ids(); ++i) {
+    tensorflow::Node* node = graph.FindNodeId(i);
     bool is_source_or_sink = node->IsSink() || node->IsSource();
     bool in_whitelist = op_whitelist.count(node->type_string());
     bool no_fuse = no_fuse_ops.count(node->name());
@@ -770,11 +752,9 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   }
 
   tensorflow::tensorrt::segment::SegmentNodesVector normal_segments;
-  GraphDef graph_def_with_loops;
-  loop_graph.ToGraphDef(&graph_def_with_loops);
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
-    &loop_graph,
+    &graph,
     [](const Node* node) { return Status::OK(); },
     [](const Edge* edge) { return true; },
     OutputEdgeValidator(),
@@ -785,14 +765,11 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   }
 
   if (normal_segments.size()) {
-    PreProcessSegmentsForResources(loop_graph, normal_segments, loop_segments,
-                                   &neuron_op_index_to_name_map);
+    PreProcessSegmentsForResources(graph, normal_segments, &neuron_op_index_to_name_map);
     TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map,
                                        normal_segments, start_neuron_op_index,
                                        &neuron_op_index_to_name_map));
   }
-
-  // ################### STEP 2 DONE #######################
 
   graph.ToGraphDef(new_graph_def);
   VLOG(2) << "new_graph_def: " << new_graph_def->DebugString();
