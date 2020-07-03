@@ -121,7 +121,8 @@ public:
     NeuronDeviceManager(NeuronDeviceManager &&) = delete;
     NeuronDeviceManager &operator=(NeuronDeviceManager &&) = delete;
     Status apply_for_device(
-        NeuronDevice **device, int64_t opt_device_size, int64_t device_index=-1);
+        NeuronDevice **device, const int64_t opt_device_size, const int64_t max_num_duplicates,
+        const int64_t device_index=-1);
     void clear_if_empty();
     void clear();
     void clear_from_global_state();
@@ -129,10 +130,10 @@ public:
     static const int64 MAX_NUM_CORES = 64;
     static const int64 MIN_NUM_CORES = 0;
 private:
-    Status init_default_device(int64_t opt_device_size);
+    Status init_default_device(const int64_t opt_device_size, const int64_t max_num_duplicates);
     Status init_devices(const std::vector<int> &num_cores_req_vector,
-                        const std::vector<int> &num_dup_vector=std::vector<int>());
-    Status initialize(int64_t opt_device_size);
+                        const std::vector<int> &num_dup_vector);
+    Status initialize(const int64_t opt_device_size, const int64_t max_num_duplicates);
     tensorflow::mutex global_mutex_;
     static const int DEFAULT_NUM_CORES = -65536;  // any negative number < -MAX_NUM_CORES
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;

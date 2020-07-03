@@ -62,6 +62,7 @@ public:
     void parse_opt_device_size(AttrList &model_config) {
         if (model_config_valid(model_config)) {
             opt_device_size_ = model_config_global_opt_num_cores(model_config);
+            max_num_duplicates_ = model_config_max_num_duplicates(model_config);
         }
     }
 
@@ -139,6 +140,7 @@ public:
     }
 
     int64_t opt_device_size_ = -1;
+    int64_t max_num_duplicates_ = 1;
     uint32_t max_num_infers_ = 4;
     uint32_t timeout_ = 2;
     uint32_t ninfer_ = 5;
@@ -153,7 +155,7 @@ private:
     int64 model_config_this_opt_num_cores(AttrList &model_config) {
         return model_config.i(1);
     }
-    int64 model_config_opt_num_infer(AttrList &model_config) {
+    int64 model_config_max_num_duplicates(AttrList &model_config) {
         return model_config.i(2);
     }
     int64 model_config_timeout(AttrList &model_config) {
@@ -202,7 +204,8 @@ Status NeuronOp::initialize() {
     model_config.parse_device_index(model_config_attr);
     TF_RETURN_IF_ERROR(
         global_neuron_device_manager.apply_for_device(
-            &neuron_device_, model_config.opt_device_size_, model_config.device_index_)
+            &neuron_device_, model_config.opt_device_size_, model_config.max_num_duplicates_,
+            model_config.device_index_)
     );
     model_config.parse_timeout(model_config_attr);
     model_config.parse_ninfer(model_config_attr, neuron_device_);

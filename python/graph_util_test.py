@@ -889,6 +889,27 @@ class TestMiscUtils(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron0, result_ref0):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
+    def test_auto_duplicate_hint(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            relu0 = tf.nn.relu(conv2d0, name='relu0')
+            feed_dict = {
+                'input0:0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
+            }
+            result_ref0 = sess.run('relu0:0', feed_dict)
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(sess, feed_dict=feed_dict)
+        _assert_compiler_success(infer_graph)
+        graph_def = infer_graph.as_graph_def()
+        graph_def.node[1].attr['model_config'].list.i[2] = 4
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            with tf.Session(graph=tf.Graph()) as sess:
+                tf.import_graph_def(graph_def, name='')
+                result_neuron0 = sess.run('relu0:0', feed_dict)
+                np.testing.assert_allclose(result_neuron0, result_ref0, rtol=1e-2, atol=1e-3)
+
 
 class TestNeuronCCFlagsEnv(unittest.TestCase):
 

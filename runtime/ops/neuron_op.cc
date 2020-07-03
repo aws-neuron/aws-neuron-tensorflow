@@ -81,4 +81,4 @@ REGISTER_OP("NeuronOp")
 } // namespace tensorflow
 
 // model_config format:
-//   [global_opt_num_cores, this_opt_num_cores, opt_num_infer, timeout]
+//   [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]

@@ -207,7 +207,8 @@ NeuronDeviceManager::~NeuronDeviceManager() {
     clear_from_global_state();
 }
 
-Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
+Status NeuronDeviceManager::initialize(const int64_t opt_device_size,
+                                       const int64_t max_num_duplicates) {
     if (!path_set_) {
         // append /opt/aws/neuron/bin to PATH
         std::string env_path = env_get("PATH", "");
@@ -221,7 +222,7 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
     // get number of neuron cores from comma-separated list of integers
     std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
     if (neuron_device_sizes_raw.empty()) {
-        TF_RETURN_IF_ERROR(init_default_device(opt_device_size));
+        TF_RETURN_IF_ERROR(init_default_device(opt_device_size, max_num_duplicates));
     } else {
         // remove [ and ]
         std::string neuron_device_sizes = remove_pattern(neuron_device_sizes_raw, "[");
@@ -258,7 +259,7 @@ Status NeuronDeviceManager::initialize(int64_t opt_device_size) {
             num_dup_vector.push_back(num_dup);
         }
         if (num_cores_req_vector.empty()) {
-            TF_RETURN_IF_ERROR(init_default_device(opt_device_size));
+            TF_RETURN_IF_ERROR(init_default_device(opt_device_size, max_num_duplicates));
         } else {
             TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
         }
@@ -295,7 +296,8 @@ Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_v
     return Status::OK();
 }
 
-Status NeuronDeviceManager::init_default_device(int64_t opt_device_size) {
+Status NeuronDeviceManager::init_default_device(const int64_t opt_device_size,
+                                                const int64_t max_num_duplicates) {
     if (opt_device_size < 0 || opt_device_size > 64) {
         // device size looks wrong -- just get the largest ncg possible
         Status status = device_array_[0].initialize(nrtd_address_, DEFAULT_NUM_CORES);
@@ -303,12 +305,26 @@ Status NeuronDeviceManager::init_default_device(int64_t opt_device_size) {
         return status;
     } else {
         // get one full Inferentia by default
+        std::vector<int> num_cores_req_vector;
+        std::vector<int> num_dup_vector;
         if (opt_device_size == 1) {
-            std::vector<int> num_cores_req_vector({1, 1, 1, 1});
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
+            if (4 == max_num_duplicates) {
+                num_cores_req_vector = {1};
+                num_dup_vector = {4};
+            } else if (3 == max_num_duplicates) {
+                num_cores_req_vector = {1};
+                num_dup_vector = {3};
+            } else if (2 == max_num_duplicates) {
+                num_cores_req_vector = {2, 2};
+                num_dup_vector = {2, 2};
+            } else {
+                num_cores_req_vector = {1, 1, 1, 1};
+                num_dup_vector = {};
+            }
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
         } else if (opt_device_size == 2) {
             std::vector<int> num_cores_req_vector({2, 2});
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector));
+            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
         } else {
             // search for the largest possible ncg ... sorry
             Status status = errors::ResourceExhausted("No NeuronCore Group can be initialized.");
@@ -361,11 +377,12 @@ void NeuronDeviceManager::clear_from_global_state() {
 
 
 Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
-                                             int64_t opt_device_size,
-                                             int64_t device_index) {
+                                             const int64_t opt_device_size,
+                                             const int64_t max_num_duplicates,
+                                             const int64_t device_index) {
     tensorflow::mutex_lock lock(global_mutex_);
     if (!ready_) {
-        TF_RETURN_IF_ERROR(initialize(opt_device_size));
+        TF_RETURN_IF_ERROR(initialize(opt_device_size, max_num_duplicates));
 #ifdef NEURONTFSERV
         std::signal(SIGINT, sigint_handler);
         std::signal(SIGTERM, sigint_handler);
