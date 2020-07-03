@@ -13,6 +13,7 @@ import time
 import tempfile
 import json
 import struct
+import math
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
@@ -324,6 +325,9 @@ def inference_graph_from_session(
             uncompiled_node_names.append(node.name)
     if uncompiled_node_names:
         raise ValueError('The following subgraphs failed to compile: {}'.format(uncompiled_node_names))
+
+    # execution plan analysis
+    compiled_graph_def = set_execution_plan(compiled_graph_def)
 
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
@@ -1007,25 +1011,6 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         if not compiler_returns[node_name]:
             subgraph_compilers[node_name] = None
 
-    # scan to get num neuroncores
-    num_cores_tuple_map = {}
-    mis_config = False
-    for node in _gd_neuron_nodes(graph_def):
-        if subgraph_compilers.get(node.name, None) is None:
-            continue
-        workdir_path = subgraph_compilers[node.name].workdir_path
-        executable_path = os.path.join(workdir_path, _neuron_executable_name)
-        num_cores_tuple = _neff_get_cores(executable_path)
-        if num_cores_tuple is None:
-            mis_config = True
-        else:
-            opt_num_cores, _ = num_cores_tuple
-            num_cores_tuple_map[node.name] = num_cores_tuple
-    if mis_config or not num_cores_tuple_map:
-        global_opt_num_cores = -1
-    else:
-        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
-
     # fill NeuronOp properties
     for node in _gd_neuron_nodes(graph_def):
         node.attr['input_batch_axis'].list.i[:] = [-1 for _ in node.attr['input_names'].list.s]
@@ -1045,19 +1030,6 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         executable_path = os.path.join(workdir_path, _neuron_executable_name)
         with open(executable_path, 'rb') as f:
             node.attr['executable'].s = f.read()
-        if node.name in num_cores_tuple_map:
-            this_opt_num_cores, _ = num_cores_tuple_map[node.name]
-            opt_num_infer = this_opt_num_cores
-        else:
-            this_opt_num_cores = -1
-            opt_num_infer = 1
-        # Minimum timeout is 10 sec
-        # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
-        est_timeout = len(node.attr['executable'].s) / 1e8
-        timeout = max(est_timeout, 10)
-        # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
-        model_config = [global_opt_num_cores, this_opt_num_cores, opt_num_infer, timeout]
-        node.attr['model_config'].list.i[:] = model_config
     return graph_def
 
 
@@ -1146,6 +1118,8 @@ def _neff_get_cores(neff_filename):
 
 def _neff_get_cores_from_executable(executable):
     header = executable[:_NC_HEADER_SIZE]
+    if len(header) != _NC_HEADER_SIZE:
+        return None
     info = struct.unpack('168xI304xI64B', header)
     if len(info) != 66:  # 1 + 1 + 64
         return None
@@ -1312,3 +1286,53 @@ def nchw_to_nhwc(graph_def):
         if node.name in node_rename_map:
             node.name = node_rename_map[node.name]
     return graph_def
+
+
+def set_execution_plan(compiled_graph_def):
+    # scan to get num neuroncores and total number of bytes of input and output tensors
+    default_io_buffer_size = 128 * 1024 * 1024
+    cpu_extra_ninfer = 3
+    num_cores_tuple_map = {}
+    mis_config = False
+    for node in _gd_neuron_nodes(compiled_graph_def):
+        num_cores_tuple = _neff_get_cores_from_executable(node.attr['executable'].s)
+        if num_cores_tuple is None:
+            mis_config = True
+        else:
+            opt_num_cores, _ = num_cores_tuple
+            num_cores_tuple_map[node.name] = num_cores_tuple
+    total_io_bytes = 0
+    for node in _gd_neuron_nodes(compiled_graph_def):
+        model_io_bytes = 0
+        for enum, shape in zip(node.attr['input_dtypes'].list.type, node.attr['input_shapes'].list.shape):
+            model_io_bytes += dtypes._INTERN_TABLE[enum].size * numpy.prod([dim.size for dim in shape.dim])
+        for enum, shape in zip(node.attr['output_dtypes'].list.type, node.attr['output_shapes'].list.shape):
+            model_io_bytes += dtypes._INTERN_TABLE[enum].size * numpy.prod([dim.size for dim in shape.dim])
+        if node.name not in num_cores_tuple_map:
+            total_io_bytes = 0
+            break
+        this_opt_num_cores, _ = num_cores_tuple_map[node.name]
+        total_io_bytes += model_io_bytes * (this_opt_num_cores + cpu_extra_ninfer)  # io size * ninfer
+    max_num_duplicates = 1
+    if total_io_bytes > 0:
+        max_num_duplicates = math.floor(default_io_buffer_size / total_io_bytes)
+        max_num_duplicates = min(max_num_duplicates, 4)  # use at most 1 MLA (4 cores) by default
+        max_num_duplicates = max(max_num_duplicates, 1)
+    if mis_config or not num_cores_tuple_map:
+        global_opt_num_cores = -1
+        max_num_duplicates = 1
+    else:
+        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
+    for node in _gd_neuron_nodes(compiled_graph_def):
+        if node.name in num_cores_tuple_map:
+            this_opt_num_cores, _ = num_cores_tuple_map[node.name]
+        else:
+            this_opt_num_cores = -1
+        # Minimum timeout is 10 sec
+        # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
+        est_timeout = len(node.attr['executable'].s) / 1e8
+        timeout = max(est_timeout, 10)
+        # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
+        model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
+        node.attr['model_config'].list.i[:] = model_config
+    return compiled_graph_def
