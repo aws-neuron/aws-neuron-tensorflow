@@ -1,21 +1,5 @@
 package(default_visibility = ["//visibility:public"])
 
-load("//tensorflow:tensorflow.bzl", "tf_py_wrap_cc")
-load("//tensorflow:tensorflow.bzl", "tf_copts")
-
-
-tf_py_wrap_cc(
-    name = "aws_neuron_whitelist_partition_swig",
-    srcs = ["aws_neuron_whitelist_partition.i"],
-    copts = tf_copts(),
-    deps = [
-        ":convert_graph",
-        "//tensorflow/neuron/runtime:all_ops",
-        "//tensorflow/neuron/grappler:fuse_supported_operators",
-        "//tensorflow/c:tf_status_helper",
-        "//third_party/python_runtime:headers",
-    ],
-)
 
 cc_library(
     name = "convert_graph",

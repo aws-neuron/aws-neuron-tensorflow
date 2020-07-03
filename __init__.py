@@ -13,12 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-import sys as _sys
-import os as _os
-_package_install_dir = _os.path.dirname(_os.path.dirname(_os.path.dirname(__file__)))
-_sys.path.append(_os.path.join(_package_install_dir, 'tensorflow-plugins'))
 from tensorflow.neuron.python import graph_util
-_sys.path.pop()  # assume graph_util does not hack _sys.path (which is true as of writing)
 from tensorflow.neuron.python import saved_model
 from tensorflow.neuron.python import predictor
 from tensorflow.neuron.python.fuse import fuse

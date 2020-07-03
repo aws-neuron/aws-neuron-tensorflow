@@ -10,7 +10,7 @@ py_library(
     srcs = [
         "python/graph_util.py",
     ],
-    deps = ["//tensorflow/neuron/convert:aws_neuron_whitelist_partition_swig"],
+    deps = [":neuron_op_py"],
 )
 
 py_library(
@@ -48,10 +48,11 @@ py_library(
 )
 
 tf_custom_op_library(
-    name = "python/ops/_neuron_op.so",
+    name = "python/ops/aws_neuron_plugin.so",
     deps = [
         "//tensorflow/neuron/runtime:neuron_op_op_lib",
         "//tensorflow/neuron/runtime:neuron_op_kernel",
+        "//tensorflow/neuron/grappler:fuse_supported_operators",
     ],
 )
 
@@ -63,7 +64,7 @@ tf_gen_op_wrapper_py(
 
 tf_custom_op_py_library(
     name = "neuron_op_py",
-    dso = [":python/ops/_neuron_op.so"],
+    dso = [":python/ops/aws_neuron_plugin.so"],
     deps = [":gen_neuron_op_py"]
 )
 

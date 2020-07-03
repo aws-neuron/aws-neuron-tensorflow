@@ -48,7 +48,7 @@ function main() {
     cp -R bazel-bin/tensorflow/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/neuron "${TFPYDIR}/"
     TFPLGNDIR="${TMPDIR}/tensorflow-plugins"
     mkdir "${TFPLGNDIR}"
-    mv "${TFPYDIR}/neuron/convert/_aws_neuron_whitelist_partition_swig.so" "${TFPLGNDIR}/"
+    mv "${TFPYDIR}/neuron/python/ops/aws_neuron_plugin.so" "${TFPLGNDIR}/"
     sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
 
     # Before we leave the top-level directory, make sure we know how to

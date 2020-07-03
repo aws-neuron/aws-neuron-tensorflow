@@ -42,7 +42,7 @@ setuptools.setup(
     include_package_data=True,
     packages=setuptools.PEP420PackageFinder.find(),
     package_data={
-        'tensorflow-plugins': ['_aws_neuron_whitelist_partition_swig.so'],
+        'tensorflow-plugins': ['aws_neuron_plugin.so'],
     },
     cmdclass={'bdist_wheel': tfn_bdist_wheel},
     install_requires=[
