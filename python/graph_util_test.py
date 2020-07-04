@@ -506,6 +506,35 @@ class TestInferenceGraphFromSession(unittest.TestCase):
 
 class TestDynamicBatchSize(unittest.TestCase):
 
+    def test_chain(self):
+        np.random.seed(_RANDOM_SEED)
+        pix = 8
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [None, pix, pix, 3], name='input0')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            relu0 = tf.nn.relu(conv2d0, name='relu0')
+            feed_dict_compile = {
+                'input0:0': np.random.uniform(-1, 1, size=[1, pix, pix, 3]).astype(np.float16),
+            }
+            feed_dict_list = []
+            for batch_size in 1, 2, 3:
+                feed_dict = {
+                    'input0:0': np.random.uniform(-1, 1, size=[batch_size, pix, pix, 3]).astype(np.float16),
+                }
+                feed_dict_list.append(feed_dict)
+            result_ref_list = [sess.run('relu0:0', feed_dict) for feed_dict in feed_dict_list]
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                feed_dict=feed_dict_compile, output_tensors=['relu0:0'])
+        assert infer_graph.get_operations()[1].outputs[0].shape.as_list() == [None, pix, pix, 3]
+        _assert_compiler_success(infer_graph)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                for feed_dict, result_ref in zip(feed_dict_list, result_ref_list):
+                    result_neuron = sess.run('relu0:0', feed_dict)
+                    np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-2)
+
     def test_simple(self):
         infer_graph, result_names, feed_dict_list, result_ref_list = self._body()
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:

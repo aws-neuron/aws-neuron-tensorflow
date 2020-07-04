@@ -261,7 +261,7 @@ def inference_graph_from_session(
     # infer all tensor shapes and exclude ops that are attached to unknown shape tensors
     if shape_feed_dict is not None:
         shaped_graph = shape_inference(graph, shape_feed_dict, evaluated_map)
-        graph_def = graph.as_graph_def(add_shapes=True)
+        graph_def = graph.as_graph_def()
     else:
         shaped_graph = graph
 
@@ -302,6 +302,10 @@ def inference_graph_from_session(
         if node.name in large_constants:
             _restore_large_constants(node, large_constants[node.name])
 
+    # try to enable dynamic batch size if possible
+    if not dynamic_batch_size:
+        compiled_graph_def, dynamic_batch_size = set_dynamic_batch_size(compiled_graph_def)
+
     # rename NeuronOp's for better visualization
     name_change_map = {}
     for node in _gd_neuron_nodes(compiled_graph_def):
@@ -331,10 +335,13 @@ def inference_graph_from_session(
 
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
-    if not dynamic_batch_size:
-        for name in input_names.union(output_names):
-            shape = shaped_graph.get_tensor_by_name(name).shape
-            compiled_graph.get_tensor_by_name(name).set_shape(shape)
+    for name in input_names.union(output_names):
+        shape = shaped_graph.get_tensor_by_name(name).shape
+        if dynamic_batch_size:
+            if shape.rank is not None and shape.rank > 0:
+                shape = shape.as_list()
+                shape[0] = None
+        compiled_graph.get_tensor_by_name(name).set_shape(shape)
 
     # statistics on number of operations
     num_ops_original = len(sess.graph.get_operations())
@@ -542,7 +549,7 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
     """
     if evaluated_map is None:
         evaluated_map = {}
-    shaped_graph = _graph_def_to_graph(graph.as_graph_def(add_shapes=True))
+    shaped_graph = _graph_def_to_graph(graph.as_graph_def())
 
     # set input tensor shapes and get input names
     for key, shape in shape_feed_dict.items():
@@ -885,7 +892,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
                     shape_proto = graph.get_tensor_by_name(tensor_name).shape.as_proto()
                     sg_node.attr['shape'].shape.CopyFrom(shape_proto)
         # this converting back and forth is for topologically sorting the graph
-        new_subgraph_def = _graph_def_to_graph(new_subgraph_def).as_graph_def(add_shapes=True)
+        new_subgraph_def = _graph_def_to_graph(new_subgraph_def).as_graph_def()
         node.attr['graph_def'].s = new_subgraph_def.SerializeToString()
 
     # add subgraph's control input to `NeuronOp`'s control input
@@ -1278,7 +1285,7 @@ def nchw_to_nhwc(graph_def):
                     tensor_nchw = array_ops.transpose(tensor_nhwc, [0, 3, 1, 2])
                 remove_node_names.add(op.name)
                 node_rename_map[tensor_nchw.op.name] = op.name
-    temp_graph_def = graph.as_graph_def(add_shapes=True)
+    temp_graph_def = graph.as_graph_def()
     graph_def = graph_pb2.GraphDef()
     graph_def.node.MergeFrom(
         node for node in temp_graph_def.node if node.name not in remove_node_names)
@@ -1286,6 +1293,132 @@ def nchw_to_nhwc(graph_def):
         if node.name in node_rename_map:
             node.name = node_rename_map[node.name]
     return graph_def
+
+
+def set_dynamic_batch_size(compiled_graph_def):
+    dbs = DynamicBatchSizeHelper()
+    subgraph_enable_map = {}
+    for node in _gd_neuron_nodes(compiled_graph_def):
+        subgraph = _get_subgraph(node)
+        input_names = [name.decode() for name in node.attr['input_names'].list.s]
+        output_names = [name.decode() for name in node.attr['output_names'].list.s]
+        tensor_dynamic_map = {}
+        for name in input_names:
+            shape = subgraph.get_tensor_by_name(name).shape
+            tensor_dynamic_map[name] = shape.rank is None or (len(shape) > 0 and shape.as_list()[0] is None)
+        for op in subgraph.get_operations():
+            inputs, outputs = dbs.dynamic_inputs_outputs(op)
+            if all(tensor_dynamic_map.get(ts.name, False) for ts in inputs):
+                tensor_dynamic_map.update((ts.name, True) for ts in outputs)
+        subgraph_enable_map[node.name] = all(tensor_dynamic_map.get(name, False) for name in input_names + output_names)
+    dynamic_batch_size = subgraph_enable_map and all(
+        subgraph_enable_map.get(node.name, False) for node in _gd_neuron_nodes(compiled_graph_def))
+    if dynamic_batch_size:
+        for node in _gd_neuron_nodes(compiled_graph_def):
+            subgraph = _get_subgraph(node)
+            node.attr['input_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'input_names')
+            node.attr['output_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'output_names')
+    return compiled_graph_def, dynamic_batch_size
+
+
+class DynamicBatchSizeHelper:
+
+    unary_ops = {
+        'Bitcast', 'Identity', 'Abs', 'Acos', 'Acosh', 'Asin', 'Asinh', 'Atan', 'Atan2',
+        'Atanh', 'BesselI0e', 'BesselI1e', 'Cast', 'Ceil', 'Cos', 'Cosh', 'Digamma',
+        'Erf', 'Erfc', 'Exp', 'Expm1', 'Floor', 'FloorDiv', 'FloorMod', 'Inv',
+        'IsFinite', 'IsInf', 'IsNan', 'Lgamma', 'Log', 'Log1p', 'Mod', 'Neg', 'Pow',
+        'Reciprocal', 'Rint', 'Round', 'Rsqrt', 'Sigmoid', 'Sign', 'Sin', 'Sinh', 'Sqrt',
+        'Square', 'Tan', 'Tanh', 'Elu', 'Relu', 'Relu6', 'Selu', 'Softplus', 'Softsign',
+        'LogSoftmax', 'Softmax',
+    }
+    binary_broadcast_ops = {
+        'Add', 'AddV2', 'Div', 'DivNoNan', 'Equal', 'Greater', 'GreaterEqual',
+        'Less', 'LessEqual', 'LogicalAnd', 'LogicalNot', 'LogicalOr', 'Maximum', 'Minimum',
+        'Mul', 'MulNoNan', 'NotEqual', 'RealDiv', 'SquaredDifference', 'Subtract',
+        'TruncateDiv', 'TruncateMod', 'Xdivy', 'Xlogy',
+    }
+    reduce_axis_ops = {
+        'ArgMax', 'ArgMin', 'EuclideanNorm', 'Max', 'Mean', 'Min', 'Prod', 'Sum',
+    }
+    pseudo_unary_ops = {
+        'Pad', 'PadV2', 'ClipByValue', 'AvgPool', 'AvgPool3D', 'BiasAdd',
+        'Conv2D', 'Conv3D', 'DepthwiseConv2dNative', 'Dilation2D',
+        'FractionalAvgPool', 'FractionalMaxPool', 'FusedBatchNorm', 'FusedBatchNormV2', 'FusedBatchNormV3',
+        'FusedPadConv2D', 'FusedResizeAndPadConv2D', 'MaxPool', 'MaxPoolV2', 'MaxPool3D',
+    }
+
+    def dynamic_inputs_outputs(self, op):
+        if op.type in DynamicBatchSizeHelper.unary_ops:
+            return list(op.inputs), op.outputs
+        elif op.type in DynamicBatchSizeHelper.binary_broadcast_ops:
+            shape0, shape1 = [ts.shape for ts in op.inputs]
+            if shape0.rank is None or shape1.rank is None:
+                return [], []
+            if shape0.rank > shape1.rank:
+                return [op.inputs[0]], op.outputs
+            elif shape0.rank < shape1.rank:
+                return [op.inputs[1]], op.outputs
+            else:  # same rank
+                inputs = []
+                if len(shape0) > 0 and shape0.as_list()[0] is None:
+                    inputs.append(op.inputs[0])
+                if len(shape1) > 0 and shape0.as_list()[0] is None:
+                    inputs.append(op.inputs[1])
+                return inputs, op.outputs
+        elif op.type in DynamicBatchSizeHelper.reduce_axis_ops:
+            axis_op = op.inputs[-1].op
+            if axis_op.type == 'Const':
+                axis_list = _get_int32_values(axis_op)
+                if axis_list and 0 not in axis_list:
+                    return list(op.inputs[:-1]), op.outputs
+        elif op.type in DynamicBatchSizeHelper.pseudo_unary_ops:
+            return list(op.inputs[:1]), op.outputs
+        elif op.type in {'Concat', 'ConcatV2'}:
+            axis_op = op.inputs[-1].op
+            if axis_op.type == 'Const':
+                axis_list = _get_int32_values(axis_op)
+                if axis_list and 0 not in axis_list:
+                    return list(op.inputs[:-1]), op.outputs
+        elif op.type == 'ExpandDims':
+            pass
+        elif op.type == 'Stack':
+            pass
+        elif op.type in {'BatchMatMul', 'BatchMatMulV2'}:
+            pass
+        elif op.type == 'Cumprod':
+            pass
+        elif op.type == 'Cumsum':
+            pass
+        elif op.type == 'MatMul':
+            if not op.node_def.attr['transpose_a'].b:
+                return list(op.inputs[:1]), op.outputs
+        elif op.type == 'Slice':
+            pass
+        elif op.type == 'StridedSlice':
+            pass
+        elif op.type == 'Shape':
+            pass
+        elif op.type == 'Reshape':
+            pass
+        elif op.type == 'Squeeze':
+            pass
+        elif op.type == 'Transpose':
+            pass
+        elif op.type == 'Unstack':
+            pass
+        return [], []
+
+
+def _get_int32_values(const_op):
+    tensor_def = const_op.node_def.attr['value'].tensor
+    dtype = dtypes._INTERN_TABLE[tensor_def.dtype]
+    if dtype is not dtypes.int32:
+        return []
+    if tensor_def.tensor_content:
+        return list(numpy.frombuffer(tensor_def.tensor_content, dtype=dtype.as_numpy_dtype))
+    else:
+        return tensor_def.int_val
 
 
 def set_execution_plan(compiled_graph_def):
