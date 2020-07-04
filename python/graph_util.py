@@ -939,7 +939,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             else will create and use 'workdir/op_name' for each subgraph.
         args_dict: Dict `{str: list}` that maps NeuronOp names to compiler arguments;
             compiler arguments should be a list of strings, as used in `subprocess.run`.
-        timeout: Integer representing timeout limit for the compiler. Default: 1800.
+        timeout: Integer representing timeout limit for the compiler. Default: 18000.
         max_num_compilers: Integer representing maximum allowed compiler processes.
             Default is number of cpu cores.
 
@@ -955,7 +955,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     else:
         workdir_base = os.path.abspath(workdir)
     if timeout is None:
-        timeout = 1800
+        timeout = 18000
     Compiler = collections.namedtuple('Compiler', 'command write_log_to_file verbose workdir_path')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
@@ -1095,7 +1095,10 @@ def _wait_compiler(proc, timeout):
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         proc.send_signal(signal.SIGINT)
-        proc.communicate()
+        try:
+            proc.communicate(timeout=1)
+        except subprocess.TimeoutExpired:
+            proc.send_signal(signal.SIGKILL)
         return None
     return proc.returncode
 
