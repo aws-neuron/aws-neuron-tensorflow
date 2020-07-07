@@ -14,6 +14,29 @@
 
 
 namespace tensorflow {
+
+
+namespace register_kernel {
+class NeuronName {
+public:
+    const KernelDef *Build() {
+        // Need to allocate from an existing one to workaround the bug that setting one attribute
+        // can affect other attributes
+        KernelDef *kernel = new KernelDef(GetRegisteredKernelsForOp("IdentityN").kernel(0));
+        kernel->clear_op();
+        kernel->clear_device_type();
+        kernel->clear_constraint();
+        kernel->clear_host_memory_arg();
+        kernel->clear_label();
+        kernel->clear_priority();
+        kernel->set_op(GetRegisteredKernelsForOp("NeuronOp").kernel_size() ? "_no_register" : "NeuronOp");
+        kernel->set_device_type(DEVICE_CPU);
+        return kernel;
+    }
+};
+}  // namespace register_kernel
+
+
 namespace neuron {
 
 
@@ -636,7 +659,12 @@ Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_ten
 }
 
 
+#ifdef NEURONTFSERV
 REGISTER_KERNEL_BUILDER(Name("NeuronOp").Device(DEVICE_CPU), NeuronOp);
+#else
+// need to override kernel_builder as NeuronName to prevent multiple kernel registrations
+REGISTER_KERNEL_BUILDER(NeuronName(), NeuronOp);
+#endif  // NEURONTFSERV
 
 }  // namespace neuron
 }  // namespace tensorflow
