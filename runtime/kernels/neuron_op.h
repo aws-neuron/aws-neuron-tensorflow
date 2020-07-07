@@ -20,9 +20,6 @@
 
 
 namespace tensorflow {
-
-constexpr char kNeuronOp[] = "NeuronOp";
-
 namespace neuron {
 
 
