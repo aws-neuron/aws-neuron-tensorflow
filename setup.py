@@ -46,7 +46,7 @@ setuptools.setup(
     },
     cmdclass={'bdist_wheel': tfn_bdist_wheel},
     install_requires=[
-        'tensorflow >= 1.15.0, < 1.16.0',
-        'tensorboard-neuron >= 1.15.0, < 1.16.0',
+        'tensorflow ~= 1.15.0',
+        'tensorboard-neuron ~= 1.15.0',
     ],
 )

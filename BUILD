@@ -86,7 +86,7 @@ py_library(
 
 py_library(
     name = "neuron_py",
-    srcs = ["__init__.py"],
+    srcs = ["__init__.py", "api/v1/__init__.py"],
     deps = [
         ":saved_model_py",
         ":graph_util_py",
