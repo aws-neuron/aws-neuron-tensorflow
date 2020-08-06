@@ -63,6 +63,10 @@ py_library(
     srcs = [
         "saved_model_v2.py",
     ],
+    deps = [
+        ":graph_def_util_py",
+        ":meta_graph_util_py",
+    ],
 )
 
 tf_custom_op_library(
@@ -124,6 +128,7 @@ py_library(
     deps = [
         ":graph_util_py",
         ":saved_model_py",
-        ":fuse_py"
+        ":fuse_py",
+        ":saved_model_v2_py",
     ],
 )

@@ -20,9 +20,11 @@ from tensorflow.python.framework import convert_to_constants
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.saved_model import loader_impl
+from tensorflow.neuron.python import meta_graph_util as mgu
+from tensorflow.neuron.python import graph_def_util as gdu
 
 
-def compile(model_dir, new_model_dir, tags=None, **kwargs):
+def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -35,6 +37,10 @@ def compile(model_dir, new_model_dir, tags=None, **kwargs):
     Returns:
         Dictionary with operator counts before/after optimization, etc.
     """
+    # load SavedModel
+    model = saved_model.load(model_dir, tags=tags)
+
+    # get ConcreteFunction from the SavedModel
     saved_model_proto, debug_info = loader_impl.parse_saved_model_with_debug_info(model_dir)
     signature_def = saved_model_proto.meta_graphs[0].signature_def
     signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
@@ -55,7 +61,24 @@ def compile(model_dir, new_model_dir, tags=None, **kwargs):
 
     # convert all variables to constants
     cfunc = convert_to_constants.convert_variables_to_constants_v2(wfunc)
-    graph_def = cfunc.graph.as_graph_def()
+    graph_def = cfunc.graph.as_graph_def(add_shapes=True)
+
+    if model_feed_dict is None:
+        shape_feed_dict = None
+    else:
+        shape_feed_dict = {sig_def.inputs[key].name: value.shape for key, value in model_feed_dict.items()}
+    graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
+
+    # produce GraphDef by running grappler passes
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    sig_def_grappler = mgu.build_signature_def(cfunc.inputs, cfunc.outputs)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(sig_def_grappler)
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.optimizers.append('constfold')
+    rewriter_config.optimizers.append('aws_neuron_static_shape_inference')
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # re-wrap GraphDef as a WrappedFunction
     captured_inputs = {ts.ref() for _, ts in wfunc.graph.captures}
