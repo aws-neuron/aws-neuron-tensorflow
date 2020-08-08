@@ -10,7 +10,17 @@ py_library(
     srcs = [
         "python/graph_util.py",
     ],
-    deps = [":neuron_op_py"],
+    deps = [
+        ":graph_def_util_py",
+        ":neuron_op_py",
+    ],
+)
+
+py_library(
+    name = "graph_def_util_py",
+    srcs = [
+        "python/graph_def_util.py",
+    ],
 )
 
 py_library(

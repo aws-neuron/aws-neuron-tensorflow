@@ -45,6 +45,7 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.framework import meta_graph
+from tensorflow.neuron.python import graph_def_util as gdu
 
 
 _NEURON_OP = 'NeuronOp'
@@ -286,7 +287,7 @@ def inference_graph_from_session(
     # call compiler for each `NeuronOp`
     args_dict = {}
     if compiler_args is not None:
-        args_dict = {node.name: compiler_args for node in _gd_neuron_nodes(part_graph_def)}
+        args_dict = {node.name: compiler_args for node in gdu.get_neuron_nodes(part_graph_def)}
     compiled_graph_def = compile_subgraphs(
         part_graph_def, subgraph_shapes, large_constants, workdir=compiler_workdir,
         args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers,
@@ -296,7 +297,7 @@ def inference_graph_from_session(
         compiled_graph_def = mark_batch_axis(compiled_graph_def)
 
     if compiler_recovery:
-        compiled_graph_def = restore_compiler_failures(compiled_graph_def, graph)
+        compiled_graph_def = gdu.restore_compiler_failures(compiled_graph_def, graph)
         compiled_graph_def = nchw_to_nhwc(compiled_graph_def)
     for node in compiled_graph_def.node:
         if node.name in large_constants:
@@ -308,15 +309,15 @@ def inference_graph_from_session(
 
     # rename NeuronOp's for better visualization
     name_change_map = {}
-    for node in _gd_neuron_nodes(compiled_graph_def):
-        prefix = most_popular_namescope(sn.name for sn in _get_subgraph_def(node).node)
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
+        prefix = most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
         if not prefix:
             continue
         new_op_name = '/'.join([prefix, node.name])
         num_tensor = len(node.attr['output_names'].list.s)
         for idx in range(num_tensor):
-            tensor_name = _gd_tensor_name('{}:{}'.format(node.name, idx))
-            new_tensor_name = _gd_tensor_name('{}:{}'.format(new_op_name, idx))
+            tensor_name = gdu.format_tensor_name('{}:{}'.format(node.name, idx))
+            new_tensor_name = gdu.format_tensor_name('{}:{}'.format(new_op_name, idx))
             name_change_map[tensor_name] = new_tensor_name
         node.name = new_op_name
     for node in compiled_graph_def.node:
@@ -324,7 +325,7 @@ def inference_graph_from_session(
 
     # raise exception if NeuronOp is still uncompiled after fallback pass
     uncompiled_node_names = []
-    for node in _gd_neuron_nodes(compiled_graph_def):
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
         if not node.attr['executable'].s:
             uncompiled_node_names.append(node.name)
     if uncompiled_node_names:
@@ -463,20 +464,6 @@ def _graph_def_to_graph(graph_def):
 
 def _neuron_ops(graph):
     return (op for op in graph.get_operations() if op.type == _NEURON_OP)
-
-
-def _gd_neuron_nodes(graph_def):
-    return (node for node in graph_def.node if node.op == _NEURON_OP)
-
-
-def _gd_op_index(graph_def_tensor_name):
-    comma_split = graph_def_tensor_name.split(':')
-    if ':' in graph_def_tensor_name:
-        op_name, value_index = comma_split
-        value_index = int(value_index)
-    else:
-        op_name, value_index = comma_split[0], 0
-    return op_name, value_index
 
 
 def _init_subgraph_shapes(graph, part_graph):
@@ -809,12 +796,12 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     # unify `NeuronOp`'s same-name outputs across the graph
     new_tensor_name_to_old_tensor_name = {}
     tensor_name_map = {}
-    for node in _gd_neuron_nodes(graph_def):
+    for node in gdu.get_neuron_nodes(graph_def):
         output_names = [name for name in node.attr['output_names'].list.s]
         tensor_name_to_out_name = {}
         for idx, out_name in enumerate(output_names):
             tensor_name = '{}:{}'.format(node.name, idx)
-            tensor_name_to_out_name[_gd_tensor_name(tensor_name)] = out_name
+            tensor_name_to_out_name[gdu.format_tensor_name(tensor_name)] = out_name
             new_tensor_name_to_old_tensor_name[tensor_name] = out_name.decode()
         new_output_names = []
         new_output_dtypes = []
@@ -830,7 +817,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
                 new_output_shapes.append(out_shape)
         for tensor_name, out_name in tensor_name_to_out_name.items():
             idx = out_name_to_new_idx[out_name]
-            new_tensor_name = _gd_tensor_name('{}:{}'.format(node.name, idx))
+            new_tensor_name = gdu.format_tensor_name('{}:{}'.format(node.name, idx))
             tensor_name_map[tensor_name] = new_tensor_name
         node.attr['output_names'].list.s[:] = new_output_names
         node.attr['output_dtypes'].list.type[:] = new_output_dtypes
@@ -841,14 +828,14 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         node.input[:] = [tensor_name_map.get(inp, inp) for inp in node.input]
 
     # remove `NeuronOp`'s internal placeholder duplications
-    for node in _gd_neuron_nodes(graph_def):
-        subgraph_def = _get_subgraph_def(node)
+    for node in gdu.get_neuron_nodes(graph_def):
+        subgraph_def = gdu.get_subgraph_def(node)
         tensor_name_map = {}
         unique_input_tensor_names = {}  # maps input tensor name to its placeholder name
         discard_ph_op_names = set()
         for ph_name, ts_name in zip(node.attr['input_names'].list.s, node.input):
             ph_op_name = ph_name.decode().split(':')[0]
-            gd_ph_name = _gd_tensor_name(ph_name.decode())
+            gd_ph_name = gdu.format_tensor_name(ph_name.decode())
             if ts_name in unique_input_tensor_names:
                 tensor_name_map[gd_ph_name] = unique_input_tensor_names[ts_name]
                 discard_ph_op_names.add(ph_op_name)
@@ -898,8 +885,8 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     # add subgraph's control input to `NeuronOp`'s control input
     all_op_names = {op.name for op in graph.get_operations()}
     post_part_node_names = {node.name for node in graph_def.node}
-    for node in _gd_neuron_nodes(graph_def):
-        for sg_node in _get_subgraph_def(node).node:
+    for node in gdu.get_neuron_nodes(graph_def):
+        for sg_node in gdu.get_subgraph_def(node).node:
             if sg_node.name in all_op_names:
                 op_original = graph.get_operation_by_name(sg_node.name)
                 for control_input in op_original.control_inputs:
@@ -908,18 +895,8 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     return graph_def
 
 
-def _get_subgraph_def(node):
-    graph_def = graph_pb2.GraphDef()
-    graph_def.ParseFromString(node.attr['graph_def'].s)
-    return graph_def
-
-
 def _get_subgraph(node):
-    return _graph_def_to_graph(_get_subgraph_def(node))
-
-
-def _gd_tensor_name(tensor_name):
-    return tensor_name.split(':')[0] if tensor_name.endswith(':0') else tensor_name
+    return _graph_def_to_graph(gdu.get_subgraph_def(node))
 
 
 def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
@@ -963,7 +940,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
     if neuron_cc is None:
         return graph_def
     subgraph_info_format = '{{subgraph {} with input tensors {}, output tensors {}}}'.format
-    for node in _gd_neuron_nodes(graph_def):
+    for node in gdu.get_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
         subgraph = _get_subgraph(node)
@@ -983,7 +960,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             for tensor in output_tensors:
                 tensor.set_shape(subgraph_shapes[node.name][tensor.name])
         subgraph_info = subgraph_info_format(node.name, input_tensors, output_tensors)
-        subgraph_def = _get_subgraph_def(node)
+        subgraph_def = gdu.get_subgraph_def(node)
         if large_constants is not None:
             for sgn in subgraph_def.node:
                 if sgn.name in large_constants:
@@ -1029,7 +1006,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             subgraph_compilers[node_name] = None
 
     # fill NeuronOp properties
-    for node in _gd_neuron_nodes(graph_def):
+    for node in gdu.get_neuron_nodes(graph_def):
         node.attr['input_batch_axis'].list.i[:] = [-1 for _ in node.attr['input_names'].list.s]
         node.attr['output_batch_axis'].list.i[:] = [-1 for _ in node.attr['output_names'].list.s]
         if subgraph_compilers.get(node.name, None) is None:
@@ -1152,55 +1129,8 @@ def _neff_get_cores_from_executable(executable):
     return opt_num_cores, min_num_cores
 
 
-def restore_compiler_failures(compiled_graph_def, graph):
-    """Restore `NeuronOp`'s that failed to compile
-    """
-    neuron_op_dict = {node.name: node for node in compiled_graph_def.node
-                                          if node.op == _NEURON_OP}
-    restore_nodes = []
-    remove_node_names = set()
-    gd_tensor_name_map = {}
-    for node in _gd_neuron_nodes(compiled_graph_def):
-        if not node.attr['executable'].s:
-            remove_node_names.add(node.name)
-            subgraph_def = _get_subgraph_def(node)
-            sgd_tensor_name_map = {}
-            for gd_ts_name, sg_ph_name in zip(node.input, node.attr['input_names'].list.s):
-                sgd_ph_name = _gd_tensor_name(sg_ph_name.decode())
-                op_name, ts_index = _gd_op_index(gd_ts_name)
-                if op_name in neuron_op_dict:
-                    in_node = neuron_op_dict[op_name]
-                    if not in_node.attr['executable'].s:
-                        gd_ts_name = in_node.attr['output_names'].list.s[ts_index].decode()
-                sgd_tensor_name_map[sgd_ph_name] = gd_ts_name
-            for sg_node in subgraph_def.node:
-                for idx, name in enumerate(sg_node.input):
-                    sg_node.input[idx] = sgd_tensor_name_map.get(name, name)
-                if sg_node.op != 'Placeholder':
-                    restore_nodes.append(sg_node)
-            for out_idx, out_name in enumerate(node.attr['output_names'].list.s):
-                out_gd_ts_name = _gd_tensor_name('{}:{}'.format(node.name, out_idx))
-                gd_tensor_name_map[out_gd_ts_name] = _gd_tensor_name(out_name.decode())
-    restore_node_names = {node.name for node in restore_nodes}
-    remove_node_names.update(node.name for node in compiled_graph_def.node
-                                       if node.name in restore_node_names)
-    for node in restore_nodes:
-        op_original = graph.get_operation_by_name(node.name)
-        for control_input in op_original.control_inputs:
-            node.input.append('^{}'.format(control_input.name))
-    for node in compiled_graph_def.node:
-        for idx, name in enumerate(node.input):
-            node.input[idx] = gd_tensor_name_map.get(name, name)
-
-    graph_def = graph_pb2.GraphDef()
-    graph_def.node.MergeFrom(
-        node for node in compiled_graph_def.node if node.name not in remove_node_names)
-    graph_def.node.MergeFrom(node for node in restore_nodes)
-    return graph_def
-
-
 def mark_batch_axis(compiled_graph_def):
-    for node in _gd_neuron_nodes(compiled_graph_def):
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
         subgraph = _get_subgraph(node)
         node.attr['input_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'input_names')
         node.attr['output_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'output_names')
@@ -1311,7 +1241,7 @@ def nchw_to_nhwc(graph_def):
 def set_dynamic_batch_size(compiled_graph_def):
     dbs = DynamicBatchSizeHelper()
     subgraph_enable_map = {}
-    for node in _gd_neuron_nodes(compiled_graph_def):
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
         subgraph = _get_subgraph(node)
         input_names = [name.decode() for name in node.attr['input_names'].list.s]
         output_names = [name.decode() for name in node.attr['output_names'].list.s]
@@ -1325,9 +1255,9 @@ def set_dynamic_batch_size(compiled_graph_def):
                 tensor_dynamic_map.update((ts.name, True) for ts in outputs)
         subgraph_enable_map[node.name] = all(tensor_dynamic_map.get(name, False) for name in input_names + output_names)
     dynamic_batch_size = subgraph_enable_map and all(
-        subgraph_enable_map.get(node.name, False) for node in _gd_neuron_nodes(compiled_graph_def))
+        subgraph_enable_map.get(node.name, False) for node in gdu.get_neuron_nodes(compiled_graph_def))
     if dynamic_batch_size:
-        for node in _gd_neuron_nodes(compiled_graph_def):
+        for node in gdu.get_neuron_nodes(compiled_graph_def):
             subgraph = _get_subgraph(node)
             node.attr['input_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'input_names')
             node.attr['output_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'output_names')
@@ -1440,7 +1370,7 @@ def set_execution_plan(compiled_graph_def):
     cpu_extra_ninfer = 3
     num_cores_tuple_map = {}
     mis_config = False
-    for node in _gd_neuron_nodes(compiled_graph_def):
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
         num_cores_tuple = _neff_get_cores_from_executable(node.attr['executable'].s)
         if num_cores_tuple is None:
             mis_config = True
@@ -1448,7 +1378,7 @@ def set_execution_plan(compiled_graph_def):
             opt_num_cores, _ = num_cores_tuple
             num_cores_tuple_map[node.name] = num_cores_tuple
     total_io_bytes = 0
-    for node in _gd_neuron_nodes(compiled_graph_def):
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
         model_io_bytes = 0
         for enum, shape in zip(node.attr['input_dtypes'].list.type, node.attr['input_shapes'].list.shape):
             model_io_bytes += dtypes._INTERN_TABLE[enum].size * numpy.prod([dim.size for dim in shape.dim])
@@ -1469,7 +1399,7 @@ def set_execution_plan(compiled_graph_def):
         max_num_duplicates = 1
     else:
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
-    for node in _gd_neuron_nodes(compiled_graph_def):
+    for node in gdu.get_neuron_nodes(compiled_graph_def):
         if node.name in num_cores_tuple_map:
             this_opt_num_cores, _ = num_cores_tuple_map[node.name]
         else:
