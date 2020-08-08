@@ -24,7 +24,9 @@ from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
 
 
-def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, **kwargs):
+def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
+            minimum_segment_size=2, op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
+            **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -62,6 +64,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, **kwargs)
     # convert all variables to constants
     cfunc = convert_to_constants.convert_variables_to_constants_v2(wfunc)
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
+    original_graph_def = graph_def
 
     if model_feed_dict is None:
         shape_feed_dict = None
@@ -78,7 +81,33 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, **kwargs)
     rewriter_config.meta_optimizer_iterations = 1
     rewriter_config.optimizers.append('constfold')
     rewriter_config.optimizers.append('aws_neuron_static_shape_inference')
+
+    # configure operator fusion
+    fuser_config = rewriter_config.custom_optimizers.add()
+    fuser_config.name = 'aws_neuron_fuse_supported_operators'
+    fuser_param_map = fuser_config.parameter_map
+    fuser_param_map['minimum_segment_size'].i = minimum_segment_size
+    if op_whitelist is None:
+        op_whitelist = set()
+        try:
+            from neuroncc.driver.commands.ListOperatorsCommand import ListOperatorsCommand
+            op_whitelist.update(ListOperatorsCommand(parent_command=None).known_frameworks['TENSORFLOW'].listOperators())
+            op_whitelist.discard('Placeholder')
+            op_whitelist.discard('IdentityN')
+        except ImportError:
+            logging.warning('neuron-cc is not installed. Please check neuron-cc '
+                            'installation, or reinstall by "pip install --force neuron-cc".')
+    fuser_param_map['op_whitelist'].list.s.extend(item.encode() for item in op_whitelist)
+    if no_fuse_ops is not None:
+        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
+    if force_fuse_ops is not None:
+        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
+
+    # call all grappler passes
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+
+    # call graph_def_util passes
+    graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
 
     # re-wrap GraphDef as a WrappedFunction
     captured_inputs = {ts.ref() for _, ts in wfunc.graph.captures}
