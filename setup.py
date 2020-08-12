@@ -1,8 +1,28 @@
+"""
+Copyright (C) 2020, Amazon.com. All Rights Reserved
+"""
 import setuptools
-from wheel.bdist_wheel import bdist_wheel
+from setuptools.command.install import install as InstallCommandBase
+from setuptools.dist import Distribution
+from wheel.bdist_wheel import bdist_wheel as BDistWheelCommandBase
 
 
-class tfn_bdist_wheel(bdist_wheel):
+class BinaryDistribution(Distribution):
+
+    def has_ext_modules(self):
+        return True
+
+
+class InstallCommand(InstallCommandBase):
+    """Override the installation dir."""
+
+    def finalize_options(self):
+        ret = InstallCommandBase.finalize_options(self)
+        self.install_lib = self.install_platlib
+        return ret
+
+
+class BDistWheelCommand(BDistWheelCommandBase):
 
     def finalize_options(self):
         super().finalize_options()
@@ -44,7 +64,11 @@ setuptools.setup(
     package_data={
         'tensorflow-plugins': ['aws_neuron_plugin.so'],
     },
-    cmdclass={'bdist_wheel': tfn_bdist_wheel},
+    distclass=BinaryDistribution,
+    cmdclass={
+        'bdist_wheel': BDistWheelCommand,
+        'install': InstallCommand,
+    },
     install_requires=[
         'tensorflow ~= 1.15.0',
         'tensorboard-neuron ~= 1.15.0',
