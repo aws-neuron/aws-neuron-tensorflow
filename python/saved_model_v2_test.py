@@ -62,6 +62,43 @@ class TestCompileV1SavedModel(TestV2Only):
         for name in result_ref.keys():
             np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
+    def test_3segments(self):
+        np.random.seed(_RANDOM_SEED)
+        model_dir = './original_saved_model_v1_0'
+        new_model_dir = './neuron_saved_model_v1_to_v2_0'
+        with tf.compat.v1.Session(graph=tf.compat.v1.Graph()) as sess:
+            input0 = tf.compat.v1.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
+            input1 = tf.compat.v1.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            add0 = tf.add(conv2d0, conv2d1, name='add0')
+            relu0 = tf.nn.relu(add0, name='relu0')
+            sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+            conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            relu1 = tf.nn.relu(conv2d2, name='relu1')
+            inputs = {'x0': input0, 'x1': input1}
+            outputs = {'y0': relu0, 'y1': relu1}
+            shutil.rmtree(model_dir, ignore_errors=True)
+            tf.compat.v1.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
+        feeds = {
+            'x0': tf.convert_to_tensor(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)),
+            'x1': tf.convert_to_tensor(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)),
+        }
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(
+            model_dir, new_model_dir, model_feed_dict=feeds,
+            op_whitelist={'Conv2D', 'Const'}, minimum_segment_size=1,
+        )
+        model_ref = tf.saved_model.load(model_dir)
+        model_neuron = tf.saved_model.load(new_model_dir)
+        result_ref = model_ref.signatures['serving_default'](**feeds)
+        result_neuron = model_neuron.signatures['serving_default'](**feeds)
+        for name in result_ref.keys():
+            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+
 
 class TestCompileKerasSavedModel(TestV2Only):
 

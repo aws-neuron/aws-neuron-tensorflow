@@ -69,6 +69,13 @@ py_library(
     ],
 )
 
+py_library(
+    name = "neuron_cc_py",
+    srcs = [
+        "neuron_cc.py",
+    ],
+)
+
 tf_custom_op_library(
     name = "aws_neuron_plugin",
     per_os_targets = True,

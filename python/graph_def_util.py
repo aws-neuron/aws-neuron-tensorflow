@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 import math
 import reprlib
 import os
@@ -20,6 +21,7 @@ from tensorflow.core.framework import graph_pb2
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.neuron.python.neuron_cc import compile_savetemps
 from tensorflow.neuron.python import neff_util
 
 
@@ -170,6 +172,47 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
             for idx, (name, shape_proto) in enumerate(zip(output_names, output_shapes)):
                 if not TensorShape(shape_proto).is_fully_defined():
                     output_shapes[idx].CopyFrom(inferred_shapes[name.decode()].as_proto())
+    return graph_def
+
+
+def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
+    for node in get_neuron_nodes(graph_def):
+        not_fusing_reasons = []
+        # skip compiling this subgraph for the following reasons
+        if len(node.attr[knInputNames].list.s) == 0:
+            not_fusing_reasons.append('it does not have inputs')
+        if len(node.attr[knOutputNames].list.s) == 0:
+            not_fusing_reasons.append('it does not have outputs')
+        if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knInputShapes].list.shape):
+            not_fusing_reasons.append('input shapes are not fully defined')
+        if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knOutputShapes].list.shape):
+            not_fusing_reasons.append('output shapes are not fully defined')
+        if not_fusing_reasons:
+            reason = ' and '.join(not_fusing_reasons)
+            logging.warning('Not fusing subgraph {} because {}'.format(node.name, reason))
+            continue
+
+        # get graph_def and io_config
+        subgraph_def = get_subgraph_def(node)
+        inputs = {}
+        for name, dtype, shape in zip(node.attr[knInputNames].list.s,
+                                      node.attr[knInputDtypes].list.type,
+                                      node.attr[knInputShapes].list.shape):
+            shape_list = [dim.size for dim in shape.dim]
+            dtype_name = dtypes._INTERN_TABLE[dtype].name
+            inputs[name.decode()] = [shape_list, dtype_name]
+        outputs = [name.decode() for name in node.attr[knOutputNames].list.s]
+        io_config = {'inputs': inputs, 'outputs': outputs}
+
+        # remove attributes that are not recognized by neuron-cc
+        for sg_node in subgraph_def.node:
+            sg_node.attr.pop(kNeuronInferredShapes)
+
+        # setup workdir and run neuron-cc
+        subgraph_workdir = None if workdir is None else os.path.join(workdir, node.name)
+        executable = compile_savetemps(
+            subgraph_def, io_config, workdir=subgraph_workdir, compiler_args=compiler_args)
+        node.attr[knExecutable].s = executable
     return graph_def
 
 

@@ -22,11 +22,12 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.saved_model import loader_impl
 from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python.neuron_cc import list_operators
 
 
 def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
             minimum_segment_size=2, op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
-            **kwargs):
+            compiler_args=None, compiler_workdir=None, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -88,15 +89,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     fuser_param_map = fuser_config.parameter_map
     fuser_param_map['minimum_segment_size'].i = minimum_segment_size
     if op_whitelist is None:
-        op_whitelist = set()
-        try:
-            from neuroncc.driver.commands.ListOperatorsCommand import ListOperatorsCommand
-            op_whitelist.update(ListOperatorsCommand(parent_command=None).known_frameworks['TENSORFLOW'].listOperators())
-            op_whitelist.discard('Placeholder')
-            op_whitelist.discard('IdentityN')
-        except ImportError:
-            logging.warning('neuron-cc is not installed. Please check neuron-cc '
-                            'installation, or reinstall by "pip install --force neuron-cc".')
+        op_whitelist = list_operators()
     fuser_param_map['op_whitelist'].list.s.extend(item.encode() for item in op_whitelist)
     if no_fuse_ops is not None:
         fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
@@ -107,6 +100,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # call graph_def_util passes
+    graph_def = gdu.run_compiler_on_subgraphs(graph_def, compiler_workdir, compiler_args)
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
 
     # re-wrap GraphDef as a WrappedFunction
