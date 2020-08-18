@@ -118,10 +118,13 @@ Status RuntimeGRPC::initialize(const std::string &nrtd_address) {
 }
 
 Status RuntimeGRPC::create_eg(uint32_t *eg_id, uint32_t *num_cores,
-                              const int num_cores_req) {
+                              const int num_cores_req, const uint64_t session_id) {
     nrt::create_eg_request request;
     if (num_cores_req >= 0) {
         request.set_nc_count((uint32_t)num_cores_req);
+    }
+    if (RuntimeSession::INVALID_ID != session_id) {
+        request.set_session_id(session_id);
     }
     nrt::create_eg_response response;
     grpc::Status status = NRT_GRPC(stub_->create_eg, request, &response);
@@ -156,7 +159,8 @@ Status RuntimeGRPC::create_eg(uint32_t *eg_id, uint32_t *num_cores,
 
 Status RuntimeGRPC::load(
         uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
-        const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled) {
+        const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled,
+        const uint64_t session_id) {
     // load
     grpc::ClientContext context;
     nrt::load_response response;
@@ -172,6 +176,12 @@ Status RuntimeGRPC::load(
     // eg_id
     request.mutable_h_eg()->set_id(eg_id);
     WRITE_LOAD_REQUEST;
+
+    // session_id
+    if (RuntimeSession::INVALID_ID != session_id) {
+        request.set_session_id(session_id);
+        WRITE_LOAD_REQUEST;
+    }
 
     // neff_size
     size_t exec_total_size = executable.size();
@@ -413,6 +423,57 @@ Status RuntimeGRPC::shm_unmap(const std::string &path, const uint32_t mmap_prot)
     grpc::Status status = NRT_GRPC(stub_->shm_unmap, request, &response);
     NRT_CHECK_RETURN("shm_unmap", status, response);
     return Status::OK();
+}
+
+
+RuntimeSession::RuntimeSession() {
+}
+
+Status RuntimeSession::initialize(const std::string& nrtd_address) {
+    grpc::ChannelArguments ch_args;
+    ch_args.SetMaxReceiveMessageSize(-1);
+    ch_args.SetMaxSendMessageSize(-1);
+    std::shared_ptr<grpc::Channel> channel = grpc::CreateCustomChannel(
+        nrtd_address, grpc::InsecureChannelCredentials(), ch_args);
+    if (!channel) {
+        return errors::Unavailable(
+            "cannot establish grpc channel to neuron-rtd server");
+    }
+    VLOG(1) << "session channel done";
+    stub_ = nrt::nmgr_session_manager::NewStub(channel);
+    if (!stub_) {
+        return errors::Unavailable("cannot create stub");
+    }
+
+    // probe to determine whether session_mgr is implemented
+    grpc::ClientContext context;
+    std::shared_ptr<SessionReaderWriter> stream = stub_->session_monitor(&context);
+    nrt::session_monitor_response probing_response;
+    stream->Read(&probing_response);
+    stream->WritesDone();
+    grpc::Status status = stream->Finish();
+    if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
+        id_ = INVALID_ID;
+        return Status::OK();
+    }
+
+    // get session id from the actual stream
+    context_ = std::make_shared<grpc::ClientContext>();
+    stream_ = stub_->session_monitor(context_.get());
+    nrt::session_monitor_response response;
+    if (!stream_->Read(&response)) {
+        return errors::Internal("error in reading session ID from neuron-rtd");
+    }
+    id_ = response.session_id();
+    return Status::OK();
+}
+
+RuntimeSession::~RuntimeSession() {
+    if (INVALID_ID != id_) {
+        stream_->WritesDone();
+        stream_->Finish();
+        id_ = INVALID_ID;
+    }
 }
 
 

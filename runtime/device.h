@@ -63,7 +63,7 @@ private:
 class NeuronDevice {
 public:
     Status initialize(const std::string &nrtd_address,
-                      const int num_cores_req, const int num_dup=1);
+                      const int num_cores_req, const int num_dup, const uint64_t session_id);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
@@ -101,6 +101,7 @@ private:
     tensorflow::mutex mutex_eg_;
     bool closed_ = false;
     RuntimeGRPC runtime_;
+    uint64_t session_id_ = RuntimeSession::INVALID_ID;
     std::vector<uint32_t> vec_eg_id_;
     uint32_t running_nn_id_;
     uint32_t num_cores_ = 0;
@@ -136,6 +137,7 @@ private:
     Status initialize(const int64_t opt_device_size, const int64_t max_num_duplicates);
     tensorflow::mutex global_mutex_;
     static const int DEFAULT_NUM_CORES = -65536;  // any negative number < -MAX_NUM_CORES
+    RuntimeSession session_;
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     bool path_set_ = false;
     size_t device_index_ = 0;

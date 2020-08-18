@@ -7,6 +7,7 @@
 #include "tensorflow/neuron/runtime/tensor_util.h"
 #include "tensorflow/neuron/runtime/shared_memory.h"
 #include "tensorflow/neuron/runtime/proto/nmgr_service.grpc.pb.h"
+#include "tensorflow/neuron/runtime/proto/nmgr_session_service.grpc.pb.h"
 #include "tensorflow/neuron/runtime/proto/nerr.pb.h"
 
 
@@ -87,9 +88,11 @@ public:
 class RuntimeGRPC {
 public:
     Status initialize(const std::string &nrtd_address);
-    Status create_eg(uint32_t *eg_id, uint32_t *num_cores, const int num_cores_req);
+    Status create_eg(uint32_t *eg_id, uint32_t *num_cores, const int num_cores_req,
+                     const uint64_t session_id);
     Status load(uint32_t *nn_id, const uint32_t eg_id, const StringPiece &executable,
-                const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
+                const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled,
+                const uint64_t session_id);
     Status start(const uint32_t nn_id);
     Status post_start(RuntimeStarter *starter, const uint32_t nn_id);
     Status wait_start(RuntimeStarter *starter);
@@ -113,6 +116,22 @@ private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
+};
+
+class RuntimeSession {
+public:
+    RuntimeSession();
+    Status initialize(const std::string& nrtd_address);
+    ~RuntimeSession();
+    uint64_t get_id() { return id_; }
+    static const uint64_t INVALID_ID = 0;
+private:
+    typedef grpc::ClientReaderWriter<nrt::session_monitor_request, nrt::session_monitor_response>
+        SessionReaderWriter;
+    uint64_t id_ = INVALID_ID;
+    std::unique_ptr<nrt::nmgr_session_manager::Stub> stub_;
+    std::shared_ptr<grpc::ClientContext> context_;
+    std::shared_ptr<SessionReaderWriter> stream_;
 };
 
 }  // namespace neuron

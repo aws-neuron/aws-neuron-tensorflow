@@ -219,6 +219,8 @@ Status NeuronDeviceManager::initialize(const int64_t opt_device_size,
     // neuron-rtd address
     nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
+    TF_RETURN_IF_ERROR(session_.initialize(nrtd_address_));
+
     // get number of neuron cores from comma-separated list of integers
     std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
     if (neuron_device_sizes_raw.empty()) {
@@ -279,7 +281,8 @@ Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_v
         } else {
             num_dup = 1;
         }
-        status = device_array_[idx].initialize(nrtd_address_, num_cores_req, num_dup);
+        status = device_array_[idx].initialize(
+            nrtd_address_, num_cores_req, num_dup, session_.get_id());
         if (!status.ok()) {
             if (status.code() != tensorflow::error::Code::ABORTED) {
                 LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
@@ -298,15 +301,10 @@ Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_v
 
 Status NeuronDeviceManager::init_default_device(const int64_t opt_device_size,
                                                 const int64_t max_num_duplicates) {
-    if (opt_device_size < 0 || opt_device_size > 64) {
-        // device size looks wrong -- just get the largest ncg possible
-        Status status = device_array_[0].initialize(nrtd_address_, DEFAULT_NUM_CORES);
-        num_devices_ = status.ok() ? 1 : 0;
-        return status;
-    } else {
+    std::vector<int> num_cores_req_vector = {DEFAULT_NUM_CORES};
+    std::vector<int> num_dup_vector({1});
+    if (0 <= opt_device_size && opt_device_size <= 64) {
         // get one full Inferentia by default
-        std::vector<int> num_cores_req_vector;
-        std::vector<int> num_dup_vector;
         if (opt_device_size == 1) {
             if (4 == max_num_duplicates) {
                 num_cores_req_vector = {1};
@@ -315,31 +313,23 @@ Status NeuronDeviceManager::init_default_device(const int64_t opt_device_size,
                 num_cores_req_vector = {1};
                 num_dup_vector = {3};
             } else if (2 == max_num_duplicates) {
-                num_cores_req_vector = {2, 2};
+                num_cores_req_vector = {1, 1};
                 num_dup_vector = {2, 2};
             } else {
                 num_cores_req_vector = {1, 1, 1, 1};
                 num_dup_vector = {};
             }
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
         } else if (opt_device_size == 2) {
-            std::vector<int> num_cores_req_vector({2, 2});
-            TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
-        } else {
-            // search for the largest possible ncg ... sorry
-            Status status = errors::ResourceExhausted("No NeuronCore Group can be initialized.");
-            for (int num_cores = opt_device_size; num_cores >= MIN_NUM_CORES; --num_cores) {
-                status = device_array_[0].initialize(nrtd_address_, num_cores);
-                if (status.ok()) {
-                    num_devices_ = 1;
-                    return status;
-                }
+            if (2 == max_num_duplicates) {
+                num_cores_req_vector = {2};
+                num_dup_vector = {2};
+            } else {
+                num_cores_req_vector = {2, 2};
+                num_dup_vector = {};
             }
-            num_devices_ = 0;
-            return status;
         }
     }
-    return Status::OK();
+    return init_devices(num_cores_req_vector, num_dup_vector);
 }
 
 void NeuronDeviceManager::clear_if_empty() {
@@ -402,23 +392,28 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
 }
 
 Status NeuronDevice::initialize(const std::string &nrtd_address,
-                                const int num_cores_req, const int num_dup) {
+                                const int num_cores_req,
+                                const int num_dup,
+                                const uint64_t session_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
     if (closed_) {
         return errors::Aborted("neuron_device is closed");
     }
     nrtd_address_ = nrtd_address;
     TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address_));
+    if (RuntimeSession::INVALID_ID != session_id) {
+        session_id_ = session_id;
+    }
     if (num_dup == 1) {
         uint32_t eg_id = NRT_INVALID_EG_ID;
-        TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores_, num_cores_req));
+        TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores_, num_cores_req, session_id));
         vec_eg_id_.push_back(eg_id);
     } else {
         // setup device to duplicate models automatically
         for (int idx = 0; idx < num_dup; ++idx) {
             uint32_t eg_id = NRT_INVALID_EG_ID;
             uint32_t num_cores = 0;
-            TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores, num_cores_req));
+            TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores, num_cores_req, session_id));
             if (num_cores != 1) {
                 return errors::InvalidArgument(
                     "NeuronCore group size ", num_cores, " is not allowed in model duplication mode");
@@ -442,13 +437,15 @@ Status NeuronDevice::load(
     std::vector<uint32_t> all_nn_ids;
     if (vec_eg_id_.size() == 1) {
         TF_RETURN_IF_ERROR(runtime_.load(
-            &first_nn_id, vec_eg_id_[0], executable, timeout, ninfer, profile_enabled));
+            &first_nn_id, vec_eg_id_[0], executable, timeout, ninfer,
+            profile_enabled, session_id_));
         all_nn_ids.push_back(first_nn_id);
     } else if (vec_eg_id_.size() > 1) {
         Status status;
         for (const uint32_t eg_id : vec_eg_id_) {
             uint32_t this_nn_id = NRT_INVALID_NN_ID;
-            status = runtime_.load(&this_nn_id, eg_id, executable, timeout, ninfer, profile_enabled);
+            status = runtime_.load(&this_nn_id, eg_id, executable, timeout, ninfer,
+                                   profile_enabled, session_id_);
             if (!status.ok()) {
                 LOG(WARNING) << "stop duplicating nn " << first_nn_id
                              << " due to error " << status.error_message();

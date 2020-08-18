@@ -56,6 +56,7 @@ cc_proto_library(
     name = "nmgr_service.grpc.o",
     srcs = [
         "proto/nmgr_service.proto",
+        "proto/nmgr_session_service.proto",
         "proto/nmgr.proto",
         "proto/nmetric.proto",
         "proto/common.proto",
