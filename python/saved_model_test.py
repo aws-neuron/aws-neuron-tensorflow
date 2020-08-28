@@ -445,9 +445,10 @@ class TestConvertToInferenceModel(unittest.TestCase):
         shutil.rmtree(neuron_model_dir, ignore_errors=True)
         tfn.saved_model.compile(real_model_dir, neuron_model_dir, model_feed_dict=model_feed_dict)
         pred_neuron = tf.contrib.predictor.from_saved_model(neuron_model_dir)
-        result_neuron = pred_neuron(model_feed_dict)
-        np.testing.assert_equal(result_neuron['classes'], result_ref['classes'])
-        np.testing.assert_allclose(result_neuron['scores'], result_ref['scores'], rtol=1e-2, atol=1e-3)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_neuron = pred_neuron(model_feed_dict)
+            np.testing.assert_equal(result_neuron['classes'], result_ref['classes'])
+            np.testing.assert_allclose(result_neuron['scores'], result_ref['scores'], rtol=1e-2, atol=1e-3)
 
 
 class TestSavedModelCLIConvert(unittest.TestCase):
