@@ -40,7 +40,8 @@ public:
     Status initialize(const std::string &nrtd_address, const uint32_t nn_id,
                       const uint32_t max_num_infers,
                       const std::vector<size_t> &input_tensor_sizes,
-                      const std::vector<size_t> &output_tensor_sizes);
+                      const std::vector<size_t> &output_tensor_sizes,
+                      const uint64_t session_id);
     void clear();
     SharedMemory *apply_for_shm();
     void free_shm(SharedMemory *shm);
@@ -52,7 +53,8 @@ private:
                         std::vector<size_t> *sizes,
                         std::vector<std::string> *nrt_paths,
                         const std::vector<size_t> &tensor_sizes,
-                        const uint32_t nn_id);
+                        const uint32_t nn_id,
+                        const uint64_t session_id);
     tensorflow::mutex mutex_;
     std::vector<int> shm_busy_vec_;
     size_t num_shms_ = 0;

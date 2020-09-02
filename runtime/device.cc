@@ -79,7 +79,8 @@ static std::string gen_shm_name(uint32_t nn_id) {
 Status SharedMemoryManager::initialize(const std::string &nrtd_address,
                                        const uint32_t nn_id, const uint32_t max_num_infers,
                                        const std::vector<size_t> &input_tensor_sizes,
-                                       const std::vector<size_t> &output_tensor_sizes) {
+                                       const std::vector<size_t> &output_tensor_sizes,
+                                       const uint64_t session_id) {
     tensorflow::mutex_lock lock(mutex_);
     if (enabled_) {
         return Status::OK();
@@ -93,10 +94,10 @@ Status SharedMemoryManager::initialize(const std::string &nrtd_address,
     for (auto &shm : shm_vec_) {
         TF_RETURN_IF_ERROR(init_vectors(
             &shm.input_paths_, &shm.input_ptrs_, &shm.input_sizes_,
-            &shm.nrt_input_paths_, input_tensor_sizes, nn_id));
+            &shm.nrt_input_paths_, input_tensor_sizes, nn_id, session_id));
         TF_RETURN_IF_ERROR(init_vectors(
             &shm.output_paths_, &shm.output_ptrs_, &shm.output_sizes_,
-            &shm.nrt_output_paths_, output_tensor_sizes, nn_id));
+            &shm.nrt_output_paths_, output_tensor_sizes, nn_id, session_id));
         for (size_t idx = 0; idx < shm.input_paths_.size(); ++idx) {
             VLOG(1) << "input shared memory " << shm.input_paths_[idx]
                     << " ready at address " << (void*)shm.input_ptrs_[idx];
@@ -116,7 +117,8 @@ Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
                                          std::vector<size_t> *sizes,
                                          std::vector<std::string> *nrt_paths,
                                          const std::vector<size_t> &tensor_sizes,
-                                         const uint32_t nn_id) {
+                                         const uint32_t nn_id,
+                                         const uint64_t session_id) {
     for (size_t size : tensor_sizes) {
         std::string name = gen_shm_name(nn_id);
         if (name.empty()) {
@@ -130,7 +132,7 @@ Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
         SYS_FAIL_RETURN(nullptr == ptr, "mmap");
         ptrs->push_back(ptr);
         sizes->push_back(size);
-        TF_RETURN_IF_ERROR(runtime_.shm_map(name, PROT_READ | PROT_WRITE));
+        TF_RETURN_IF_ERROR(runtime_.shm_map(name, PROT_READ | PROT_WRITE, session_id));
         nrt_paths->push_back(name);
     }
     return Status::OK();
@@ -592,7 +594,7 @@ Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
     }
     nn_id_to_shm_mgr_.emplace(std::piecewise_construct, std::forward_as_tuple(nn_id), std::forward_as_tuple());
     Status status = nn_id_to_shm_mgr_[nn_id].initialize(
-        nrtd_address_, nn_id, max_num_infers, input_tensor_sizes, output_tensor_sizes);
+        nrtd_address_, nn_id, max_num_infers, input_tensor_sizes, output_tensor_sizes, session_id_);
     if (!status.ok()) {
         nn_id_to_shm_mgr_[nn_id].clear();
         nn_id_to_shm_mgr_.erase(nn_id);

@@ -110,7 +110,7 @@ public:
     Status wait_stop(RuntimeStopper *stopper);
     Status unload(const uint32_t nn_id, bool from_global_state=false);
     Status destroy_eg(const uint32_t eg_id, bool from_global_state=false);
-    Status shm_map(const std::string &path, const uint32_t mmap_prot);
+    Status shm_map(const std::string &path, const uint32_t mmap_prot, const uint64_t session_id);
     Status shm_unmap(const std::string &path, const uint32_t mmap_prot);
 private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;

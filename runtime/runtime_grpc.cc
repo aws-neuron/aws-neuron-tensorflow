@@ -405,10 +405,13 @@ Status RuntimeGRPC::destroy_eg(const uint32_t eg_id, bool from_global_state) {
     return Status::OK();
 }
 
-Status RuntimeGRPC::shm_map(const std::string &path, const uint32_t mmap_prot) {
+Status RuntimeGRPC::shm_map(const std::string &path, const uint32_t mmap_prot, const uint64_t session_id) {
     nrt::shm_map_request request;
     request.set_path(path);
     request.set_mmap_prot(mmap_prot);
+    if (RuntimeSession::INVALID_ID != session_id) {
+        request.set_session_id(session_id);
+    }
     nrt::shm_map_response response;
     grpc::Status status = NRT_GRPC(stub_->shm_map, request, &response);
     NRT_CHECK_RETURN("shm_map", status, response);
