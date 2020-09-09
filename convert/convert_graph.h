@@ -75,11 +75,6 @@ struct ConvertGraphParams {
   int neuron_op_count;
 };
 
-Status ConvertGraphDefToNeuron(string *new_graph_def, const string &graph_def,
-                               const string &inputs, const string &outputs,
-                               const string &op_whitelist, const string &no_fuse_ops,
-                               const string &force_fuse_ops, const int min_seg_size);
-
 Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const GraphDef &graph_def,
                             const std::vector<std::string> &inputs,

@@ -792,58 +792,6 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   return tensorflow::Status::OK();
 }
 
-// This is the first function that gets called from python (whitelist_partition)
-// linked through swig file whitelist_partition.i
-Status ConvertGraphDefToNeuron(string *new_graph_def_str,
-                               const string &graph_def_str,
-                               const string &inputs_str,
-                               const string &outputs_str,
-                               const string &op_whitelist_str,
-                               const string &no_fuse_ops_str,
-                               const string &force_fuse_ops_str,
-                               const int min_seg_size) {
-  tensorflow::GraphDef graph_def, new_graph_def;
-  graph_def.ParseFromString(graph_def_str);
-  std::vector<string> inputs;
-  std::vector<string> outputs;
-  tensorflow::AttrValue::ListValue temp;
-  temp.ParseFromString(inputs_str);
-  for (const auto& name : temp.s()) {
-    inputs.push_back(name);
-  }
-  temp.ParseFromString(outputs_str);
-  for (const auto& name : temp.s()) {
-    outputs.push_back(name);
-  }
-
-  std::set<std::string> op_whitelist;
-  temp.ParseFromString(op_whitelist_str);
-  for (const auto& name : temp.s()) {
-    op_whitelist.insert(name);
-  }
-  std::set<std::string> no_fuse_ops;
-  temp.ParseFromString(no_fuse_ops_str);
-  for (const auto& name : temp.s()) {
-    no_fuse_ops.insert(name);
-  }
-  std::set<std::string> force_fuse_ops;
-  temp.ParseFromString(force_fuse_ops_str);
-  for (const auto& name : temp.s()) {
-    force_fuse_ops.insert(name);
-  }
-  if (min_seg_size < 1) {
-    return tensorflow::errors::InvalidArgument("min_seg_size >= 1 required");
-  }
-
-  uint64 start_convert_us = Env::Default()->NowMicros();
-  Status status = CreateNeuronGraphDef(&new_graph_def, graph_def, inputs, outputs,
-                                       min_seg_size, op_whitelist, no_fuse_ops, force_fuse_ops);
-  new_graph_def.SerializeToString(new_graph_def_str);
-  uint64 convert_time_us = Env::Default()->NowMicros() - start_convert_us;
-  VLOG(1) << "Conversion Took " << convert_time_us / 1000 << "ms\n";
-  return status;
-}
-
 }  // namespace convert
 }  // namespace neuron
 }  // namespace tensorflow
