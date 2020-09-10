@@ -12,7 +12,6 @@ cc_library(
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",
     ],
-    visibility = ["//visibility:public"],
 )
 
 genrule(

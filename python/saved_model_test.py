@@ -401,7 +401,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
                     'embedding_list': str(x % 10),
                     'embedding_file': str(x % 10),
                 },
-                float(x % 9973) / 9973,
+                tf.cast(x % 9973, tf.float32) / 9973,
             ))
             dataset = dataset.batch(128)
             return dataset
@@ -453,7 +453,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
 
 class TestSavedModelCLIConvert(unittest.TestCase):
 
-    @unittest.skipIf(hasattr(tfn, 'ops'), 'tensorflow-neuron plugin does not support saved_model_cli')
+    @unittest.skipIf(not hasattr(tfn, 'ops'), 'tensorflow-neuron plugin does not support saved_model_cli')
     def test_saved_model_cli_convert_neuron(self):
         np.random.seed(_RANDOM_SEED)
         model_dir = './original_saved_model2'

@@ -1,110 +1,17 @@
 package(default_visibility = ["//visibility:public"])
 
-load("//tensorflow:tensorflow.bzl", "tf_gen_op_wrapper_py")
-load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
-load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
-
-
-py_library(
-    name = "graph_util_py",
-    srcs = [
-        "python/graph_util.py",
-    ],
-    deps = [
-        ":graph_def_util_py",
-        ":neuron_op_py",
-    ],
-)
-
-py_library(
-    name = "graph_def_util_py",
-    srcs = [
-        "python/graph_def_util.py",
-    ],
-)
-
-py_library(
-    name = "unittest_py",
-    srcs = [
-        "python/graph_util_test.py",
-        "python/saved_model_test.py",
-        "python/keras_test.py",
-        "python/fuse_test.py",
-        "python/performance_test.py",
-        "python/op_register_test.py",
-    ],
-    deps = [
-        ":graph_util_py",
-        ":saved_model_py",
-        ":fuse_py"
-    ],
-)
-
-py_library(
-    name = "predictor_py",
-    srcs = [
-        "python/predictor.py",
-        "python/saved_model_util.py",
-    ],
-    deps = [":graph_util_py"],
-)
-
-py_library(
-    name = "saved_model_py",
-    srcs = [
-        "python/saved_model.py",
-    ],
-    deps = [":graph_util_py"],
-)
-
-tf_custom_op_library(
-    name = "python/ops/aws_neuron_plugin.so",
-    deps = [
-        "//tensorflow/neuron/runtime:neuron_op_op_lib",
-        "//tensorflow/neuron/runtime:neuron_op_kernel",
-        "//tensorflow/neuron/grappler:fuse_supported_operators",
-    ],
-)
-
-tf_gen_op_wrapper_py(
-    name = "gen_neuron_op_py",
-    out = "ops/gen_neuron_op.py",
-    deps = ["//tensorflow/neuron/runtime:neuron_op_op_lib"],
-)
-
-tf_custom_op_py_library(
-    name = "neuron_op_py",
-    dso = [":python/ops/aws_neuron_plugin.so"],
-    deps = [":gen_neuron_op_py"]
-)
-
-py_library(
-    name = "fuse_py",
-    srcs = [
-        "python/fuse.py",
-    ],
-    deps = [":neuron_op_py"],
-)
-
-py_library(
-    name = "performance_py",
-    srcs = [
-        "python/performance.py",
-    ],
-    deps = [":neuron_op_py"],
-)
 
 py_library(
     name = "neuron_py",
     srcs = ["__init__.py", "api/v1/__init__.py"],
     deps = [
-        ":saved_model_py",
-        ":graph_util_py",
-        ":predictor_py",
-        ":neuron_op_py",
-        ":fuse_py",
-        ":performance_py",
-        ":unittest_py",
+        "//tensorflow/neuron/python:saved_model_py",
+        "//tensorflow/neuron/python:graph_util_py",
+        "//tensorflow/neuron/python:predictor_py",
+        "//tensorflow/neuron/python:neuron_op_py",
+        "//tensorflow/neuron/python:fuse_py",
+        "//tensorflow/neuron/python:performance_py",
+        "//tensorflow/neuron/python:unittest_py",
         "//tensorflow/python:framework",
         "//tensorflow/python:array_ops",
         "//tensorflow/python:client",

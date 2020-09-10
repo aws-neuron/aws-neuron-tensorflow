@@ -21,7 +21,6 @@ tf_kernel_library(
     name = "neuron_op_kernel",
     srcs = ["kernels/neuron_op.cc"],
     hdrs = ["kernels/neuron_op.h"],
-    copts = ["-std=c++14"],
     deps = [
         ":device",
     ],

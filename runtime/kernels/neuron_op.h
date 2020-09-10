@@ -77,7 +77,7 @@ private:
     static const int64 INFER_SEM_MAX_CAPACITY = 2048;
     xla::Semaphore infer_sem_;
     bool infer_sem_initialized_ = false;
-    std::unique_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
+    std::shared_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
     SharedMemoryManager *shm_mgr_ = nullptr;
     uint64 last_infer_timestamp_ = 0;

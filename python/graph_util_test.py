@@ -17,7 +17,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.neuron.python import graph_util
-from tensorflow.neuron.ops.gen_neuron_op import neuron_op
+from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
 
 

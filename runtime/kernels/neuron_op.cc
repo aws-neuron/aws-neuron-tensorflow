@@ -258,7 +258,7 @@ Status NeuronOp::initialize() {
     }
     std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
     if (init_acquire_amount > 0 && !infer_sem_initialized_ && "yes" != unlimited_threads) {
-        infer_sem_reserve_ptr_ = std::make_unique<xla::Semaphore::ScopedReservation>(
+        infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
             infer_sem_.ScopedAcquire(init_acquire_amount));
         infer_sem_initialized_ = true;
         int64 infer_sem_capacity = INFER_SEM_MAX_CAPACITY - init_acquire_amount;
