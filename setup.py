@@ -1,6 +1,7 @@
 """
 Copyright (C) 2020, Amazon.com. All Rights Reserved
 """
+import sys
 import setuptools
 from setuptools.command.install import install as InstallCommandBase
 from setuptools.dist import Distribution
@@ -34,6 +35,14 @@ class BDistWheelCommand(BDistWheelCommandBase):
         return python, abi, plat
 
 
+if sys.platform == 'linux':
+    PLUGIN_NAME = 'libaws_neuron_plugin.so'
+elif sys.platform == 'darwin':
+    PLUGIN_NAME = 'libaws_neuron_plugin.dylib'
+else:
+    raise NotImplementedError('platform {} is unsupported'.format(sys.platform))
+
+
 setuptools.setup(
     name='tensorflow-neuron',
     version='_VERSION',
@@ -62,7 +71,7 @@ setuptools.setup(
     include_package_data=True,
     packages=setuptools.PEP420PackageFinder.find(),
     package_data={
-        'tensorflow-plugins': ['aws_neuron_plugin.so'],
+        'tensorflow-plugins': [PLUGIN_NAME],
     },
     distclass=BinaryDistribution,
     cmdclass={

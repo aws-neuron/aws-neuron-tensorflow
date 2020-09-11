@@ -759,7 +759,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
         else:
             command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
             try:
-                op_whitelist = set(subprocess.check_output(command).decode().split('\n')[:-1])
+                op_whitelist = {op_type.strip() for op_type in subprocess.check_output(command).decode()[:-1].split('\n')}
             except subprocess.CalledProcessError:
                 logging.warning('neuron-cc is not behaving correctly. Please check neuron-cc '
                                 'installation, or reinstall by "pip install --force neuron-cc".')

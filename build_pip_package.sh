@@ -45,7 +45,7 @@ function main() {
     TMPDIR="$(mktemp -d -t tmp.XXXXXXXXXX)"
     cp -R bazel-bin/tensorflow/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/neuron "${TMPDIR}/tensorflow_neuron"
     mkdir "${TMPDIR}/tensorflow-plugins"
-    mv "${TMPDIR}/tensorflow_neuron/python/ops/aws_neuron_plugin.so" "${TMPDIR}/tensorflow-plugins"
+    mv ${TMPDIR}/tensorflow_neuron/python/libaws_neuron_plugin.* "${TMPDIR}/tensorflow-plugins"
     mkdir -p "${TMPDIR}/tensorflow_core/neuron/"
     cp "${TMPDIR}/tensorflow_neuron/api/v1/__init__.py" "${TMPDIR}/tensorflow_core/neuron/"
     sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"

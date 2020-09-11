@@ -41,7 +41,8 @@ py_library(
 )
 
 tf_custom_op_library(
-    name = "ops/aws_neuron_plugin.so",
+    name = "aws_neuron_plugin",
+    per_os_targets = True,
     deps = [
         "//tensorflow/neuron/runtime:neuron_op_op_lib",
         "//tensorflow/neuron/runtime:neuron_op_kernel",
@@ -51,7 +52,7 @@ tf_custom_op_library(
 
 tf_custom_op_py_library(
     name = "neuron_op_py",
-    dso = [":ops/aws_neuron_plugin.so"],
+    dso = [":aws_neuron_plugin"],
     deps = [":gen_neuron_op_py"]
 )
 
