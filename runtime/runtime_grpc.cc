@@ -128,16 +128,6 @@ Status RuntimeGRPC::create_eg(uint32_t *eg_id, uint32_t *num_cores,
     }
     nrt::create_eg_response response;
     grpc::Status status = NRT_GRPC(stub_->create_eg, request, &response);
-    if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
-        return errors::Unavailable(
-            "grpc server ", nrtd_address_, " is unavailable. ",
-            "Please check the status of neuron-rtd service by ",
-            "`systemctl is-active neuron-rtd`. If it shows `inactive`, ",
-            "please install the service by `sudo apt-get install aws-neuron-runtime`. ",
-            "If `aws-neuron-runtime` is already installed, you may activate ",
-            "neuron-rtd service by `sudo systemctl restart neuron-rtd`."
-        );
-    }
     if (status.ok() && nrt::nerr::NERR_RESOURCE_NC == response.status().code()) {
         return errors::ResourceExhausted(
             "All machine learning accelerators are currently being consumed. ",
@@ -455,6 +445,16 @@ Status RuntimeSession::initialize(const std::string& nrtd_address) {
     stream->Read(&probing_response);
     stream->WritesDone();
     grpc::Status status = stream->Finish();
+    if (!status.ok() && grpc::StatusCode::UNAVAILABLE == status.error_code()) {
+        return errors::Unavailable(
+            "grpc server ", nrtd_address, " is unavailable. ",
+            "Please check the status of neuron-rtd service by ",
+            "`systemctl is-active neuron-rtd`. If it shows `inactive`, ",
+            "please install the service by `sudo apt-get install aws-neuron-runtime`. ",
+            "If `aws-neuron-runtime` is already installed, you may activate ",
+            "neuron-rtd service by `sudo systemctl restart neuron-rtd`."
+        );
+    }
     if (status.error_code() == grpc::StatusCode::UNIMPLEMENTED) {
         id_ = INVALID_ID;
         return Status::OK();
