@@ -549,7 +549,7 @@ def shape_inference(graph, shape_feed_dict, evaluated_map=None):
     """
     if evaluated_map is None:
         evaluated_map = {}
-    shaped_graph = _graph_def_to_graph(graph.as_graph_def())
+    shaped_graph = _graph_def_to_graph(graph.as_graph_def(add_shapes=True))
 
     # set input tensor shapes and get input names
     for key, shape in shape_feed_dict.items():
