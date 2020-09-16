@@ -956,16 +956,20 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         workdir_base = os.path.abspath(workdir)
     if timeout is None:
         timeout = 18000
-    Compiler = collections.namedtuple('Compiler', 'command write_log_to_file verbose workdir_path')
+    Compiler = collections.namedtuple('Compiler', 'command write_log_to_file verbose workdir_path subgraph_info')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
     neuron_cc = find_neuron_cc()
     if neuron_cc is None:
         return graph_def
+    subgraph_info_format = '{{subgraph {} with input tensors {}, output tensors {}}}'.format
     for node in _gd_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
         subgraph = _get_subgraph(node)
+        input_tensors = [subgraph.get_tensor_by_name(name.decode()) for name in node.attr['input_names'].list.s]
+        output_tensors = [subgraph.get_tensor_by_name(name.decode()) for name in node.attr['output_names'].list.s]
+        subgraph_info = subgraph_info_format(node.name, input_tensors, output_tensors)
         io_config_json = _io_config(node, subgraph, subgraph_shapes)
         if io_config_json is None:
             logging.warning('Not fusing subgraph {}: --io-config error'.format(node.name))
@@ -973,6 +977,12 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         if _get_shapes(node, 'output_names', subgraph_shapes, subgraph) is None:
             logging.warning('Cannot infer tensor shapes for subgraph {}'.format(node.name))
             continue
+        if subgraph_shapes is not None:
+            for tensor in input_tensors:
+                tensor.set_shape(subgraph_shapes[node.name][tensor.name])
+            for tensor in output_tensors:
+                tensor.set_shape(subgraph_shapes[node.name][tensor.name])
+        subgraph_info = subgraph_info_format(node.name, input_tensors, output_tensors)
         subgraph_def = _get_subgraph_def(node)
         if large_constants is not None:
             for sgn in subgraph_def.node:
@@ -995,7 +1005,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         if verbose is not None:
             command.extend(['--verbose', str(verbose)])
         write_log_to_file = workdir is not None and verbose is None
-        subgraph_compilers[node.name] = Compiler(command, write_log_to_file, verbose, workdir_path)
+        subgraph_compilers[node.name] = Compiler(command, write_log_to_file, verbose, workdir_path, subgraph_info)
     if max_num_compilers is None:
         num_cpu = multiprocessing.cpu_count()
         try:
@@ -1052,9 +1062,9 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
     compiler = subgraph_compilers[node_name]
     if compiler is None:
         return None
-    command, write_log_to_file, verbose, workdir_path = compiler
+    command, write_log_to_file, verbose, workdir_path, subgraph_info = compiler
     logfile = os.path.join(workdir_path, 'graph_def.neuron-cc.log')
-    info_string = 'fusing subgraph {} with neuron-cc'.format(node_name)
+    info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
     if write_log_to_file:
         info_string = '{}; log file is at {}'.format(info_string, logfile)
     with logging_show_info():
@@ -1068,7 +1078,7 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
             returncode = _wait_compiler(proc, timeout)
     if returncode != 0:
         command = subprocess.list2cmdline(command)
-        logging.warning("Failed to fuse subgraph {} with '{}'".format(node_name, command))
+        logging.warning("Failed to fuse subgraph {} with '{}'".format(subgraph_info, command))
         if write_log_to_file:
             logging.warning("neuron-cc error message:")
             full_neuron_cc_log = []
