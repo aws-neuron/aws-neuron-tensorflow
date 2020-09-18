@@ -16,35 +16,34 @@ Status RuntimeIO::setup(
         AttrList &output_names, const std::vector<Tensor*> &output_tensors,
         const uint32_t nn_id, thread::ThreadPool *thread_pool, SharedMemory *shm) {
     thread_pool_ = thread_pool;
-    shm_ = shm;
-    std::queue<tensorflow::mutex_lock> mutex_lock_queue;
-    if (nullptr != shm_) {
-        mutex_lock_queue.emplace(shm_->mutex_);
-        if (input_names.s_size() > (int64)shm_->input_ptrs_.size()) {
+    if (nullptr != shm) {
+        if (input_names.s_size() > (int64)shm->input_ptrs_.size()) {
             return errors::Aborted("shared memory is invalid");
         }
+        use_shm_ = true;
+        output_ptrs_ = shm->output_ptrs_;
     }
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
         nrt::infer_io *infer_io = request_.add_ifmap();
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
-        if (nullptr != shm_) {
-            infer_io->mutable_buf_shm()->set_path(shm_->input_paths_[idx]);
-            fast_memcpy(thread_pool_, shm_->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
+        if (use_shm_) {
+            infer_io->mutable_buf_shm()->set_path(*shm->input_paths_[idx]);
+            fast_memcpy(thread_pool_, shm->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
         } else {
             infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
-    if (nullptr != shm_) {
+    if (use_shm_) {
         for (int idx = 0; idx < output_names.s_size(); ++idx) {
             nrt::infer_io *infer_io = request_.add_shm_ofmap();
             infer_io->set_name(output_names.s(idx));
-            infer_io->mutable_buf_shm()->set_path(shm_->output_paths_[idx]);
+            infer_io->mutable_buf_shm()->set_path(*shm->output_paths_[idx]);
         }
         for (int idx = 0; idx < output_names.s_size(); ++idx) {
             nrt::infer_io *infer_io = wait_request_.add_shm_ofmap();
             infer_io->set_name(output_names.s(idx));
-            infer_io->mutable_buf_shm()->set_path(shm_->output_paths_[idx]);
+            infer_io->mutable_buf_shm()->set_path(*shm->output_paths_[idx]);
         }
     }
     request_.mutable_h_nn()->set_id(nn_id);
@@ -55,14 +54,12 @@ Status RuntimeIO::setup(
 
 Status RuntimeIO::finish() {
     std::vector<StringPiece> raw_output_tensors;
-    std::queue<tensorflow::mutex_lock> mutex_lock_queue;
-    if (nullptr != shm_) {
-        mutex_lock_queue.emplace(shm_->mutex_);
-        if (output_names_->s_size() > (int64)shm_->output_ptrs_.size()) {
+    if (use_shm_) {
+        if (output_names_->s_size() > (int64)output_ptrs_.size()) {
             return errors::Aborted("shared memory is invalid");
         }
     }
-    if (nullptr == shm_) {
+    if (!use_shm_) {
         std::unordered_map<std::string, StringPiece> map_name_raw;
         for (const auto &infer_io : response_.ofmap()) {
             map_name_raw.emplace(infer_io.name(), infer_io.buf());
@@ -85,9 +82,9 @@ Status RuntimeIO::finish() {
     }
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
         StringPiece out_tensor_raw;
-        if (nullptr != shm_) {
-            out_tensor_raw = StringPiece(shm_->output_ptrs_[idx],
-                                         shm_->output_sizes_[idx]);
+        if (use_shm_) {
+            size_t size = output_tensors_[idx]->tensor_data().size();
+            out_tensor_raw = StringPiece(output_ptrs_[idx], size);
         } else {
             out_tensor_raw = raw_output_tensors[idx];
         }

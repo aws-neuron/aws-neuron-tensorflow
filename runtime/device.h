@@ -34,31 +34,63 @@ typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
     }                                                               \
 }
 
+#define SYS_FAIL_LOG_RETURN(failure_expr, fn_name) {                \
+    if (failure_expr) {                                             \
+        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
+        return;                                                     \
+    }                                                               \
+}
 
-class SharedMemoryManager {
+#define TF_LOG_RETURN_IF_ERROR(...) {                                   \
+    Status _status = (__VA_ARGS__);                                     \
+    if (TF_PREDICT_FALSE(!_status.ok())) {                              \
+        LOG(ERROR) << "error code " << _status.code()                   \
+                   << ", error message " << _status.error_message();    \
+        return;                                                         \
+    }                                                                   \
+}
+
+
+class SharedMemoryBuffer {
 public:
-    Status initialize(const std::string &nrtd_address, const uint32_t nn_id,
-                      const uint32_t max_num_infers,
-                      const std::vector<size_t> &input_tensor_sizes,
-                      const std::vector<size_t> &output_tensor_sizes,
-                      const uint64_t session_id);
-    void clear();
-    SharedMemory *apply_for_shm();
-    void free_shm(SharedMemory *shm);
-    std::vector<SharedMemory> shm_vec_;
-    bool enabled_ = false;
+    SharedMemoryBuffer(const size_t id, const size_t size, const uint64_t session_id,
+                       std::shared_ptr<RuntimeGRPC> runtime);
+    ~SharedMemoryBuffer();
+    SharedMemoryBuffer(const SharedMemoryBuffer &);
+    SharedMemoryBuffer &operator=(const SharedMemoryBuffer &) = delete;
+    SharedMemoryBuffer(SharedMemoryBuffer &&);
+    SharedMemoryBuffer &operator=(SharedMemoryBuffer &&) = delete;
+    // path_ is assigned when rtd shm_map has returned success
+    bool is_valid() { return !path_.empty(); }
+    bool unsupported_by_runtime() { return unsupported_by_runtime_; }
+    size_t get_id() { return id_; }
+    char *get_ptr() { return ptr_; }
+    size_t get_size() { return size_; }
+    std::string *get_path() { return &path_; }
 private:
-    Status init_vectors(std::vector<std::string> *names,
-                        std::vector<char*> *ptrs,
-                        std::vector<size_t> *sizes,
-                        std::vector<std::string> *nrt_paths,
-                        const std::vector<size_t> &tensor_sizes,
-                        const uint32_t nn_id,
-                        const uint64_t session_id);
+    const size_t id_;
+    std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
+    char *ptr_ = nullptr;
+    size_t size_ = 0;
+    bool unsupported_by_runtime_ = false;
+    std::string path_ = "";
+};
+
+typedef std::shared_ptr<SharedMemoryBuffer> SharedMemoryPtr;
+
+class SharedMemoryBufferManager {
+public:
+    SharedMemoryBufferManager(const uint64_t session_id, const std::string &nrtd_address);
+    bool is_valid() { return is_valid_; }
+    SharedMemoryPtr allocate_shm(const size_t size);
+    void free_shm(SharedMemoryPtr shm);
+private:
     tensorflow::mutex mutex_;
-    std::vector<int> shm_busy_vec_;
-    size_t num_shms_ = 0;
-    RuntimeGRPC runtime_;
+    uint64_t session_id_ = RuntimeSession::INVALID_ID;
+    std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
+    bool is_valid_ = false;
+    std::vector<SharedMemoryPtr> buffer_vec_;
+    std::unordered_map<size_t, std::unordered_set<size_t> > size_to_free_buffer_id_;
 };
 
 
@@ -84,16 +116,13 @@ public:
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
     Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
                              const uint32_t nn_id);
-    Status init_shm_mgr(SharedMemoryManager **shm_mgr,
-                        const uint32_t nn_id, const uint32_t max_num_infers,
-                        const std::vector<size_t> input_tensor_sizes,
-                        const std::vector<size_t> output_tensor_sizes);
     void clear(bool from_global_state=false);
     size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
     uint32_t num_cores() { return num_cores_; };
     Status start_model_unsafe(const uint32_t nn_id);
     Status start_ping(const uint32_t nn_id);
     size_t semaphore_factor() { return vec_eg_id_.size(); }
+    std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
 private:
     bool is_busy();
     bool running(uint32_t nn_id);
@@ -109,7 +138,6 @@ private:
     uint32_t num_cores_ = 0;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
-    std::unordered_map<uint32_t, SharedMemoryManager> nn_id_to_shm_mgr_;
     std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;
     std::unordered_map<uint32_t, size_t> nn_id_to_active_idx_;
 };

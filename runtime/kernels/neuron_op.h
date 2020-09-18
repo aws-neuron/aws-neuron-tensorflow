@@ -29,22 +29,56 @@ public:
     Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
                  AttrList &output_names, const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, thread::ThreadPool *thread_pool,
-                 SharedMemoryManager *shm_mgr) {
+                 std::shared_ptr<SharedMemoryBufferManager> shm_mgr) {
         shm_mgr_ = shm_mgr;
-        if (nullptr != shm_mgr_) {
-            shm_ = shm_mgr_->apply_for_shm();
-        } else {
-            shm_ = nullptr;
+        SharedMemory scoped_shm;
+        SharedMemory *shm = nullptr;
+        if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
+            bool allocation_ok = true;
+            for (const auto *tensor : input_tensors) {
+                size_t buf_size = tensor->tensor_data().size();
+                SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(buf_size);
+                if (nullptr == shm_buf) {
+                    allocation_ok = false;
+                    break;
+                }
+                input_shm_bufs_.push_back(shm_buf);
+            }
+            for (auto *tensor : output_tensors) {
+                size_t buf_size = tensor->tensor_data().size();
+                SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(buf_size);
+                if (nullptr == shm_buf) {
+                    allocation_ok = false;
+                    break;
+                }
+                output_shm_bufs_.push_back(shm_buf);
+            }
+            if (allocation_ok) {
+                for (auto shm_buf : input_shm_bufs_) {
+                    scoped_shm.input_paths_.push_back(shm_buf->get_path());
+                    scoped_shm.input_ptrs_.push_back(shm_buf->get_ptr());
+                }
+                for (auto shm_buf : output_shm_bufs_) {
+                    scoped_shm.output_paths_.push_back(shm_buf->get_path());
+                    scoped_shm.output_ptrs_.push_back(shm_buf->get_ptr());
+                }
+                shm = &scoped_shm;
+            }
         }
         return runtime_io_.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id, thread_pool, shm_);
+            input_names, input_tensors, output_names, output_tensors, nn_id, thread_pool, shm);
     }
     Status finish() {
         return runtime_io_.finish();
     }
     ~ScopedRuntimeIO() {
         if (nullptr != shm_mgr_) {
-            shm_mgr_->free_shm(shm_);
+            for (auto shm_buf : input_shm_bufs_) {
+                shm_mgr_->free_shm(shm_buf);
+            }
+            for (auto shm_buf : output_shm_bufs_) {
+                shm_mgr_->free_shm(shm_buf);
+            }
         }
     }
     ScopedRuntimeIO(const ScopedRuntimeIO &) = delete;
@@ -53,8 +87,9 @@ public:
     ScopedRuntimeIO &operator=(ScopedRuntimeIO &&) = delete;
     RuntimeIO runtime_io_;
 private:
-    SharedMemoryManager *shm_mgr_ = nullptr;
-    SharedMemory *shm_ = nullptr;
+    std::shared_ptr<SharedMemoryBufferManager> shm_mgr_ = nullptr;
+    std::vector<SharedMemoryPtr> input_shm_bufs_;
+    std::vector<SharedMemoryPtr> output_shm_bufs_;
 };
 
 
@@ -66,7 +101,6 @@ public:
 
 private:
     Status initialize();
-    Status prepare_shared_memory(const uint32_t max_num_infers);
     Status check_input_tensors(const std::vector<const Tensor*> &input_tensors);
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
@@ -79,7 +113,6 @@ private:
     bool infer_sem_initialized_ = false;
     std::shared_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
     ProfilerInterface profile_;
-    SharedMemoryManager *shm_mgr_ = nullptr;
     uint64 last_infer_timestamp_ = 0;
     static const uint64 INFER_NEED_PING_MICROSEC_ = 1024 * 1024;
 };

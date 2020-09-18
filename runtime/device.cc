@@ -64,9 +64,8 @@ private:
 };
 
 
-static std::string gen_shm_name(uint32_t nn_id) {
+static std::string gen_shm_path() {
     std::string filename = "/neuron_clib_";
-    filename += std::to_string(nn_id);
     for (size_t i = 0; i < 64; ++i) {
         if (Env::Default()->CreateUniqueFileName(&filename, "")) {
             return filename;
@@ -76,118 +75,123 @@ static std::string gen_shm_name(uint32_t nn_id) {
     return "";
 }
 
-Status SharedMemoryManager::initialize(const std::string &nrtd_address,
-                                       const uint32_t nn_id, const uint32_t max_num_infers,
-                                       const std::vector<size_t> &input_tensor_sizes,
-                                       const std::vector<size_t> &output_tensor_sizes,
-                                       const uint64_t session_id) {
-    tensorflow::mutex_lock lock(mutex_);
-    if (enabled_) {
-        return Status::OK();
+
+SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const size_t size, const uint64_t session_id,
+                                       std::shared_ptr<RuntimeGRPC> runtime) : id_(id) {
+    VLOG(1) << "entering SharedMemoryBuffer constructor";
+    if (nullptr == runtime) {
+        LOG(ERROR) << "runtime is not initialized";
+        return;
     }
-    TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address));
-    uint32_t num_buffers = max_num_infers + 1;  // +1 because batching mode uses one more buffer
-    shm_vec_.resize(num_buffers);
-    shm_busy_vec_.clear();
-    shm_busy_vec_.resize(num_buffers, 0);
-    num_shms_ = 0;
-    for (auto &shm : shm_vec_) {
-        TF_RETURN_IF_ERROR(init_vectors(
-            &shm.input_paths_, &shm.input_ptrs_, &shm.input_sizes_,
-            &shm.nrt_input_paths_, input_tensor_sizes, nn_id, session_id));
-        TF_RETURN_IF_ERROR(init_vectors(
-            &shm.output_paths_, &shm.output_ptrs_, &shm.output_sizes_,
-            &shm.nrt_output_paths_, output_tensor_sizes, nn_id, session_id));
-        for (size_t idx = 0; idx < shm.input_paths_.size(); ++idx) {
-            VLOG(1) << "input shared memory " << shm.input_paths_[idx]
-                    << " ready at address " << (void*)shm.input_ptrs_[idx];
-        }
-        for (size_t idx = 0; idx < shm.output_paths_.size(); ++idx) {
-            VLOG(1) << "output shared memory " << shm.output_paths_[idx]
-                    << " ready at address " << (void*)shm.output_ptrs_[idx];
-        }
-        ++num_shms_;
+    runtime_ = runtime;
+    std::string path = gen_shm_path();
+    if (path.empty()) {
+        LOG(ERROR) << "cannot generate unique file name for shared memory";
+        return;
     }
-    enabled_ = true;
-    return Status::OK();
+    ShmFile shm_file(path);
+    SYS_FAIL_LOG_RETURN(shm_file.shm_fd_ < 0, "shm_open");
+    SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, size) < 0, "ftruncate");
+    ptr_ = static_cast<char*>(::mmap(0, size, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0));
+    size_ = size;
+    SYS_FAIL_LOG_RETURN(nullptr == ptr_, "mmap");
+    if (!runtime_->shm_map(path, PROT_READ | PROT_WRITE, session_id).ok()) {
+        VLOG(1) << "neuron-rtd shm_map failed";
+        unsupported_by_runtime_ = true;
+        return;
+    }
+    VLOG(1) << "allocated shared memory buffer " << path;
+    path_ = path;
 }
 
-Status SharedMemoryManager::init_vectors(std::vector<std::string> *names,
-                                         std::vector<char*> *ptrs,
-                                         std::vector<size_t> *sizes,
-                                         std::vector<std::string> *nrt_paths,
-                                         const std::vector<size_t> &tensor_sizes,
-                                         const uint32_t nn_id,
-                                         const uint64_t session_id) {
-    for (size_t size : tensor_sizes) {
-        std::string name = gen_shm_name(nn_id);
-        if (name.empty()) {
-            return errors::ResourceExhausted("cannot generate unique file name for shared memory");
-        }
-        ShmFile shm_file(name);
-        SYS_FAIL_RETURN(shm_file.shm_fd_ < 0, "shm_open");
-        names->push_back(name);
-        SYS_FAIL_RETURN(::ftruncate(shm_file.shm_fd_, size) < 0, "ftruncate");
-        char *ptr = static_cast<char*>(::mmap(0, size, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0));
-        SYS_FAIL_RETURN(nullptr == ptr, "mmap");
-        ptrs->push_back(ptr);
-        sizes->push_back(size);
-        TF_RETURN_IF_ERROR(runtime_.shm_map(name, PROT_READ | PROT_WRITE, session_id));
-        nrt_paths->push_back(name);
+SharedMemoryBuffer::~SharedMemoryBuffer() {
+    VLOG(1) << "entering destructor of SharedMemoryBuffer " << path_;
+    if (!path_.empty()) {
+        TF_LOG_IF_ERROR(runtime_->shm_unmap(path_, PROT_READ | PROT_WRITE));
     }
-    return Status::OK();
+    if (nullptr != ptr_) {
+        SYS_FAIL_LOG(munmap(ptr_, size_) < 0, "munmap");
+    }
 }
 
-SharedMemory *SharedMemoryManager::apply_for_shm() {
-    if (!enabled_) {
+SharedMemoryBuffer::SharedMemoryBuffer(const SharedMemoryBuffer &buffer) : id_(buffer.id_) {
+    runtime_ = buffer.runtime_;
+    ptr_ = buffer.ptr_;
+    size_ = buffer.size_;
+    path_ = buffer.path_;
+}
+
+SharedMemoryBuffer::SharedMemoryBuffer(SharedMemoryBuffer &&buffer) : id_(buffer.id_) {
+    runtime_ = buffer.runtime_;
+    ptr_ = buffer.ptr_;
+    size_ = buffer.size_;
+    path_ = buffer.path_;
+    buffer.runtime_ = nullptr;
+    buffer.ptr_ = nullptr;
+    buffer.size_ = 0;
+    buffer.path_.clear();
+}
+
+
+SharedMemoryBufferManager::SharedMemoryBufferManager(const uint64_t session_id,
+                                                     const std::string &nrtd_address)
+                                                     : session_id_(session_id) {
+    runtime_ = std::make_shared<RuntimeGRPC>();
+    TF_LOG_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
+    is_valid_ = true;
+}
+
+
+SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t size) {
+    if (!is_valid_) {
+        VLOG(1) << "SharedMemoryBufferManager is invalid";
         return nullptr;
     }
     tensorflow::mutex_lock lock(mutex_);
-    for (size_t idx = 0; idx < num_shms_; ++idx) {
-        if (!shm_busy_vec_[idx]) {
-            shm_busy_vec_[idx] = 1;
-            return &shm_vec_[idx];
-        }
+    if (!is_valid_) {
+        // check once more to kick out threads that have already accessed is_valid_ before the lock
+        return nullptr;
     }
-    return nullptr;
+    if (size_to_free_buffer_id_.count(size) && size_to_free_buffer_id_[size].size()) {
+        // get one from the free buffer set
+        VLOG(1) << "getting an already allocated shm buffer";
+        std::unordered_set<size_t> *free_buffer_id_set = &size_to_free_buffer_id_[size];
+        auto iter = free_buffer_id_set->begin();
+        size_t free_buffer_id = *iter;
+        free_buffer_id_set->erase(iter);
+        return buffer_vec_[free_buffer_id];
+    }
+    VLOG(1) << "allocating a new shm buffer";
+    size_t id = buffer_vec_.size();
+    buffer_vec_.push_back(std::make_shared<SharedMemoryBuffer>(id, size, session_id_, runtime_));
+    if (!buffer_vec_.back()->is_valid()) {
+        if (buffer_vec_.back()->unsupported_by_runtime()) {
+            LOG(INFO) << "The current Neuron runtime configuration does not support "
+                         "shared memory data transfer. Please refer to "
+                         "https://github.com/aws/aws-neuron-sdk/blob/master/docs/neuron-runtime/nrt-theory-of-operation.md#shared-memory-for-inference-ifmaps-and-ofmaps "
+                         "if you encounter performance problem caused by high CPU usage on inf1 instances.";
+            is_valid_ = false;
+        }
+        buffer_vec_.pop_back();
+        VLOG(1) << "SharedMemoryBufferManager created an invalid buffer";
+        return nullptr;
+    }
+    return buffer_vec_.back();
 }
 
-void SharedMemoryManager::free_shm(SharedMemory *shm) {
-    if (!enabled_ || nullptr == shm) {
+void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {
+    tensorflow::mutex_lock lock(mutex_);
+    if (!shm->is_valid()) {
+        LOG(ERROR) << "SharedMemoryBufferManager cannot free an invalid shared memory buffer";
         return;
     }
-    tensorflow::mutex_lock lock(mutex_);
-    for (size_t idx = 0; idx < num_shms_; ++idx) {
-        if (shm == &shm_vec_[idx]) {
-            shm_busy_vec_[idx] = 0;
-            return;
-        }
+    VLOG(1) << "freeing shm buf " << *shm->get_path();
+    size_t size = shm->get_size();
+    if (!size_to_free_buffer_id_.count(size)) {
+        size_to_free_buffer_id_.emplace(
+            std::piecewise_construct, std::forward_as_tuple(size), std::forward_as_tuple());
     }
-}
-
-void SharedMemoryManager::clear() {
-    for (auto &shm : shm_vec_) {
-        tensorflow::mutex_lock lock(shm.mutex_);
-        for (const auto &path : shm.nrt_input_paths_) {
-            TF_LOG_IF_ERROR(runtime_.shm_unmap(path, PROT_READ | PROT_WRITE));
-        }
-        shm.nrt_input_paths_.clear();
-        for (size_t idx = 0; idx < shm.input_ptrs_.size(); ++idx) {
-            SYS_FAIL_LOG(munmap(shm.input_ptrs_[idx], shm.input_sizes_[idx]) < 0, "munmap");
-        }
-        shm.input_ptrs_.clear();
-        shm.input_paths_.clear();
-        for (const auto &path : shm.nrt_output_paths_) {
-            TF_LOG_IF_ERROR(runtime_.shm_unmap(path, PROT_READ | PROT_WRITE));
-        }
-        shm.nrt_output_paths_.clear();
-        for (size_t idx = 0; idx < shm.output_ptrs_.size(); ++idx) {
-            SYS_FAIL_LOG(munmap(shm.output_ptrs_[idx], shm.output_sizes_[idx]) < 0, "munmap");
-        }
-        shm.output_ptrs_.clear();
-        shm.output_paths_.clear();
-    }
-    num_shms_ = 0;
+    size_to_free_buffer_id_[size].insert(shm->get_id());
 }
 
 
@@ -425,6 +429,13 @@ Status NeuronDevice::initialize(const std::string &nrtd_address,
         }
     }
     running_nn_id_ = NRT_INVALID_NN_ID;
+    std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
+    if ("no" != nrt_shm_map) {
+        shm_buf_mgr_ = std::make_shared<SharedMemoryBufferManager>(session_id, nrtd_address);
+        if (!shm_buf_mgr_->is_valid()) {
+            shm_buf_mgr_ = nullptr;
+        }
+    }
     return Status::OK();
 }
 
@@ -485,10 +496,6 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     if (closed_) {
         return;
     }
-    if (nn_id_to_shm_mgr_.count(nn_id)) {
-        nn_id_to_shm_mgr_[nn_id].clear();
-    }
-    nn_id_to_shm_mgr_.erase(nn_id);
     if (!nn_id_to_all_nn_ids_.count(nn_id)) {
         VLOG(1) << "model " << nn_id << " is not loaded";
         return;
@@ -580,30 +587,6 @@ Status NeuronDevice::infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps) {
     return Status::OK();
 }
 
-Status NeuronDevice::init_shm_mgr(SharedMemoryManager **shm_mgr,
-                                  const uint32_t nn_id, const uint32_t max_num_infers,
-                                  const std::vector<size_t> input_tensor_sizes,
-                                  const std::vector<size_t> output_tensor_sizes) {
-    std::string unix_prefix = "unix:";
-    if (nrtd_address_.compare(0, unix_prefix.size(), unix_prefix)) {
-        return errors::InvalidArgument("shared memory requires using unix socket");
-    }
-    tensorflow::mutex_lock lock(mutex_eg_);
-    if (closed_) {
-        return errors::Aborted("neuron_device is closed");
-    }
-    nn_id_to_shm_mgr_.emplace(std::piecewise_construct, std::forward_as_tuple(nn_id), std::forward_as_tuple());
-    Status status = nn_id_to_shm_mgr_[nn_id].initialize(
-        nrtd_address_, nn_id, max_num_infers, input_tensor_sizes, output_tensor_sizes, session_id_);
-    if (!status.ok()) {
-        nn_id_to_shm_mgr_[nn_id].clear();
-        nn_id_to_shm_mgr_.erase(nn_id);
-        return status;
-    }
-    *shm_mgr = &nn_id_to_shm_mgr_[nn_id];
-    return Status::OK();
-}
-
 void NeuronDevice::clear(bool from_global_state) {
     tensorflow::mutex_lock lock(mutex_eg_);
     if (closed_) {
@@ -631,13 +614,9 @@ void NeuronDevice::clear(bool from_global_state) {
         TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id, from_global_state));
     }
     VLOG(1) << "destroy_eg from NeuronDevice::clear";
-    for (auto &item : nn_id_to_shm_mgr_) {
-        item.second.clear();
-    }
     if (!from_global_state) {
         set_running(NRT_INVALID_NN_ID);
         nn_id_to_all_nn_ids_.clear();
-        nn_id_to_shm_mgr_.clear();
         vec_eg_id_.clear();
     }
 }

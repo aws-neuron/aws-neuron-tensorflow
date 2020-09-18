@@ -70,7 +70,6 @@ public:
     Status finish();
     uint64_t cookie = NRT_INVALID_COOKIE;
     thread::ThreadPool *thread_pool_;
-    SharedMemory *shm_ = nullptr;
     nrt::infer_request request_;
     nrt::infer_post_response post_response_;
     grpc::Status post_status_;
@@ -79,6 +78,8 @@ public:
     nrt::infer_response response_;
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
+    bool use_shm_ = false;
+    std::vector<char*> output_ptrs_;
     grpc::ClientContext context_;
     grpc::CompletionQueue cq_;
     std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_infer_post_ = nullptr;

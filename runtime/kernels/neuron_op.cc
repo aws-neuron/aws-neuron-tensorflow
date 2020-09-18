@@ -241,13 +241,6 @@ Status NeuronOp::initialize() {
         input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
     }
 
-    std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
-    if ("no" != nrt_shm_map) {
-        if (!prepare_shared_memory(model_config.max_num_infers_).ok()) {
-            VLOG(1) << "shared memory is requested but is not available; "
-                    << "using regular grpc for transfering input/output tensors";
-        }
-    }
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
     int64 init_acquire_amount = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
@@ -268,18 +261,6 @@ Status NeuronOp::initialize() {
     return Status::OK();
 }
 
-Status NeuronOp::prepare_shared_memory(const uint32_t max_num_infers) {
-    AttrList &output_dtypes = def().attr().at("output_dtypes").list();
-    AttrList &output_shapes = def().attr().at("output_shapes").list();
-    std::vector<size_t> output_tensor_sizes;
-    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-        Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
-        output_tensor_sizes.push_back(temp_tensor.tensor_data().size());
-    }
-    return neuron_device_->init_shm_mgr(&shm_mgr_, nn_id_, max_num_infers,
-                                        input_tensor_sizes_, output_tensor_sizes);
-}
-
 NeuronOp::~NeuronOp() {
     VLOG(1) << "calling NeuronOp destructor";
     tensorflow::mutex_lock lock(mutex_model_);
@@ -288,7 +269,6 @@ NeuronOp::~NeuronOp() {
         return;
     }
     neuron_device_->unload(nn_id_);
-    shm_mgr_ = nullptr;
     VLOG(1) << "unload from NeuronOp::~NeuronOp";
     global_neuron_device_manager.clear_if_empty();
     VLOG(1) << "NeuronOp destructor done";
@@ -455,7 +435,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             ScopedRuntimeIO scoped_io;
             OK_IGNORE_ABORTED(ctx, scoped_io.setup(
                 input_names, input_tensors, output_names, output_tensors,
-                nn_id_, thread_pool, shm_mgr_));
+                nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
                 &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
             OK_IGNORE_ABORTED(ctx, scoped_io.finish());
@@ -506,7 +486,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     scoped_io_queue.emplace();
                     OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
                         input_names, sliced_inputs, output_names, output_tensors,
-                        nn_id_, thread_pool, shm_mgr_));
+                        nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
 
                     // post
@@ -557,7 +537,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     scoped_io_queue.emplace();
                     OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
                         input_names, sliced_inputs, output_names, output_tensors,
-                        nn_id_, thread_pool, shm_mgr_));
+                        nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
                     if (post_bidx >= first_need_wait_infer_post_bidx) {
                         OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io_back, post_bidx));
@@ -616,7 +596,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, shm_mgr_));
+            input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
         OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
             &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
         OP_REQUIRES_OK(ctx, scoped_io.finish());
@@ -630,7 +610,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, shm_mgr_));
+            input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
         {
             SemResQueue sem_res_queue;
             OK_IGNORE_ABORTED(ctx, neuron_device_->infer_post(
