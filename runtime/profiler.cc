@@ -6,18 +6,12 @@
 #include <sys/wait.h>
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
+#include "tensorflow/neuron/runtime/macros.h"
 #include "tensorflow/neuron/runtime/profiler.h"
 
 
 namespace tensorflow {
 namespace neuron {
-
-
-#define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
-    if (failure_expr) {                                                     \
-        return errors::Unknown((fn_name), " failed with errno ", errno);    \
-    }                                                                       \
-}
 
 
 template<typename... Args>

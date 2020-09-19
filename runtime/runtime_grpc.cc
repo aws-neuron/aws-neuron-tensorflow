@@ -1,8 +1,6 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#include <queue>
 #include <grpcpp/grpcpp.h>
-#include "tensorflow/core/platform/mutex.h"
 #include "tensorflow/neuron/runtime/proto/nmgr.pb.h"
 #include "tensorflow/neuron/runtime/runtime_grpc.h"
 

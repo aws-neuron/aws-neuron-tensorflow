@@ -40,20 +40,7 @@ public:
 namespace neuron {
 
 
-// Note: this macro must be used after ctx->allocate_output
-#define OK_IGNORE_ABORTED(CTX, ...) {                               \
-    Status status(__VA_ARGS__);                                     \
-    if (status.code() == tensorflow::error::Code::ABORTED) {        \
-        VLOG(1) << "ignored error " << status.error_message();      \
-        return;                                                     \
-    }                                                               \
-    OP_REQUIRES_OK(CTX, status);                                    \
-}
-
-
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
-
-
 extern NeuronDeviceManager global_neuron_device_manager;
 
 

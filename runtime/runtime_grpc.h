@@ -1,7 +1,7 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#ifndef TENSORFLOW_NEURON_NEURON_CLIB_RUNTIME_GRPC_H_
-#define TENSORFLOW_NEURON_NEURON_CLIB_RUNTIME_GRPC_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
+#define TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 
 #include "tensorflow/neuron/runtime/timestamps.h"
 #include "tensorflow/neuron/runtime/tensor_util.h"
@@ -138,4 +138,4 @@ private:
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_NEURON_CLIB_RUNTIME_GRPC_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_

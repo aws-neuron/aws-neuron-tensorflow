@@ -18,6 +18,7 @@ limitations under the License.
 #include "tensorflow/core/graph/graph_constructor.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/hash/hash.h"
+#include "tensorflow/neuron/runtime/macros.h"
 #include "tensorflow/neuron/convert/segment.h"
 #include "tensorflow/neuron/convert/convert_graph.h"
 
@@ -26,12 +27,6 @@ namespace tensorflow {
 namespace neuron {
 namespace convert {
 
-
-#define TF_LOG_IF_ERROR(status) {   \
-    if (!(status).ok()) {           \
-        LOG(ERROR) << (status);     \
-    }                               \
-}
 
 // Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
 // Helper class for the segmenter to determine whether an output edge from the

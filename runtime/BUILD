@@ -46,8 +46,15 @@ cc_library(
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
         ":nmgr_service.grpc.o",
+        ":macros",
         "@grpc//:grpc++_codegen_base",
     ],
+)
+
+cc_library(
+    name = "macros",
+    srcs = ["macros.h"],
+    hdrs = ["macros.h"],
 )
 
 # nrt proto libraries

@@ -10,12 +10,13 @@
  *     limitations under the License.
  *     ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_KERNELS_NEURON_OP_H_
-#define TENSORFLOW_NEURON_KERNELS_NEURON_OP_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_KERNELS_NEURON_OP_H_
+#define TENSORFLOW_NEURON_RUNTIME_KERNELS_NEURON_OP_H_
 
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/lib/core/threadpool.h"
+#include "tensorflow/neuron/runtime/macros.h"
 #include "tensorflow/neuron/runtime/device.h"
 
 
@@ -124,4 +125,4 @@ private:
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_KERNELS_NEURON_OP_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_KERNELS_NEURON_OP_H_

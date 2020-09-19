@@ -8,6 +8,7 @@ cc_library(
     copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         ":segment",
+        "//tensorflow/neuron/runtime:macros",
         "//tensorflow/core:core_cpu_headers_lib",
         "//tensorflow/core:framework_headers_lib",
         "//tensorflow/core:lib",

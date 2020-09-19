@@ -1,7 +1,7 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#ifndef TENSORFLOW_NEURON_NEURON_CLIB_DEVICE_H_
-#define TENSORFLOW_NEURON_NEURON_CLIB_DEVICE_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
+#define TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
 
 #include <queue>
 #include "tensorflow/core/platform/mutex.h"
@@ -18,37 +18,6 @@ namespace neuron {
 
 
 typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
-
-#define NRT_INVALID_NN_ID 0
-#define NRT_INVALID_EG_ID 0
-
-#define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
-    if (failure_expr) {                                                     \
-        return errors::Internal((fn_name), " failed with errno ", errno);   \
-    }                                                                       \
-}
-
-#define SYS_FAIL_LOG(failure_expr, fn_name) {                       \
-    if (failure_expr) {                                             \
-        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
-    }                                                               \
-}
-
-#define SYS_FAIL_LOG_RETURN(failure_expr, fn_name) {                \
-    if (failure_expr) {                                             \
-        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
-        return;                                                     \
-    }                                                               \
-}
-
-#define TF_LOG_RETURN_IF_ERROR(...) {                                   \
-    Status _status = (__VA_ARGS__);                                     \
-    if (TF_PREDICT_FALSE(!_status.ok())) {                              \
-        LOG(ERROR) << "error code " << _status.code()                   \
-                   << ", error message " << _status.error_message();    \
-        return;                                                         \
-    }                                                                   \
-}
 
 
 class SharedMemoryBuffer {
@@ -185,4 +154,4 @@ int stoi_no_throw(const std::string &str);
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_NEURON_CLIB_DEVICE_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_DEVICE_H_

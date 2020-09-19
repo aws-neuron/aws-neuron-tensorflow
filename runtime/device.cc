@@ -6,18 +6,12 @@
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
+#include "tensorflow/neuron/runtime/macros.h"
 #include "tensorflow/neuron/runtime/device.h"
 
 
 namespace tensorflow {
 namespace neuron {
-
-
-#define TF_LOG_IF_ERROR(status) {   \
-    if (!(status).ok()) {           \
-        LOG(ERROR) << (status);     \
-    }                               \
-}
 
 
 NeuronDeviceManager global_neuron_device_manager;
@@ -65,7 +59,7 @@ private:
 
 
 static std::string gen_shm_path() {
-    std::string filename = "/neuron_clib_";
+    std::string filename = "/aws_neuron_runtime_";
     for (size_t i = 0; i < 64; ++i) {
         if (Env::Default()->CreateUniqueFileName(&filename, "")) {
             return filename;

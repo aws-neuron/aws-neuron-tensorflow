@@ -1,0 +1,56 @@
+/* Copyright 2020, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
+
+#include "tensorflow/core/lib/core/errors.h"
+
+namespace tensorflow {
+namespace neuron {
+
+#define NRT_INVALID_NN_ID 0
+#define NRT_INVALID_EG_ID 0
+
+#define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
+    if (failure_expr) {                                                     \
+        return errors::Internal((fn_name), " failed with errno ", errno);   \
+    }                                                                       \
+}
+
+#define SYS_FAIL_LOG(failure_expr, fn_name) {                       \
+    if (failure_expr) {                                             \
+        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
+    }                                                               \
+}
+
+#define SYS_FAIL_LOG_RETURN(failure_expr, fn_name) {                \
+    if (failure_expr) {                                             \
+        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
+        return;                                                     \
+    }                                                               \
+}
+
+#define TF_LOG_RETURN_IF_ERROR(...) {                                   \
+    Status _status = (__VA_ARGS__);                                     \
+    if (TF_PREDICT_FALSE(!_status.ok())) {                              \
+        LOG(ERROR) << "error code " << _status.code()                   \
+                   << ", error message " << _status.error_message();    \
+        return;                                                         \
+    }                                                                   \
+}
+
+#define TF_LOG_IF_ERROR(status) {   \
+    if (!(status).ok()) {           \
+        LOG(ERROR) << (status);     \
+    }                               \
+}
+
+// Note: this macro must be used after ctx->allocate_output
+#define OK_IGNORE_ABORTED(CTX, ...) {                               \
+    Status status(__VA_ARGS__);                                     \
+    if (status.code() == tensorflow::error::Code::ABORTED) {        \
+        VLOG(1) << "ignored error " << status.error_message();      \
+        return;                                                     \
+    }                                                               \
+    OP_REQUIRES_OK(CTX, status);                                    \
+}
+
+}  // neuron
+}  // tensorflow

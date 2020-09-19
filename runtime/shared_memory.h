@@ -1,7 +1,7 @@
 /* Copyright 2019, Amazon.com, Inc. or its affiliates. All Rights Reserved. */
 
-#ifndef TENSORFLOW_NEURON_NEURON_CLIB_SHARED_MEMORY_H_
-#define TENSORFLOW_NEURON_NEURON_CLIB_SHARED_MEMORY_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
+#define TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
 
 #include "tensorflow/core/platform/mutex.h"
 
@@ -18,4 +18,4 @@ typedef struct SharedMemory {
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_NEURON_CLIB_SHARED_MEMORY_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
