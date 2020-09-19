@@ -10,6 +10,7 @@
  * limitations under the License.
  * ==============================================================================*/
 
+#include "tensorflow/neuron/runtime/runtime_io.h"
 #include "tensorflow/neuron/runtime/kernels/neuron_op.h"
 
 

@@ -40,6 +40,7 @@ cc_library(
         "shared_memory.cc",
         "runtime_grpc.h",
         "runtime_grpc.cc",
+        "runtime_io.h",
         "semaphore.h",
         "semaphore.cc",
     ],
