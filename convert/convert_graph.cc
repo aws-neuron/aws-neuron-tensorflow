@@ -502,13 +502,6 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
 
   // AddNode does not wire edges.
   // Re-map incoming edges to use the new Neuron node instead of the orig subgraph
-  std::map<std::pair<int, int>, int> subgraph_edge_to_input_map;
-  VLOG(2) << "subgraph_edge_to_input_map: ";
-  for (size_t i = 0; i < params->subgraph_inputs.size(); ++i) {
-    VLOG(2) << params->subgraph_inputs.at(i).first << " , "
-            << params->subgraph_inputs.at(i).second << " i " << i;
-    subgraph_edge_to_input_map.insert({params->subgraph_inputs.at(i), i});
-  }
   for (const tensorflow::Edge *edge : params->subgraph_incoming_edges) {
     if (edge->IsControlEdge()) {
       params->graph->AddControlEdge(edge->src(), neuron_node);

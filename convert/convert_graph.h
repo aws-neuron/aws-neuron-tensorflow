@@ -67,7 +67,6 @@ struct ConvertGraphParams {
   tensorflow::Graph *graph;
   const std::vector<string> *output_names;
   const std::set<int> *subgraph_node_ids;
-  std::vector<std::pair<int, int> > subgraph_inputs;
   std::vector<std::pair<int, int> > subgraph_outputs;
   tensorflow::EdgeSet subgraph_incoming_edges;
   tensorflow::EdgeSet subgraph_outgoing_edges;
