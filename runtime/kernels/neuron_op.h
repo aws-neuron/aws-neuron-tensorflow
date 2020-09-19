@@ -17,6 +17,8 @@
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/lib/core/threadpool.h"
 #include "tensorflow/neuron/runtime/macros.h"
+#include "tensorflow/neuron/runtime/shared_memory_io.h"
+#include "tensorflow/neuron/runtime/shared_memory.h"
 #include "tensorflow/neuron/runtime/device.h"
 
 

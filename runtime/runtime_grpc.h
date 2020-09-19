@@ -3,9 +3,8 @@
 #ifndef TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 #define TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 
-#include "tensorflow/neuron/runtime/timestamps.h"
 #include "tensorflow/neuron/runtime/tensor_util.h"
-#include "tensorflow/neuron/runtime/shared_memory.h"
+#include "tensorflow/neuron/runtime/shared_memory_io.h"
 #include "tensorflow/neuron/runtime/proto/nmgr_service.grpc.pb.h"
 #include "tensorflow/neuron/runtime/proto/nmgr_session_service.grpc.pb.h"
 #include "tensorflow/neuron/runtime/proto/nerr.pb.h"
