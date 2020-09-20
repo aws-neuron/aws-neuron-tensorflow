@@ -916,7 +916,7 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
             node_name: executor.submit(_fork_compiler, subgraph_compilers, node_name, timeout)
             for node_name in subgraph_compilers.keys()
         }
-    compiler_returns = {key: value.result() for key, value in compiler_returns.items()}
+        compiler_returns = {key: value.result() for key, value in compiler_returns.items()}
     for node_name in subgraph_compilers.keys():
         if not compiler_returns[node_name]:
             subgraph_compilers[node_name] = None
