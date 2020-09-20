@@ -161,8 +161,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
   // map of (name ->  vector of datatype)
   // This is to store all the nodes in subgraph that is named as output_nodes
   // for the graph
-  std::map<string, std::vector<DataType> > main_graph_output_nodes;
-  std::map<string, std::vector<PartialTensorShape> > main_graph_output_shapes;
+  std::map<string, std::vector<std::pair<DataType, PartialTensorShape> > > main_graph_output_nodes;
 
   // map of output_name -> max tensor index,  transforming list of output_names
   // of graph to map i.e list output_names : A:1, A: 3, B:0 => map: A->3, B->0
@@ -176,6 +175,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
 
   // Adding placeholder for all incoming edges, since
   // placeholders do not need to specify inputs.
+  std::unordered_map<std::string, std::string> outside_name_port_to_placeholder_name;
   for (auto incoming_edge : sg_params.subgraph_incoming_edges) {
     if (incoming_edge->IsControlEdge()) {
       VLOG(2) << "Control edge: src-> " << incoming_edge->src()->name()
@@ -226,34 +226,59 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
             << " idx: " << inside_node_index;
 
     NodeDef placeholder_def;
-    auto placeholder_name = sg_params.graph->NewName(
-      outside_node->name() + std::to_string(outside_node_index));
-    std::vector<PartialTensorShape> v_partial_shape;
-    PartialTensorShape partial_shape;
-    input_dtypes.push_back(outside_node->output_type(outside_node_index));
-    if (GetNodeAttr(outside_node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
+    std::string outside_node_port = outside_node->name() + std::to_string(outside_node_index);
+    std::string placeholder_name;
+    if (outside_name_port_to_placeholder_name.count(outside_node_port)) {
+      placeholder_name = outside_name_port_to_placeholder_name[outside_node_port];
+    } else {
+      placeholder_name = sg_params.graph->NewName(outside_node_port);
+      outside_name_port_to_placeholder_name[outside_node_port] = placeholder_name;
+      std::vector<PartialTensorShape> v_partial_shape;
+      PartialTensorShape partial_shape;
+      input_dtypes.push_back(outside_node->output_type(outside_node_index));
+      if (GetNodeAttr(outside_node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
         input_shapes.push_back(v_partial_shape[outside_node_index]);
         TF_RETURN_IF_ERROR(
             NodeDefBuilder(placeholder_name, "Placeholder")
                 .Attr("shape", v_partial_shape[outside_node_index])
-                .Attr("_output_shapes", v_partial_shape[outside_node_index])
+                .Attr("_aws_neuron_inferred_shapes", v_partial_shape[outside_node_index])
                 .Attr("dtype", outside_node->output_type(outside_node_index))
                 .Finalize(&placeholder_def));
-    } else if (IsPlaceholder(outside_node->def()) &&
-               GetNodeAttr(outside_node->attrs(), "shape", &partial_shape).ok()) {
+      } else if (GetNodeAttr(outside_node->attrs(), "_aws_neuron_inferred_shapes", &v_partial_shape).ok()) {
+        input_shapes.push_back(v_partial_shape[outside_node_index]);
+        TF_RETURN_IF_ERROR(
+            NodeDefBuilder(placeholder_name, "Placeholder")
+                .Attr("shape", v_partial_shape[outside_node_index])
+                .Attr("_aws_neuron_inferred_shapes", v_partial_shape[outside_node_index])
+                .Attr("dtype", outside_node->output_type(outside_node_index))
+                .Finalize(&placeholder_def));
+      } else if (IsPlaceholder(outside_node->def()) &&
+                 GetNodeAttr(outside_node->attrs(), "shape", &partial_shape).ok()) {
         input_shapes.push_back(partial_shape);
         TF_RETURN_IF_ERROR(
             NodeDefBuilder(placeholder_name, "Placeholder")
                 .Attr("shape", partial_shape)
-                .Attr("_output_shapes", partial_shape)
+                .Attr("_aws_neuron_inferred_shapes", partial_shape)
                 .Attr("dtype", outside_node->output_type(outside_node_index))
                 .Finalize(&placeholder_def));
-    } else {
+      } else {
         input_shapes.emplace_back();
         TF_RETURN_IF_ERROR(
             NodeDefBuilder(placeholder_name, "Placeholder")
                 .Attr("dtype", outside_node->output_type(outside_node_index))
                 .Finalize(&placeholder_def));
+      }
+
+      // for creating Neuron op node, storing:
+      // input_names -> Attr(input_names) -> name of input nodes inside subgraph
+      input_names.push_back(placeholder_name + ":0");
+
+      // input_nodes -> Input(input_nodes) ->. list of nodes with index (outside
+      // the subgraph) feeding into the subgraph.
+      input_nodes.push_back(
+          NodeBuilder::NodeOut(outside_node, outside_node_index));
+
+      subgraph_nodes[placeholder_name] = placeholder_def;
     }
 
     // Changing the inside nodes taking inputs from outside to point to
@@ -268,18 +293,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     VLOG(2) << "Input node def:" << inside_node_def.DebugString();
     VLOG(2) << " Place holder def :" << placeholder_def.DebugString();
 
-    // for creating Neuron op node, storing:
-    // input_names -> Attr(input_names) -> name of input nodes inside subgraph
-    input_names.push_back(placeholder_name + ":0");
-
-    // input_nodes -> Input(input_nodes) ->. list of nodes with index (outside
-    // the subgraph) feeding into the subgraph.
-    input_nodes.push_back(
-        NodeBuilder::NodeOut(outside_node, outside_node_index));
-
     // Storing/updating  values in  nodedef map
-    subgraph_nodes[placeholder_name] = (placeholder_def);
-    subgraph_nodes[inside_node->name()] = (inside_node_def);
+    subgraph_nodes[inside_node->name()] = inside_node_def;
   }
 
   // Debug code
@@ -309,8 +324,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
            tensor_index <= map_out_names_to_index[node->name()];
            ++tensor_index) {
         DataType tensor_dtype = node->output_type(tensor_index);
-        main_graph_output_nodes[node->name()].push_back(tensor_dtype);
-        main_graph_output_shapes[node->name()].push_back(v_partial_shape[tensor_index]);
+        main_graph_output_nodes[node->name()].push_back(
+            std::make_pair(tensor_dtype, v_partial_shape[tensor_index]));
         VLOG(1) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
                 << node->name() << " , " << tensor_dtype << " )";
       }
@@ -328,7 +343,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
 
   VLOG(2) << "Neuron subgraph graphdef: " << subgraph_graph_def.DebugString();
 
-  string in_graph_def_string = "";
+  std::string in_graph_def_string = "";
   if (!subgraph_graph_def.SerializeToString(&in_graph_def_string)) {
     return tensorflow::errors::InvalidArgument("Failed to serialize subgraph");
   }
@@ -336,44 +351,48 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
   // Gather output metadata
   VLOG(2) << "Neuron op: " << neuron_op_name
           << " sg_params.output_inds: " << sg_params.output_inds->size();
-  std::vector<string> neuron_node_output_names;
+  std::vector<std::string> neuron_node_output_names;
   std::vector<tensorflow::DataType> neuron_node_output_dtypes;
   std::vector<PartialTensorShape> neuron_node_output_shapes;
   for (const std::pair<int, int>& output : *sg_params.output_inds) {
     int node_id = output.first;
     int output_idx = output.second;
-    tensorflow::Node* node = sg_params.graph->FindNodeId(node_id);
-    string op_name = node->name();
-    string tensor_name = op_name;
+    Node* node = sg_params.graph->FindNodeId(node_id);
+    std::string op_name = node->name();
+    std::string tensor_name = op_name + ":" + std::to_string(output_idx);
 
     VLOG(2) << "op_name: " << op_name;
-    tensorflow::strings::StrAppend(&tensor_name, ":", output_idx);
     VLOG(2) << "Output tensor name: " << tensor_name;
-    neuron_node_output_names.push_back(tensor_name);
+    if (!main_graph_output_nodes.count(op_name)) {
+      neuron_node_output_names.push_back(tensor_name);
 
-    tensorflow::DataType tf_dtype = node->output_type(output_idx);
-    neuron_node_output_dtypes.push_back(tf_dtype);
+      DataType tf_dtype = node->output_type(output_idx);
+      neuron_node_output_dtypes.push_back(tf_dtype);
 
-    std::vector<PartialTensorShape> v_partial_shape;
-    if (GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
-      neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
-    } else {
-      neuron_node_output_shapes.emplace_back();
+      std::vector<PartialTensorShape> v_partial_shape;
+      if (GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
+        neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
+      } else if (GetNodeAttr(node->attrs(), "_aws_neuron_inferred_shapes", &v_partial_shape).ok()) {
+        neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
+      } else {
+        neuron_node_output_shapes.emplace_back();
+      }
     }
   }
+  auto start_index = neuron_node_output_names.size();
 
   // Pushing the outputs of graph (if in the subgraph) to the output for the
   // subgraph. As we will create IdentityN connecting to the these nodes.
   for (auto name_type : main_graph_output_nodes) {
     uint counter = 0;
     auto name = name_type.first;
-    auto dtype = name_type.second;
-    for (auto dtype : name_type.second) {
+    for (auto dtype_shape : name_type.second) {
+      auto dtype = dtype_shape.first;
+      auto shape = dtype_shape.second;
       VLOG(1) << "tensorname: " << name << " dtype: " << dtype;
-      neuron_node_output_names.push_back(name + ":" + std::to_string(counter++));
+      std::string tensor_name = name + ":" + std::to_string(counter++);
+      neuron_node_output_names.push_back(tensor_name);
       neuron_node_output_dtypes.push_back(dtype);
-    }
-    for (auto shape : main_graph_output_shapes[name]) {
       neuron_node_output_shapes.push_back(shape);
     }
   }
@@ -411,7 +430,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
                   .Attr("output_names", neuron_node_output_names)
                   .Attr("output_dtypes", neuron_node_output_dtypes)
                   .Attr("output_shapes", neuron_node_output_shapes)
-                  .Attr("_output_shapes", neuron_node_output_shapes)
+                  .Attr("_aws_neuron_inferred_shapes", neuron_node_output_shapes)
                   .Finalize(sg_params.graph, &neuron_node));
 
   sg_params.neuron_node = neuron_node;
@@ -420,7 +439,6 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
   // subgraph
   // start_index is the index of Neuron op output to which IdentityN node should be
   // connected to.
-  auto start_index = sg_params.output_inds->size();
   VLOG(1) << "start_index: " << start_index;
   std::vector<tensorflow::NodeBuilder::NodeOut> identity_inputs;
 

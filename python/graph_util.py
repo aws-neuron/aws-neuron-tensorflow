@@ -746,6 +746,9 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     Returns:
         A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
+    for node in graph_def.node:
+        if '_output_shapes' in node.attr:
+            node.attr['_aws_neuron_inferred_shapes'].CopyFrom(node.attr['_output_shapes'])
     graph = _graph_def_to_graph(graph_def)
     if input_tensors is None:
         input_tensors = {op.outputs[0] for op in graph.get_operations()
@@ -792,95 +795,6 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     graph.get_collection_ref(ops.GraphKeys.TRAIN_OP).extend(graph.get_tensor_by_name(name) for name in output_names)
     meta_graph_def = meta_graph.create_meta_graph_def(graph=graph)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
-
-    # unify `NeuronOp`'s same-name outputs across the graph
-    new_tensor_name_to_old_tensor_name = {}
-    tensor_name_map = {}
-    for node in gdu.get_neuron_nodes(graph_def):
-        output_names = [name for name in node.attr['output_names'].list.s]
-        tensor_name_to_out_name = {}
-        for idx, out_name in enumerate(output_names):
-            tensor_name = '{}:{}'.format(node.name, idx)
-            tensor_name_to_out_name[gdu.format_tensor_name(tensor_name)] = out_name
-            new_tensor_name_to_old_tensor_name[tensor_name] = out_name.decode()
-        new_output_names = []
-        new_output_dtypes = []
-        new_output_shapes = []
-        out_name_to_new_idx = {}
-        for out_name, out_dtype, out_shape in zip(
-                output_names, node.attr['output_dtypes'].list.type,
-                node.attr['output_shapes'].list.shape):
-            if out_name not in out_name_to_new_idx:
-                out_name_to_new_idx[out_name] = len(out_name_to_new_idx)
-                new_output_names.append(out_name)
-                new_output_dtypes.append(out_dtype)
-                new_output_shapes.append(out_shape)
-        for tensor_name, out_name in tensor_name_to_out_name.items():
-            idx = out_name_to_new_idx[out_name]
-            new_tensor_name = gdu.format_tensor_name('{}:{}'.format(node.name, idx))
-            tensor_name_map[tensor_name] = new_tensor_name
-        node.attr['output_names'].list.s[:] = new_output_names
-        node.attr['output_dtypes'].list.type[:] = new_output_dtypes
-        new_output_shapes_attr = AttrValue.ListValue(shape=new_output_shapes)
-        node.attr['output_shapes'].list.CopyFrom(new_output_shapes_attr)
-        node.attr['_output_shapes'].list.CopyFrom(new_output_shapes_attr)
-    for node in graph_def.node:
-        node.input[:] = [tensor_name_map.get(inp, inp) for inp in node.input]
-
-    # remove `NeuronOp`'s internal placeholder duplications
-    for node in gdu.get_neuron_nodes(graph_def):
-        subgraph_def = gdu.get_subgraph_def(node)
-        tensor_name_map = {}
-        unique_input_tensor_names = {}  # maps input tensor name to its placeholder name
-        discard_ph_op_names = set()
-        for ph_name, ts_name in zip(node.attr['input_names'].list.s, node.input):
-            ph_op_name = ph_name.decode().split(':')[0]
-            gd_ph_name = gdu.format_tensor_name(ph_name.decode())
-            if ts_name in unique_input_tensor_names:
-                tensor_name_map[gd_ph_name] = unique_input_tensor_names[ts_name]
-                discard_ph_op_names.add(ph_op_name)
-            else:
-                unique_input_tensor_names[ts_name] = gd_ph_name
-        for sg_node in subgraph_def.node:
-            for idx, inp in enumerate(sg_node.input):
-                sg_node.input[idx] = tensor_name_map.get(inp, inp)
-        new_inputs = []
-        new_input_names = []
-        new_input_dtypes = []
-        new_input_shapes = []
-        new_input_op_names = []
-        for ts_name, ph_name, in_dtype, in_shape in zip(
-                node.input, node.attr['input_names'].list.s,
-                node.attr['input_dtypes'].list.type, node.attr['input_shapes'].list.shape):
-            ph_op_name = ph_name.decode().split(':')[0]
-            if ph_op_name not in discard_ph_op_names:
-                new_inputs.append(ts_name)
-                new_input_names.append(ph_name)
-                new_input_dtypes.append(in_dtype)
-                new_input_shapes.append(in_shape)
-                new_input_op_names.append(ph_op_name)
-        node.input[:] = new_inputs
-        node.attr['input_names'].list.s[:] = new_input_names
-        node.attr['input_dtypes'].list.type[:] = new_input_dtypes
-        node.attr['input_shapes'].list.CopyFrom(AttrValue.ListValue(shape=new_input_shapes))
-        new_subgraph_def = graph_pb2.GraphDef()
-        new_subgraph_def.node.MergeFrom(
-            sn for sn in subgraph_def.node if sn.name not in discard_ph_op_names)
-        input_name_map = {}
-        for ph_op_name, gd_tensor_name in zip(new_input_op_names, new_inputs):
-            if ':' not in gd_tensor_name:
-                gd_tensor_name = '{}:0'.format(gd_tensor_name)
-            input_name_map[ph_op_name] = gd_tensor_name
-        for sg_node in new_subgraph_def.node:
-            if sg_node.name in input_name_map:
-                if sg_node.attr['shape'].shape.unknown_rank:
-                    tensor_name = input_name_map[sg_node.name]
-                    tensor_name = new_tensor_name_to_old_tensor_name.get(tensor_name, tensor_name)
-                    shape_proto = graph.get_tensor_by_name(tensor_name).shape.as_proto()
-                    sg_node.attr['shape'].shape.CopyFrom(shape_proto)
-        # this converting back and forth is for topologically sorting the graph
-        new_subgraph_def = _graph_def_to_graph(new_subgraph_def).as_graph_def()
-        node.attr['graph_def'].s = new_subgraph_def.SerializeToString()
 
     # add subgraph's control input to `NeuronOp`'s control input
     all_op_names = {op.name for op in graph.get_operations()}
@@ -961,6 +875,8 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
                 tensor.set_shape(subgraph_shapes[node.name][tensor.name])
         subgraph_info = subgraph_info_format(node.name, input_tensors, output_tensors)
         subgraph_def = gdu.get_subgraph_def(node)
+        for sgn in subgraph_def.node:
+            sgn.attr.pop('_aws_neuron_inferred_shapes', None)
         if large_constants is not None:
             for sgn in subgraph_def.node:
                 if sgn.name in large_constants:
