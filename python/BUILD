@@ -46,6 +46,7 @@ tf_custom_op_library(
     deps = [
         "//tensorflow/neuron/runtime:neuron_op_op_lib",
         "//tensorflow/neuron/runtime:neuron_op_kernel",
+        "//tensorflow/neuron/grappler:static_shape_inference",
         "//tensorflow/neuron/grappler:fuse_supported_operators",
     ],
 )
