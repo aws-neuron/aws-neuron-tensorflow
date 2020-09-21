@@ -264,12 +264,12 @@ def inference_graph_from_session(
     # infer all tensor shapes and exclude ops that are attached to unknown shape tensors
     if shape_feed_dict is not None:
         shaped_graph = shape_inference(graph, shape_feed_dict, evaluated_map)
-        graph_def = graph.as_graph_def()
+        graph_def = graph.as_graph_def(add_shapes=True)
     else:
         shaped_graph = graph
 
     # normalize operators
-    graph_def = normalize_operators(graph_def, shaped_graph)
+    graph_def = normalize_operators(graph_def)
 
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
@@ -407,16 +407,28 @@ def find_neuron_cc():
     return spawn.find_executable('neuron-cc', path)
 
 
-def normalize_operators(graph_def, shaped_graph=None):
-    graph = _graph_def_to_graph(graph_def)
-    if shaped_graph is None:
-        shaped_graph = graph
+def normalize_operators(graph_def):
+    gd_tensor_name_to_consumers = {}
+    gd_tensor_name_to_shape = {}
+    for node in graph_def.node:
+        for inp in node.input:
+            if inp not in gd_tensor_name_to_consumers:
+                gd_tensor_name_to_consumers[inp] = []
+            gd_tensor_name_to_consumers[inp].append(inp)
+        if '_output_shapes' in node.attr:
+            for idx, shape in enumerate(node.attr['_output_shapes'].list.shape):
+                tensor_name = node.name if idx == 0 else '{}:{}'.format(node.name, idx)
+                gd_tensor_name_to_shape[tensor_name] = shape
     for node in graph_def.node:
         if node.op == 'StopGradient':
             node.op = 'Identity'
-        elif node.op == 'FusedBatchNormV3':
-            op = graph.get_operation_by_name(node.name)
-            if all(not ts.consumers() for ts in op.outputs[3:]):
+        elif node.op == 'FusedBatchNormV3':  # can be replace by FusedBatchNorm for inference
+            found_training_consumer = False
+            for idx in range(3, 6):
+                gd_tensor_name = '{}:{}'.format(node.name, idx)
+                if gd_tensor_name_to_consumers.get(gd_tensor_name, False):
+                    found_training_consumer = True
+            if not found_training_consumer:
                 node.op = 'FusedBatchNorm'
                 node.attr.pop('U')
                 if '_output_shapes' in node.attr:
@@ -424,9 +436,14 @@ def normalize_operators(graph_def, shaped_graph=None):
         elif node.op == 'AddV2':
             node.op = 'Add'
         elif node.op == 'BatchMatMulV2':  # only change to BatchMatMul if no broadcast
-            shaped_op = shaped_graph.get_operation_by_name(node.name)
-            shape0, shape1 = shaped_op.inputs[0].shape, shaped_op.inputs[1].shape
-            if shape0.rank == shape1.rank and shape0[:-2] == shape1[:-2]:
+            input0, input1 = node.input[0], node.input[1]
+            if input0 not in gd_tensor_name_to_shape:
+                continue
+            if input1 not in gd_tensor_name_to_shape:
+                continue
+            shape0 = tensor_shape.TensorShape(gd_tensor_name_to_shape[input0])
+            shape1 = tensor_shape.TensorShape(gd_tensor_name_to_shape[input1])
+            if shape0.rank is not None and shape0.rank == shape1.rank and shape0[:-2] == shape1[:-2]:
                 node.op = 'BatchMatMul'
     return graph_def
 
