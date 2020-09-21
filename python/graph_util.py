@@ -228,28 +228,19 @@ def inference_graph_from_session(
                             evaluated_map[tensor_name] = const_np
 
     # convert all variables to constants
-    extract_sub_graph = tf_graph_util.extract_sub_graph
-    tf_graph_util.extract_sub_graph = tf_graph_util.extract_sub_graph.__wrapped__
-    graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
-        sess, graph_def, list(protected_op_names))
-    tf_graph_util.extract_sub_graph = extract_sub_graph
+    with replace_extract_sub_graph():
+        graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
+            sess, graph_def, list(protected_op_names))
+    graph = _graph_def_to_graph(graph_def)
 
     # strip out large constants
     large_constants = erase_large_constants(graph_def)
 
     # setup op exclusions
     no_fuse_ops = set() if no_fuse_ops is None else set(no_fuse_ops)
-
-    # remove identity ops inserted by convert_variables_to_constants
-    graph = _graph_def_to_graph(graph_def)
     control_op_names = [op.name for op in graph.get_operations() if op._control_outputs]
-    protected_op_names.update(control_op_names)
-    protected_op_names.update(no_fuse_ops)
-    graph_def = tf_graph_util.remove_training_nodes.__wrapped__(
-        graph_def, protected_nodes=protected_op_names)
 
     # exclude ops with control outputs
-    graph = _graph_def_to_graph(graph_def)
     no_fuse_ops.update(control_op_names)
 
     # exclude ops that are attached to string tensors
@@ -512,12 +503,22 @@ def _output_ops(graph, output_names=None):
 
 @contextmanager
 def logging_show_info():
+    verbosity = logging.get_verbosity()
+    logging.set_verbosity(logging.INFO)
     try:
-        verbosity = logging.get_verbosity()
-        logging.set_verbosity(logging.INFO)
         yield
     finally:
         logging.set_verbosity(verbosity)
+
+
+@contextmanager
+def replace_extract_sub_graph():
+    extract_sub_graph = tf_graph_util.extract_sub_graph
+    tf_graph_util.extract_sub_graph = tf_graph_util.extract_sub_graph.__wrapped__
+    try:
+        yield
+    finally:
+        tf_graph_util.extract_sub_graph = extract_sub_graph
 
 
 def shape_inference(graph, shape_feed_dict, evaluated_map=None):
