@@ -35,7 +35,7 @@ from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_util import (
     normalize_operators, most_popular_namescope, logging_show_info,
-    get_model_config, find_neuron_cc, erase_large_constants)
+    get_model_config, find_neuron_cc)
 
 
 _neuron_sess_run_decorated = False
@@ -152,7 +152,6 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             ops.enable_eager_execution()
             ops._default_graph_stack._global_default_graph = global_default_graph
         fuse_graph_def = fuse_graph.as_graph_def()
-        erase_large_constants(fuse_graph_def)
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
                 input_tensors=input_tensors, graph_def=fuse_graph_def.SerializeToString(),

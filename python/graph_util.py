@@ -242,9 +242,6 @@ def inference_graph_from_session(
     with replace_extract_sub_graph():
         graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
             sess, graph_def, list(protected_op_names))
-
-    # strip out large constants
-    large_constants = erase_large_constants(graph_def)
     graph = _graph_def_to_graph(graph_def)
 
     # setup op exclusions
@@ -291,7 +288,7 @@ def inference_graph_from_session(
     if compiler_args is not None:
         args_dict = {node.name: compiler_args for node in gdu.get_neuron_nodes(part_graph_def)}
     compiled_graph_def = compile_subgraphs(
-        part_graph_def, subgraph_shapes, large_constants, workdir=compiler_workdir,
+        part_graph_def, subgraph_shapes, workdir=compiler_workdir,
         args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers,
         verbose=compiler_verbose)
 
@@ -301,9 +298,6 @@ def inference_graph_from_session(
     if compiler_recovery:
         compiled_graph_def = gdu.restore_compiler_failures(compiled_graph_def, graph)
         compiled_graph_def = nchw_to_nhwc(compiled_graph_def)
-    for node in compiled_graph_def.node:
-        if node.name in large_constants:
-            _restore_large_constants(node, large_constants[node.name])
 
     # try to enable dynamic batch size if possible
     if not dynamic_batch_size:
@@ -380,26 +374,6 @@ gd_dtype_val_map = {
     dtypes.uint64.as_datatype_enum: 'uint64_val',
     dtypes.variant.as_datatype_enum: 'variant_val',
 }
-
-
-def erase_large_constants(graph_def):
-    # modifies graph_def in-place
-    large_constants = {}
-    for node in graph_def.node:
-        if node.op == 'Const' and node.attr['value'].ByteSize() > _LARGE_CONST_SIZE:
-            tensor_content = node.attr['value'].tensor.tensor_content
-            if tensor_content:
-                large_constants[node.name] = 'tensor_content', tensor_content
-                node.attr['value'].tensor.tensor_content = b''
-            else:
-                gd_dtype = node.attr['dtype'].type
-                val_name = gd_dtype_val_map.get(gd_dtype, None)
-                if val_name is not None:
-                    value = getattr(node.attr['value'].tensor, val_name, None)
-                    if value:
-                        large_constants[node.name] = val_name, copy.deepcopy(value)
-                        node.attr['value'].tensor.ClearField(val_name)
-    return large_constants
 
 
 def find_neuron_cc():
@@ -842,7 +816,7 @@ def _get_subgraph(node):
     return _graph_def_to_graph(gdu.get_subgraph_def(node))
 
 
-def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
+def compile_subgraphs(graph_def, subgraph_shapes=None,
                       workdir=None, args_dict=None, timeout=None, max_num_compilers=None,
                       verbose=None):
     """Compile `NeuronOp`s in a `GraphDef` proto.
@@ -906,10 +880,6 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         subgraph_def = gdu.get_subgraph_def(node)
         for sgn in subgraph_def.node:
             sgn.attr.pop('_aws_neuron_inferred_shapes', None)
-        if large_constants is not None:
-            for sgn in subgraph_def.node:
-                if sgn.name in large_constants:
-                    _restore_large_constants(sgn, large_constants[sgn.name])
         workdir_path = os.path.join(workdir_base, node.name)
         os.makedirs(workdir_path, exist_ok=True)
         input_path = os.path.join(workdir_path, _neuron_cc_input_name)
@@ -969,14 +939,6 @@ def compile_subgraphs(graph_def, subgraph_shapes=None, large_constants=None,
         with open(executable_path, 'rb') as f:
             node.attr['executable'].s = f.read()
     return graph_def
-
-
-def _restore_large_constants(node, stored_large_constants):
-    attr_name, attr_value = stored_large_constants
-    if attr_name == 'tensor_content':
-        node.attr['value'].tensor.tensor_content = attr_value
-    else:
-        getattr(node.attr['value'].tensor, attr_name)[:] = attr_value
 
 
 def _fork_compiler(subgraph_compilers, node_name, timeout):
