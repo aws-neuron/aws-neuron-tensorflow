@@ -50,6 +50,7 @@ from tensorflow.python.framework.common_shapes import call_cpp_shape_fn
 from tensorflow.python.framework import tensor_shape
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
+from tensorflow.python.training import saver
 from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework.attr_value_pb2 import AttrValue
 from tensorflow.python.grappler import tf_optimizer
@@ -749,9 +750,6 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     Returns:
         A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
-    for node in graph_def.node:
-        if '_output_shapes' in node.attr:
-            node.attr['_aws_neuron_inferred_shapes'].CopyFrom(node.attr['_output_shapes'])
     graph = _graph_def_to_graph(graph_def)
     if input_tensors is None:
         input_tensors = {op.outputs[0] for op in graph.get_operations()
@@ -784,19 +782,26 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     rewriter_config = opt_config.graph_options.rewrite_options
     rewriter_config.meta_optimizer_iterations = 1
     rewriter_config.min_graph_nodes = 2
-    rewriter_config.optimizers.append('')
+    rewriter_config.optimizers.append('aws_neuron_static_shape_inference')
+
+    # configure operator fusion
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     param_map = fuser_config.parameter_map
-    param_map['inputs'].list.s.extend(compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors)
+    input_names = [compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors]
+    param_map['inputs'].list.s.extend(input_names)
     output_names = [compat.as_str(getattr(ts, 'name', ts)) for ts in output_tensors]
     param_map['outputs'].list.s.extend(compat.as_bytes(name) for name in output_names)
     param_map['minimum_segment_size'].i = minimum_segment_size
     param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
     param_map['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
     param_map['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
-    graph.get_collection_ref(ops.GraphKeys.TRAIN_OP).extend(graph.get_tensor_by_name(name) for name in output_names)
-    meta_graph_def = meta_graph.create_meta_graph_def(graph=graph)
+
+    # create meta_graph_def and run grappler passes
+    meta_graph_def = saver.export_meta_graph(graph_def=graph_def, graph=graph)
+    value = meta_graph_def.collection_def[ops.GraphKeys.TRAIN_OP].node_list.value
+    value.extend(input_names)
+    value.extend(output_names)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # add subgraph's control input to `NeuronOp`'s control input
