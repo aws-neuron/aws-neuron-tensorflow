@@ -29,7 +29,6 @@ import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import shlex
-import copy
 import collections
 import pkg_resources
 from distutils import spawn
@@ -40,19 +39,15 @@ from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
-from tensorflow.python.framework import constant_op
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import importer
 from tensorflow.python.framework import graph_util_impl as tf_graph_util
-from tensorflow.python.framework import errors
-from tensorflow.python.framework.common_shapes import call_cpp_shape_fn
-from tensorflow.python.framework import tensor_shape
+from tensorflow.python.framework.tensor_shape import TensorShape, dimension_value
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
 from tensorflow.python.training import saver
 from tensorflow.core.framework import graph_pb2
-from tensorflow.core.framework.attr_value_pb2 import AttrValue
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
@@ -62,6 +57,7 @@ from tensorflow.neuron.python import graph_def_util as gdu
 
 _NEURON_OP = 'NeuronOp'
 _LARGE_CONST_SIZE = 1024
+_kNeuronInferredShapes = '_aws_neuron_inferred_shapes'
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -193,52 +189,6 @@ def inference_graph_from_session(
     else:
         graph_def = sess.graph.as_graph_def(add_shapes=True)
 
-    # setup datatype maps
-    tf_dtype_list = [dtypes.bool, dtypes.complex128, dtypes.float64, dtypes.float32,
-                     dtypes.half, dtypes.int64, dtypes.int32, dtypes.complex64,
-                     dtypes.string, dtypes.uint32, dtypes.uint64, dtypes.quint8,
-                     dtypes.quint16, dtypes.qint8, dtypes.qint16, dtypes.qint32]
-    gd_tf_dtype_map = {dtype.as_datatype_enum: dtype for dtype in tf_dtype_list}
-    gd_np_dtype_map = {
-        dtype.as_datatype_enum: dtype.as_numpy_dtype
-        for dtype in tf_dtype_list[:tf_dtype_list.index(dtypes.quint8)]
-    }
-    gd_np_dtype_map.update({
-        dtypes.quint8.as_datatype_enum: numpy.uint8,
-        dtypes.quint16.as_datatype_enum: numpy.uint16,
-        dtypes.qint8.as_datatype_enum: numpy.int8,
-        dtypes.qint16.as_datatype_enum: numpy.int16,
-        dtypes.qint32.as_datatype_enum: numpy.int32,
-    })
-
-    # record constants
-    evaluated_map = {}
-    for node in graph_def.node:
-        if node.op == 'Const' and node.attr['value'].ByteSize() <= _LARGE_CONST_SIZE:
-            gd_tensor = node.attr['value'].tensor
-            gd_dtype = gd_tensor.dtype
-            if gd_dtype in gd_tf_dtype_map and gd_tf_dtype_map[gd_dtype].is_numpy_compatible:
-                tensor_name = '{}:0'.format(node.name)
-                np_dtype = gd_np_dtype_map[gd_dtype]
-                shape = tensor_shape.TensorShape(gd_tensor.tensor_shape).as_list()
-                tensor_content = gd_tensor.tensor_content
-                if tensor_content:
-                    const_np = numpy.frombuffer(tensor_content, dtype=np_dtype).reshape(shape)
-                    evaluated_map[tensor_name] = const_np
-                else:
-                    val_name = gd_dtype_val_map.get(gd_dtype, None)
-                    if val_name is not None:
-                        value = getattr(gd_tensor, val_name, [])
-                        if len(value) == 1 and np_dtype not in {numpy.float16}:
-                            evaluated_map[tensor_name] = numpy.full(shape, value, dtype=np_dtype)
-                        elif np_dtype is numpy.float16:
-                            value_array = numpy.array(value, dtype=numpy.uint16)
-                            if len(value) == 1 and len(shape) != 0:
-                                value_array = numpy.broadcast_to(value_array, shape)
-                            tensor_content = value_array.tobytes()
-                            const_np = numpy.frombuffer(tensor_content, dtype=np_dtype).reshape(shape)
-                            evaluated_map[tensor_name] = const_np
-
     # convert all variables to constants
     with replace_extract_sub_graph():
         graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
@@ -259,15 +209,11 @@ def inference_graph_from_session(
                 no_fuse_ops.add(ts.op.name)
                 no_fuse_ops.update(op.name for op in ts.consumers())
 
-    # infer all tensor shapes and exclude ops that are attached to unknown shape tensors
-    if shape_feed_dict is not None:
-        shaped_graph = shape_inference(graph, shape_feed_dict, evaluated_map)
-        graph_def = graph.as_graph_def(add_shapes=True)
-    else:
-        shaped_graph = graph
-
     # normalize operators
     graph_def = normalize_operators(graph_def)
+
+    # initialize inferred shapes
+    graph_def = encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
@@ -275,21 +221,17 @@ def inference_graph_from_session(
         no_fuse_ops=no_fuse_ops, force_fuse_ops=force_fuse_ops,
         minimum_segment_size=minimum_segment_size)
 
-    # record required subgraph shapes
-    part_graph = _graph_def_to_graph(part_graph_def)
-    subgraph_shapes = _init_subgraph_shapes(shaped_graph, part_graph)
-
     # perform an inference to find tensor shapes as a last resort
     # todo: change to hard_shape_inference == True
     if feed_dict is not None:
-        subgraph_shapes = shape_inference_with_inputs(sess, graph, feed_dict, subgraph_shapes)
+        part_graph_def = shape_inference_with_inputs(part_graph_def, sess, feed_dict)
 
     # call compiler for each `NeuronOp`
     args_dict = {}
     if compiler_args is not None:
         args_dict = {node.name: compiler_args for node in gdu.get_neuron_nodes(part_graph_def)}
     compiled_graph_def = compile_subgraphs(
-        part_graph_def, subgraph_shapes, workdir=compiler_workdir,
+        part_graph_def, workdir=compiler_workdir,
         args_dict=args_dict, timeout=compiler_timeout, max_num_compilers=max_num_compilers,
         verbose=compiler_verbose)
 
@@ -333,13 +275,6 @@ def inference_graph_from_session(
 
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
-    for name in input_names.union(output_names):
-        shape = shaped_graph.get_tensor_by_name(name).shape
-        if dynamic_batch_size:
-            if shape.rank is not None and shape.rank > 0:
-                shape = shape.as_list()
-                shape[0] = None
-        compiled_graph.get_tensor_by_name(name).set_shape(shape)
 
     # statistics on number of operations
     num_ops_original = len(sess.graph.get_operations())
@@ -359,22 +294,6 @@ def inference_graph_from_session(
         logging.warning('')
         logging.warning('***************************************************************')
     return compiled_graph
-
-
-gd_dtype_val_map = {
-    dtypes.bool.as_datatype_enum: 'bool_val',
-    dtypes.complex128.as_datatype_enum: 'dcomplex_val',
-    dtypes.float64.as_datatype_enum: 'double_val',
-    dtypes.float32.as_datatype_enum: 'float_val',
-    dtypes.half.as_datatype_enum: 'half_val',
-    dtypes.int64.as_datatype_enum: 'int64_val',
-    dtypes.int32.as_datatype_enum: 'int_val',
-    dtypes.complex64.as_datatype_enum: 'scomplex_val',
-    dtypes.string.as_datatype_enum: 'string_val',
-    dtypes.uint32.as_datatype_enum: 'uint32_val',
-    dtypes.uint64.as_datatype_enum: 'uint64_val',
-    dtypes.variant.as_datatype_enum: 'variant_val',
-}
 
 
 def find_neuron_cc():
@@ -416,8 +335,8 @@ def normalize_operators(graph_def):
                 continue
             if input1 not in gd_tensor_name_to_shape:
                 continue
-            shape0 = tensor_shape.TensorShape(gd_tensor_name_to_shape[input0])
-            shape1 = tensor_shape.TensorShape(gd_tensor_name_to_shape[input1])
+            shape0 = TensorShape(gd_tensor_name_to_shape[input0])
+            shape1 = TensorShape(gd_tensor_name_to_shape[input1])
             if shape0.rank is not None and shape0.rank == shape1.rank and shape0[:-2] == shape1[:-2]:
                 node.op = 'BatchMatMul'
     return graph_def
@@ -460,42 +379,6 @@ def _neuron_ops(graph):
     return (op for op in graph.get_operations() if op.type == _NEURON_OP)
 
 
-def _init_subgraph_shapes(graph, part_graph):
-    all_tensor_names = {ts.name for op in graph.get_operations() for ts in op.outputs}
-    subgraph_shapes = {}
-    for op in _neuron_ops(part_graph):
-        subgraph = _get_subgraph(op.node_def)
-        subgraph_shape_map = {}
-        for sg_ts_name, in_tensor in zip(op.get_attr('input_names'), op.inputs):
-            sg_tensor = subgraph.get_tensor_by_name(sg_ts_name.decode())
-            if sg_tensor.shape.is_fully_defined():
-                subgraph_shape_map[sg_tensor.name] = sg_tensor.shape.as_proto()
-            else:
-                while in_tensor.name not in all_tensor_names:
-                    value_index = in_tensor.value_index
-                    if in_tensor.op.type == 'IdentityN':
-                        in_tensor = in_tensor.op.inputs[value_index]
-                    elif in_tensor.op.type == _NEURON_OP:
-                        ts_name = in_tensor.op.get_attr('output_names')[value_index]
-                        in_tensor = graph.get_tensor_by_name(ts_name.decode())
-                        break
-                    else:
-                        raise TypeError('invalid tensor name {}'.format(sg_tensor.name))
-                in_tensor = graph.get_tensor_by_name(in_tensor.name)
-                if in_tensor.shape.is_fully_defined():
-                    subgraph_shape_map[sg_tensor.name] = in_tensor.shape.as_proto()
-                else:
-                    subgraph_shape_map[sg_tensor.name] = in_tensor.name
-        for sg_ts_name in op.get_attr('output_names'):
-            tensor = graph.get_tensor_by_name(sg_ts_name.decode())
-            if tensor.shape.is_fully_defined():
-                subgraph_shape_map[tensor.name] = tensor.shape.as_proto()
-            else:
-                subgraph_shape_map[tensor.name] = tensor.name
-        subgraph_shapes[op.name] = subgraph_shape_map
-    return subgraph_shapes
-
-
 def _output_ops(graph, output_names=None):
     if output_names is None:
         return {op for op in graph.get_operations()
@@ -524,159 +407,60 @@ def replace_extract_sub_graph():
         tf_graph_util.extract_sub_graph = extract_sub_graph
 
 
-def shape_inference(graph, shape_feed_dict, evaluated_map=None):
-    """Infer tensor shapes.
+def shape_inference(graph_def, shape_feed_dict, output_tensors):
+    shape_feed_dict = {getattr(key, 'name', key): TensorShape(value).as_list()
+                       for key, value in shape_feed_dict.items()}
+    graph_def = encode_inferred_shapes(graph_def, shape_feed_dict)
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = 2
 
-    Args:
-        graph: A tensorflow `Graph` object.
-        shape_feed_dict: Dict `{str: shape}` that maps tensor names to tensor shapes.
-            `shape` is a `TensorShapeProto`, a list, or a tuple.
+    # configure shape inference
+    rewriter_config.optimizers.append('aws_neuron_static_shape_inference')
 
-    Returns:
-        shape_graph
-
-    Note:
-        Can possibly insert new `Const` type ops into `graph` in-place.
-    """
-    if evaluated_map is None:
-        evaluated_map = {}
-    shaped_graph = _graph_def_to_graph(graph.as_graph_def(add_shapes=True))
-
-    # set input tensor shapes and get input names
-    for key, shape in shape_feed_dict.items():
-        shaped_graph.get_tensor_by_name(getattr(key, 'name', key)).set_shape(shape)
-
-    # hack to make call_cpp_shape_fn happy
-    for op in shaped_graph.get_operations():
-        for ts in op.outputs:
-            ts._handle_data = getattr(ts, '_handle_data', None)
-
-    # need to loop number of cycles
-    num_cycles = max(1, len([op for op in shaped_graph.get_operations()
-                             if op.type in {'NextIteration', 'RefNextIteration'}]))
-
-    def npd(op):
-        return op.outputs[0].dtype.as_numpy_dtype
-
-    # try to infer shapes through call_cpp_shape_fn and executing ops
-    tensor_array_size_map = {}
-    for _ in range(num_cycles):
-        for op in shaped_graph.get_operations():
-            if op.type == 'Shape' and op.inputs[0].shape.is_fully_defined():
-                evaluated_map[op.outputs[0].name] = numpy.array(
-                    op.inputs[0].shape.as_list()).astype(npd(op))
-            elif op.type == 'StridedSlice' and _is_evaluable(op, evaluated_map):
-                input_np, begin_arr, end_arr, strides_arr = [evaluated_map[ts.name]
-                                                             for ts in op.inputs]
-                ndim = len(begin_arr)
-                begin_mask_list = _get_mask(op, 'begin_mask', ndim)
-                end_mask_list = _get_mask(op, 'end_mask', ndim)
-                ellipsis_mask_list = _get_mask(op, 'ellipsis_mask', ndim)
-                new_axis_mask_list = _get_mask(op, 'new_axis_mask', ndim)
-                shrink_axis_mask_list = _get_mask(op, 'shrink_axis_mask', ndim)
-                slice_list = []
-                for (begin, end, strides, begin_mask, end_mask, ellipsis_mask, new_axis_mask,
-                        shrink_axis_mask) in zip(
-                            begin_arr, end_arr, strides_arr, begin_mask_list, end_mask_list,
-                            ellipsis_mask_list, new_axis_mask_list, shrink_axis_mask_list):
-                    if ellipsis_mask:
-                        slice_list.append(Ellipsis)
-                    elif new_axis_mask:
-                        slice_list.append(numpy.newaxis)
-                    elif shrink_axis_mask:
-                        slice_list.append(begin)
-                    else:
-                        if begin_mask:
-                            begin = None
-                        if end_mask:
-                            end = None
-                        slice_list.append(slice(begin, end, strides))
-                output_np = input_np[tuple(slice_list)]
-                evaluated_map[op.outputs[0].name] = output_np
-            elif op.type == 'TensorArrayV3' and op.inputs[0].name in evaluated_map:
-                tensor_array_size_map[op.name] = evaluated_map[op.inputs[0].name]
-            elif op.type == 'TensorArraySizeV3' and op.inputs[0].op.name in tensor_array_size_map:
-                evaluated_map[op.outputs[0].name] = tensor_array_size_map[op.inputs[0].op.name]
-            elif op.type == 'Range' and _is_evaluable(op, evaluated_map):
-                start, limit, delta = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.arange(start, limit, delta).astype(npd(op))
-                evaluated_map[op.outputs[0].name] = output_np
-            elif op.type == 'Pack' and _is_evaluable(op, evaluated_map):
-                inputs_np = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.stack(inputs_np, axis=op.get_attr('axis')).astype(npd(op))
-                evaluated_map[op.outputs[0].name] = output_np
-            elif op.type == 'Prod' and _is_evaluable(op, evaluated_map):
-                input_np, axis_np = [evaluated_map[ts.name] for ts in op.inputs]
-                if isinstance(axis_np, numpy.ndarray):
-                    axis_np = axis_np.ravel()[0]
-                keepdims = op.get_attr('keep_dims')
-                output_np = numpy.prod(input_np, axis_np, keepdims=keepdims).astype(npd(op))
-                evaluated_map[op.outputs[0].name] = output_np
-            elif op.type == 'Mul' and _is_evaluable(op, evaluated_map):
-                input0_np, input1_np = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.asarray(input0_np * input1_np).astype(npd(op))
-                evaluated_map[op.outputs[0].name] = output_np
-            elif (op.type == 'Reshape' and op.inputs[1].name in evaluated_map
-                    and op.inputs[1].op.type != 'Const'):
-                shape_np = evaluated_map[op.inputs[1].name]
-                with shaped_graph.as_default():
-                    new_shape = constant_op.constant_v1(shape_np, name=op.inputs[1].op.name)
-                    new_shape._handle_data = None
-                    op._update_input(1, new_shape)
-            _infer_shape(op)
-            if op.type == 'TensorArrayGatherV3' and op.inputs[1].name in evaluated_map:
-                output_shape = [evaluated_map[op.inputs[1].name].size]
-                output_shape.extend(tensor_shape.TensorShape(op.get_attr('element_shape')).as_list())
-                op.outputs[0].set_shape(output_shape)
-            elif op.type == 'Fill' and _is_evaluable(op, evaluated_map):
-                dims_np, value_np = [evaluated_map[ts.name] for ts in op.inputs]
-                output_np = numpy.full(dims_np, value_np).astype(npd(op))
-                evaluated_map[op.outputs[0].name] = output_np
-                op.outputs[0].set_shape(dims_np)
-    return shaped_graph
+    # create meta_graph_def and run grappler passes
+    graph = _graph_def_to_graph(graph_def)
+    meta_graph_def = saver.export_meta_graph(graph_def=graph_def, graph=graph)
+    value = meta_graph_def.collection_def[ops.GraphKeys.TRAIN_OP].node_list.value
+    value.extend(getattr(key, 'name', key) for key in shape_feed_dict)
+    value.extend(getattr(ts, 'name', ts) for ts in output_tensors)
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def
 
 
-def _get_mask(op, key, ndim):
-    mask_str = bin(op.get_attr(key)).lstrip('0b').zfill(ndim)
-    return [int(char) for char in mask_str][::-1]
-
-
-def _is_evaluable(op, evaluated_map):
-    if any(ts.name in evaluated_map for ts in op.outputs):
-        return False
-    return all(ts.name in evaluated_map for ts in op.inputs)
-
-
-def _infer_shape(op):
-    if any(not ts.shape.is_fully_defined() for ts in op.outputs):
-        if op.type == 'Enter':
-            shape_list = [inp.shape.as_proto() for inp in op.inputs]
-        else:
-            shape_list = call_cpp_shape_fn(op)['shapes']
-        for ts, shape in zip(op.outputs, shape_list):
-            if not ts.shape.is_fully_defined():
-                ts.set_shape(shape)
-
-
-def shape_inference_with_inputs(sess, graph, feed_dict, subgraph_shapes):
+def shape_inference_with_inputs(graph_def, sess, feed_dict):
     """Infer tensor shapes by running inference.
 
     Args:
-        graph: A tensorflow `Graph` object.
+        graph_def: A tensorflow `GraphDef` protobuf message.
+        sess: An active tensorflow Session where we can perform inference to find tensor shapes
         feed_dict: dict `{str: numpy.ndarray}` that maps tensor names to input
             numpy arrays, as used in a full inference with session.run.
-        subgraph_shapes: Nested dict `{str: {str: <str or TensorShapeProto>}}`
-            1st level key: subgraph name
-            2nd level key: subgraph tensor name
-            2nd level value: tensor shape as `TensorShapeProto` or tensor name
-                in the original graph (before `whitelist_partition`).
 
     Returns:
-        A dict in the same format as subgraph_shapes, with 2nd level values possibly
-            filled by `TensorShapeProto`s inferred from the original graph.
+        A new tensorflow `GraphDef` protobuf message that possibly has NeuronOp's attributes
+        `input_shapes` and `output_shapes` filled.
     """
-    need_shape = _need_shape_tensors(subgraph_shapes, graph)
-    need_shape = [sess.graph.get_tensor_by_name(ts.name) for ts in need_shape]
+    neuron_nodes = [node for node in graph_def.node if node.op == _NEURON_OP]
+    tensor_name_map = {}
+    for node in neuron_nodes:
+        for port, name in enumerate(node.attr['output_names'].list.s):
+            tensor_name_map['{}:{}'.format(node.name, port)] = name.decode()
+    need_shape = []
+    for node in neuron_nodes:
+        input_shapes = node.attr['input_shapes'].list.shape
+        output_names = node.attr['output_names'].list.s
+        output_shapes = node.attr['output_shapes'].list.shape
+        for name, shape_proto in zip(node.input, input_shapes):
+            if not TensorShape(shape_proto).is_fully_defined():
+                if ':' not in name:
+                    name = '{}:0'.format(name)
+                need_shape.append(tensor_name_map.get(name, name))
+        for name, shape_proto in zip(output_names, output_shapes):
+            if not TensorShape(shape_proto).is_fully_defined():
+                need_shape.append(name.decode())
+    need_shape = [sess.graph.get_tensor_by_name(name) for name in need_shape]
     need_shape_infer = []
     for tensor in need_shape:
         if sess.graph.is_fetchable(tensor.op):
@@ -691,40 +475,49 @@ def shape_inference_with_inputs(sess, graph, feed_dict, subgraph_shapes):
         ts_repr_str = tensors_repr.repr(need_shape_infer)
         logging.warning('running inference to find shape for {} ({} tensors)'
                         .format(ts_repr_str, len(need_shape_infer)))
-        feed_dict = {getattr(key, 'name', key): val for key, val in feed_dict.items()}
         need_shape_infer_np = sess.run(need_shape_infer, feed_dict)
-        for tensor, value in zip(need_shape_infer, need_shape_infer_np):
-            tensor = graph.get_tensor_by_name(tensor.name)
-            if hasattr(value, 'shape'):
-                tensor.set_shape(value.shape)
-            elif numpy.isscalar(value):
-                tensor.set_shape(tuple())
-    return _new_subgraph_shapes(subgraph_shapes, graph)
+        inferred_shapes = {ts.name: TensorShape(ts_np.shape) for ts, ts_np in zip(need_shape_infer, need_shape_infer_np)}
+        for node in neuron_nodes:
+            input_shapes = node.attr['input_shapes'].list.shape
+            output_names = node.attr['output_names'].list.s
+            output_shapes = node.attr['output_shapes'].list.shape
+            for idx, (name, shape_proto) in enumerate(zip(node.input, input_shapes)):
+                if not TensorShape(shape_proto).is_fully_defined():
+                    if ':' not in name:
+                        name = '{}:0'.format(name)
+                    name = tensor_name_map.get(name, name)
+                    input_shapes[idx].CopyFrom(inferred_shapes[name].as_proto())
+            for idx, (name, shape_proto) in enumerate(zip(output_names, output_shapes)):
+                if not TensorShape(shape_proto).is_fully_defined():
+                    output_shapes[idx].CopyFrom(inferred_shapes[name.decode()].as_proto())
+    return graph_def
 
 
-def _need_shape_tensors(subgraph_shapes, graph):
-    need_shape_tensors = []
-    visited_tensor_name_set = set()
-    for ts_name_map in subgraph_shapes.values():
-        for name in ts_name_map.values():
-            if isinstance(name, str) and name not in visited_tensor_name_set:
-                need_shape_tensors.append(graph.get_tensor_by_name(name))
-                visited_tensor_name_set.add(name)
-    return need_shape_tensors
-
-
-def _new_subgraph_shapes(subgraph_shapes, graph):
-    new_subgraph_shapes = {}
-    for key, sg_ts_name_map in subgraph_shapes.items():
-        new_sg_ts_name_map = {}
-        for sg_ts_name, value in sg_ts_name_map.items():
-            if isinstance(value, str):
-                new_shape = graph.get_tensor_by_name(value).shape
-                if new_shape.is_fully_defined():
-                    value = new_shape.as_proto()
-            new_sg_ts_name_map[sg_ts_name] = value
-        new_subgraph_shapes[key] = new_sg_ts_name_map
-    return new_subgraph_shapes
+def encode_inferred_shapes(graph_def, shape_feed_dict=None):
+    if shape_feed_dict is not None:
+        name_to_ports = {}
+        for tensor_name in shape_feed_dict.keys():
+            node_name, port = tensor_name.split(':')
+            port = int(port)
+            if node_name not in name_to_ports:
+                name_to_ports[node_name] = set()
+            name_to_ports[node_name].add(port)
+        for node in graph_def.node:
+            if node.name in name_to_ports:
+                inferred_shapes = node.attr[_kNeuronInferredShapes].list
+                port_set = name_to_ports[node.name]
+                max_port = max(port_set)
+                for port in range(max_port + 1):
+                    shape = inferred_shapes.shape.add()
+                    if port in port_set:
+                        for size in shape_feed_dict['{}:{}'.format(node.name, port)]:
+                            shape.dim.add().size = size
+    for node in graph_def.node:
+        if '_output_shapes' in node.attr:
+            output_shapes = node.attr['_output_shapes']
+            if all(TensorShape(shape).is_fully_defined() for shape in output_shapes.list.shape):
+                node.attr[_kNeuronInferredShapes].CopyFrom(output_shapes)
+    return graph_def
 
 
 def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
@@ -778,6 +571,8 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     if minimum_segment_size is None:
         num_ops = len([node for node in graph_def.node if node.op != 'Placeholder'])
         minimum_segment_size = min(2, max(1, num_ops))
+    input_names = [compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors]
+    output_names = [compat.as_str(getattr(ts, 'name', ts)) for ts in output_tensors]
     opt_config = config_pb2.ConfigProto()
     rewriter_config = opt_config.graph_options.rewrite_options
     rewriter_config.meta_optimizer_iterations = 1
@@ -788,9 +583,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     param_map = fuser_config.parameter_map
-    input_names = [compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors]
     param_map['inputs'].list.s.extend(input_names)
-    output_names = [compat.as_str(getattr(ts, 'name', ts)) for ts in output_tensors]
     param_map['outputs'].list.s.extend(compat.as_bytes(name) for name in output_names)
     param_map['minimum_segment_size'].i = minimum_segment_size
     param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
@@ -821,18 +614,13 @@ def _get_subgraph(node):
     return _graph_def_to_graph(gdu.get_subgraph_def(node))
 
 
-def compile_subgraphs(graph_def, subgraph_shapes=None,
+def compile_subgraphs(graph_def,
                       workdir=None, args_dict=None, timeout=None, max_num_compilers=None,
                       verbose=None):
     """Compile `NeuronOp`s in a `GraphDef` proto.
 
     Args:
         graph_def: Input `GraphDef` proto that contains `NeuronOp`s.
-        subgraph_shapes: Nested dict `{str: {str: <str or TensorShapeProto>}}`
-            1st level key: subgraph name
-            2nd level key: subgraph tensor name
-            2nd level value: tensor shape as `TensorShapeProto` or tensor name
-                in the original graph (before `whitelist_partition`).
         workdir: None or path-like representing the working directory used by the compiler;
             if None, will use `tempfile` to create a temporary workdir for each subgraph,
             else will create and use 'workdir/op_name' for each subgraph.
@@ -865,26 +653,17 @@ def compile_subgraphs(graph_def, subgraph_shapes=None,
     for node in gdu.get_neuron_nodes(graph_def):
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
-        subgraph = _get_subgraph(node)
-        input_tensors = [subgraph.get_tensor_by_name(name.decode()) for name in node.attr['input_names'].list.s]
-        output_tensors = [subgraph.get_tensor_by_name(name.decode()) for name in node.attr['output_names'].list.s]
-        subgraph_info = subgraph_info_format(node.name, input_tensors, output_tensors)
-        io_config_json = _io_config(node, subgraph, subgraph_shapes)
+        subgraph_info = subgraph_info_format(node.name, *_io_tensor_info(node))
+        io_config_json = _io_config(node)
         if io_config_json is None:
-            logging.warning('Not fusing subgraph {}: --io-config error'.format(node.name))
+            logging.warning('Not fusing subgraph {}: --io-config error'.format(subgraph_info))
             continue
-        if _get_shapes(node, 'output_names', subgraph_shapes, subgraph) is None:
-            logging.warning('Cannot infer tensor shapes for subgraph {}'.format(node.name))
+        if any(not TensorShape(shape).is_fully_defined() for shape in node.attr['output_shapes'].list.shape):
+            logging.warning('Cannot infer output tensor shapes for subgraph {}'.format(node.name))
             continue
-        if subgraph_shapes is not None:
-            for tensor in input_tensors:
-                tensor.set_shape(subgraph_shapes[node.name][tensor.name])
-            for tensor in output_tensors:
-                tensor.set_shape(subgraph_shapes[node.name][tensor.name])
-        subgraph_info = subgraph_info_format(node.name, input_tensors, output_tensors)
         subgraph_def = gdu.get_subgraph_def(node)
         for sgn in subgraph_def.node:
-            sgn.attr.pop('_aws_neuron_inferred_shapes', None)
+            sgn.attr.pop(_kNeuronInferredShapes, None)
         workdir_path = os.path.join(workdir_base, node.name)
         os.makedirs(workdir_path, exist_ok=True)
         input_path = os.path.join(workdir_path, _neuron_cc_input_name)
@@ -930,20 +709,36 @@ def compile_subgraphs(graph_def, subgraph_shapes=None,
         node.attr['output_batch_axis'].list.i[:] = [-1 for _ in node.attr['output_names'].list.s]
         if subgraph_compilers.get(node.name, None) is None:
             continue
-        # todo: change when there is a better way to return shapes
-        subgraph = _get_subgraph(node)
-        input_shapes = _get_shapes(node, 'input_names', subgraph_shapes, subgraph)
-        output_shapes = _get_shapes(node, 'output_names', subgraph_shapes, subgraph)
-        if input_shapes is None or output_shapes is None:
-            logging.warning('Cannot infer tensor shapes for subgraph {}'.format(node.name))
-            continue
-        node.attr['input_shapes'].list.CopyFrom(AttrValue.ListValue(shape=input_shapes))
-        node.attr['output_shapes'].list.CopyFrom(AttrValue.ListValue(shape=output_shapes))
         workdir_path = subgraph_compilers[node.name].workdir_path
         executable_path = os.path.join(workdir_path, _neuron_executable_name)
         with open(executable_path, 'rb') as f:
             node.attr['executable'].s = f.read()
     return graph_def
+
+
+def _io_tensor_info(node):
+    input_names = node.attr['input_names'].list.s
+    input_dtypes = node.attr['input_dtypes'].list.type
+    input_shapes = node.attr['input_shapes'].list.shape
+    input_tensors_info = []
+    tensor_format = "<tf.Tensor '{}' shape={} dtype={}>".format
+    for name, dtype_enum, shape_proto in zip(input_names, input_dtypes, input_shapes):
+        name = name.decode()
+        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        shape = TensorShape(shape_proto)
+        shape = '<unknown>' if shape.rank is None else tuple(shape.as_list())
+        input_tensors_info.append(tensor_format(name, shape, dtype.name))
+    output_names = node.attr['output_names'].list.s
+    output_dtypes = node.attr['output_dtypes'].list.type
+    output_shapes = node.attr['output_shapes'].list.shape
+    output_tensors_info = []
+    for name, dtype_enum, shape_proto in zip(output_names, output_dtypes, output_shapes):
+        name = name.decode()
+        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        shape = TensorShape(shape_proto)
+        shape = '<unknown>' if shape.rank is None else tuple(shape.as_list())
+        output_tensors_info.append(tensor_format(name, shape, dtype.name))
+    return input_tensors_info, output_tensors_info
 
 
 def _fork_compiler(subgraph_compilers, node_name, timeout):
@@ -1041,45 +836,24 @@ def _one_batch_axis(subgraph, name):
     shape = subgraph.get_tensor_by_name(name.decode()).shape
     if shape.rank is None:
         return 0
-    return 0 if len(shape) > 0 and tensor_shape.dimension_value(shape[0]) is None else -1
+    return 0 if len(shape) > 0 and dimension_value(shape[0]) is None else -1
 
 
-def _io_config(node, subgraph, subgraph_shapes=None):
+def _io_config(node):
     inputs = {}
-    for name in node.attr['input_names'].list.s:
+    input_names = node.attr['input_names'].list.s
+    input_dtypes = node.attr['input_dtypes'].list.type
+    input_shapes = node.attr['input_shapes'].list.shape
+    for name, dtype_enum, shape_proto in zip(input_names, input_dtypes, input_shapes):
         name = name.decode()
-        tensor = subgraph.get_tensor_by_name(name)
-        if subgraph_shapes is None:
-            shape = tensor.shape
-        else:
-            shape = subgraph_shapes[node.name][tensor.name]
-            shape = tensor.shape if isinstance(shape, str) else tensor_shape.TensorShape(shape)
+        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        shape = TensorShape(shape_proto)
         if not shape.is_fully_defined():
-            logging.warning('subgraph {}, tensor {}: invalid shape {}'
-                            .format(node.name, name, shape))
+            logging.warning('subgraph {} input tensor {} has undetermined shape {}'.format(node.name, name, shape))
             return None
-        inputs[tensor.name] = [shape.as_list(), tensor.dtype.name]
+        inputs[name] = [shape.as_list(), dtype.name]
     outputs = [name.decode() for name in node.attr['output_names'].list.s]
     return json.dumps({'inputs': inputs, 'outputs': outputs})
-
-
-def _get_shapes(node, names_key, subgraph_shapes, subgraph):
-    shapes = []
-    for name in node.attr[names_key].list.s:
-        name = name.decode()
-        if subgraph_shapes is None:
-            shape = subgraph.get_tensor_by_name(name).shape
-        else:
-            shape = subgraph_shapes[node.name][name]
-            if isinstance(shape, str):
-                shapes = None
-                break
-            shape = tensor_shape.TensorShape(shape)
-        if not shape.is_fully_defined():
-            shapes = None
-            break
-        shapes.append(shape.as_proto())
-    return shapes
 
 
 def nchw_to_nhwc(graph_def):

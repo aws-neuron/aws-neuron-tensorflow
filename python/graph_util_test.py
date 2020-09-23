@@ -1202,7 +1202,7 @@ class TestShapeInference(unittest.TestCase):
         kernel0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
         maximum_iterations = 5
         with tf.Session(graph=tf.Graph()) as sess:
-            input0 = tf.placeholder(tf.float16, shape=[None, None], name='input0')
+            input0 = tf.placeholder(tf.float16, shape=[128, 128], name='input0')
 
             def body(input0):
                 kernel0 = tf.constant(kernel0_np, name='kernel0')
@@ -1250,19 +1250,21 @@ class TestShapeInference(unittest.TestCase):
             relu0.name: [2, 24],
             exp0.name: [2, 24],
         }
+        output_tensors = [relu0, exp0]
         shape0 = TensorShape([2, 16]).as_proto()
         shape1 = TensorShape([2, 8]).as_proto()
         shape_feed_dict2 = {'input0:0': shape0, 'input1:0': shape1}
-        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict0)
-        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
+        graph_def = graph.as_graph_def()
+        shaped_graph_def = graph_util.shape_inference(graph_def, shape_feed_dict0, output_tensors)
+        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph_def)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
-        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict1)
-        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
+        shaped_graph_def = graph_util.shape_inference(graph_def, shape_feed_dict1, output_tensors)
+        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph_def)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
-        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict2)
-        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
+        shaped_graph_def = graph_util.shape_inference(graph_def, shape_feed_dict2, output_tensors)
+        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph_def)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
 
@@ -1289,8 +1291,8 @@ class TestShapeInference(unittest.TestCase):
             exp0.name: [1, 3, 5],
             sigmoid0.name: [1, 3, 5],
         }
-        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict)
-        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
+        shaped_graph_def = graph_util.shape_inference(graph.as_graph_def(), shape_feed_dict, [exp0, sigmoid0])
+        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph_def)
         for name in desired_shapes:
             assert inferred_shapes[name] == desired_shapes[name]
 
@@ -1317,8 +1319,6 @@ class TestShapeInference(unittest.TestCase):
             input2.name: [None, 3, 5],
             input3.name: [None, 3, 5],
             identity_n00.name: [1, 3, 5],
-            identity_n01.name: [1, 3, 5],
-            identity_n02.name: [None, 3, 5],
             identity_n03.name: [1, 3, 5],
             relu30.name: [1, 3, 5],
             relu31.name: [1, 3, 5],
@@ -1327,10 +1327,11 @@ class TestShapeInference(unittest.TestCase):
             exp0.name: [1, 3, 5],
             sigmoid0.name: [1, 3, 5],
         }
-        shaped_graph = graph_util.shape_inference(graph, shape_feed_dict)
-        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph)
+        output_tensors = [identity_n00, identity_n01, identity_n02, identity_n03, relu30, relu31, relu32, add0, exp0, sigmoid0]
+        shaped_graph_def = graph_util.shape_inference(graph.as_graph_def(), shape_feed_dict, output_tensors)
+        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph_def)
         for name in desired_shapes:
-            assert inferred_shapes[name] == desired_shapes[name]
+            assert TensorShape(inferred_shapes[name]).as_list() == TensorShape(desired_shapes[name]).as_list()
 
     def test_strided_slice(self):
         np.random.seed(_RANDOM_SEED)
@@ -1343,8 +1344,9 @@ class TestShapeInference(unittest.TestCase):
             evaluated_map_tf = {ts.name: ts.name for ts in stridedslice0.op.inputs}
             evaluated_map = sess.run(evaluated_map_tf)
         shape_feed_dict0 = {input0: [3, 1, 1, 1, 1, 2]}
-        shaped_graph = graph_util.shape_inference(sess.graph, shape_feed_dict0, evaluated_map=evaluated_map)
-        assert evaluated_map[stridedslice0.name].shape == stridedslice0.shape
+        shaped_graph_def = graph_util.shape_inference(sess.graph.as_graph_def(), shape_feed_dict0, [stridedslice0, output0])
+        inferred_shapes = _get_inferred_shapes_from_graph(shaped_graph_def)
+        assert [3, 1, 1, 1, 1, 2] == TensorShape(inferred_shapes[stridedslice0.name])
 
     def test_with_inputs_simple(self):
         np.random.seed(_RANDOM_SEED)
@@ -1358,22 +1360,16 @@ class TestShapeInference(unittest.TestCase):
             reshape0 = tf.reshape(add0, tf.range(2, 5), name='reshape0')
             relu0 = tf.nn.relu(reshape0, name='relu0')
             exp0 = tf.exp(reshape0, name='exp0')
-            desired_shapes = {
-                input0.name: [1, 16],
-                input1.name: [1, 8],
-                matmul0.name: [1, 24],
-                matmul1.name: [1, 24],
-                add0.name: [1, 24],
-                reshape0.name: [2, 3, 4],
-                relu0.name: [2, 3, 4],
-                exp0.name: [2, 3, 4],
-            }
-            feed_dict = {input0: np.random.rand(1, 16), 'input1:0': np.random.rand(1, 8)}
-            subgraph_shapes = {None: {ts.name: ts.name for op in sess.graph.get_operations() for ts in op.outputs}}
-            new_subgraph_shapes = graph_util.shape_inference_with_inputs(sess, sess.graph, feed_dict, subgraph_shapes)
-        inferred_shapes = _get_inferred_shapes(new_subgraph_shapes[None])
-        for name in desired_shapes:
-            assert inferred_shapes[name] == desired_shapes[name]
+            feed_dict = {input0.name: np.random.rand(1, 16), 'input1:0': np.random.rand(1, 8)}
+            result_ref = sess.run(['relu0:0', 'exp0:0'], feed_dict)
+            infer_graph = tf.neuron.graph_util.inference_graph_from_session(
+                sess, op_whitelist={'MatMul', 'Const', 'Add', 'Relu'}, feed_dict=feed_dict)
+        _assert_compiler_success(infer_graph)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            with tf.Session(graph=infer_graph) as sess:
+                result_neuron = sess.run(['relu0:0', 'exp0:0'], feed_dict)
+                for res_neuron, res_ref in zip(result_neuron, result_ref):
+                    np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
 class TestHelperFunction(unittest.TestCase):
@@ -1534,8 +1530,13 @@ def _get_inferred_shapes(tensor_shape_map):
     return inferred_shapes
 
 
-def _get_inferred_shapes_from_graph(graph):
-    return {ts.name: ts.shape.as_list() for op in graph.get_operations() for ts in op.outputs}
+def _get_inferred_shapes_from_graph(graph_def):
+    inferred_shapes = {}
+    for node in graph_def.node:
+        if '_aws_neuron_inferred_shapes' in node.attr:
+            for port, shape_proto in enumerate(node.attr['_aws_neuron_inferred_shapes'].list.shape):
+                inferred_shapes['{}:{}'.format(node.name, port)] = TensorShape(shape_proto)
+    return inferred_shapes
 
 
 class TestWhitelistPartition(unittest.TestCase):

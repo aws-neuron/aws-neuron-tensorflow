@@ -28,6 +28,9 @@ namespace neuron {
 namespace convert {
 
 
+const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+
+
 // Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
 // Helper class for the segmenter to determine whether an output edge from the
 // TRT segment is valid.
@@ -233,45 +236,34 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     } else {
       placeholder_name = sg_params.graph->NewName(outside_node_port);
       outside_name_port_to_placeholder_name[outside_node_port] = placeholder_name;
-      std::vector<PartialTensorShape> v_partial_shape;
-      PartialTensorShape partial_shape;
-      input_dtypes.push_back(outside_node->output_type(outside_node_index));
-      if (GetNodeAttr(outside_node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
-        input_shapes.push_back(v_partial_shape[outside_node_index]);
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("shape", v_partial_shape[outside_node_index])
-                .Attr("_aws_neuron_inferred_shapes", v_partial_shape[outside_node_index])
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
-      } else if (GetNodeAttr(outside_node->attrs(), "_aws_neuron_inferred_shapes", &v_partial_shape).ok()) {
-        input_shapes.push_back(v_partial_shape[outside_node_index]);
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("shape", v_partial_shape[outside_node_index])
-                .Attr("_aws_neuron_inferred_shapes", v_partial_shape[outside_node_index])
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
-      } else if (IsPlaceholder(outside_node->def()) &&
-                 GetNodeAttr(outside_node->attrs(), "shape", &partial_shape).ok()) {
-        input_shapes.push_back(partial_shape);
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("shape", partial_shape)
-                .Attr("_aws_neuron_inferred_shapes", partial_shape)
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
-      } else {
-        input_shapes.emplace_back();
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
+      PartialTensorShape out_shape;
+      std::vector<PartialTensorShape> v_output_shape;
+      std::vector<PartialTensorShape> v_inferred_shape;
+      PartialTensorShape inferred_shape;
+      AttrSlice attrs = outside_node->attrs();
+      DataType out_dtype = outside_node->output_type(outside_node_index);
+      if (IsPlaceholder(outside_node->def()) && GetNodeAttr(attrs, "shape", &out_shape).ok()) {
+      } else if (GetNodeAttr(attrs, "_output_shapes", &v_output_shape).ok()) {
+        out_shape = v_output_shape[outside_node_index];
       }
+      if (GetNodeAttr(attrs, kNeuronInferredShapes, &v_inferred_shape).ok()) {
+        inferred_shape = v_inferred_shape[outside_node_index];
+      } else {
+        inferred_shape = out_shape;
+      }
+      TF_RETURN_IF_ERROR(NodeDefBuilder(placeholder_name, "Placeholder")
+                            .Attr("dtype", out_dtype)
+                            .Attr("shape", out_shape)
+                            .Attr(kNeuronInferredShapes, {inferred_shape})
+                            .Finalize(&placeholder_def));
 
       // for creating Neuron op node, storing:
       // input_names -> Attr(input_names) -> name of input nodes inside subgraph
+      // input_dtypes -> Attr(input_dtypes) -> dtype of input nodes inside subgraph
+      // input_shapes -> Attr(input_shapes) -> shape of input nodes inside subgraph
       input_names.push_back(placeholder_name + ":0");
+      input_dtypes.push_back(out_dtype);
+      input_shapes.push_back(inferred_shape);
 
       // input_nodes -> Input(input_nodes) ->. list of nodes with index (outside
       // the subgraph) feeding into the subgraph.
@@ -311,21 +303,19 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     // filling map of (tensor_name , vector(dtype)) i.e A ->DT_FLOAT,->INT8
     // dtype order will match the the index.
     if (map_out_names_to_index.count(node->name())) {
+      int num_outputs = map_out_names_to_index[node->name()];
       std::vector<PartialTensorShape> v_partial_shape;
-      if (!GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
-        v_partial_shape.clear();
-        for (auto tensor_index = 0;
-           tensor_index <= map_out_names_to_index[node->name()];
-           ++tensor_index) {
-          v_partial_shape.push_back(PartialTensorShape());
-        }
+      Status status = GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape);
+      if (!status.ok()) {
+        status = GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape);
       }
-      for (auto tensor_index = 0;
-           tensor_index <= map_out_names_to_index[node->name()];
-           ++tensor_index) {
-        DataType tensor_dtype = node->output_type(tensor_index);
+      if (!status.ok()) {
+        v_partial_shape.resize(num_outputs);
+      }
+      for (auto port = 0; port <= num_outputs; ++port) {
+        DataType tensor_dtype = node->output_type(port);
         main_graph_output_nodes[node->name()].push_back(
-            std::make_pair(tensor_dtype, v_partial_shape[tensor_index]));
+            std::make_pair(tensor_dtype, v_partial_shape[port]));
         VLOG(1) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
                 << node->name() << " , " << tensor_dtype << " )";
       }
@@ -372,7 +362,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
       std::vector<PartialTensorShape> v_partial_shape;
       if (GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
         neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
-      } else if (GetNodeAttr(node->attrs(), "_aws_neuron_inferred_shapes", &v_partial_shape).ok()) {
+      } else if (GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape).ok()) {
         neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
       } else {
         neuron_node_output_shapes.emplace_back();
@@ -430,7 +420,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
                   .Attr("output_names", neuron_node_output_names)
                   .Attr("output_dtypes", neuron_node_output_dtypes)
                   .Attr("output_shapes", neuron_node_output_shapes)
-                  .Attr("_aws_neuron_inferred_shapes", neuron_node_output_shapes)
+                  .Attr(kNeuronInferredShapes, neuron_node_output_shapes)
                   .Finalize(sg_params.graph, &neuron_node));
 
   sg_params.neuron_node = neuron_node;
