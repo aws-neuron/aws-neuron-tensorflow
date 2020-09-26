@@ -1287,7 +1287,8 @@ def set_execution_plan(compiled_graph_def):
     cpu_extra_ninfer = 3
     num_cores_tuple_map = {}
     mis_config = False
-    for node in gdu.get_neuron_nodes(compiled_graph_def):
+    neuron_nodes = list(gdu.get_neuron_nodes(compiled_graph_def))
+    for node in neuron_nodes:
         num_cores_tuple = _neff_get_cores_from_executable(node.attr['executable'].s)
         if num_cores_tuple is None:
             mis_config = True
@@ -1295,7 +1296,7 @@ def set_execution_plan(compiled_graph_def):
             opt_num_cores, _ = num_cores_tuple
             num_cores_tuple_map[node.name] = num_cores_tuple
     total_io_bytes = 0
-    for node in gdu.get_neuron_nodes(compiled_graph_def):
+    for node in neuron_nodes:
         model_io_bytes = 0
         for enum, shape in zip(node.attr['input_dtypes'].list.type, node.attr['input_shapes'].list.shape):
             model_io_bytes += dtypes._INTERN_TABLE[enum].size * numpy.prod([dim.size for dim in shape.dim])
@@ -1316,7 +1317,13 @@ def set_execution_plan(compiled_graph_def):
         max_num_duplicates = 1
     else:
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
-    for node in gdu.get_neuron_nodes(compiled_graph_def):
+    if len(neuron_nodes) > 2:
+        # if there are many NeuronOp's in the graph, then don't do any duplication
+        max_num_duplicates = 1
+    elif len(neuron_nodes) == 2:
+        # if there are precisely two NeuronOp's, then creates at most two duplications
+        max_num_duplicates = min(2, max_num_duplicates)
+    for node in neuron_nodes:
         if node.name in num_cores_tuple_map:
             this_opt_num_cores, _ = num_cores_tuple_map[node.name]
         else:
