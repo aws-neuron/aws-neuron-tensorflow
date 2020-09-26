@@ -12,38 +12,183 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+
+import reprlib
 from tensorflow.core.framework import graph_pb2
+from tensorflow.python.framework.tensor_shape import TensorShape
+from tensorflow.python.platform import tf_logging as logging
 
 
-_NEURON_OP = 'NeuronOp'
+tNeuronOp = 'NeuronOp'
+tPlaceholder = 'Placeholder'
+kNeuronInferredShapes = '_aws_neuron_inferred_shapes'
+kOutputShapes = '_output_shapes'
+knExecutable = 'executable'
+knGraphDef = 'graph_def'
+knInputNames = 'input_names'
+knOutputNames = 'output_names'
+knInputShapes = 'input_shapes'
+knOutputShapes = 'output_shapes'
+
+
+def normalize_operators(graph_def):
+    gd_tensor_name_to_consumers = {}
+    gd_tensor_name_to_shape = {}
+    for node in graph_def.node:
+        for inp in node.input:
+            if inp not in gd_tensor_name_to_consumers:
+                gd_tensor_name_to_consumers[inp] = []
+            gd_tensor_name_to_consumers[inp].append(inp)
+        if kOutputShapes in node.attr:
+            for idx, shape in enumerate(node.attr[kOutputShapes].list.shape):
+                tensor_name = node.name if idx == 0 else '{}:{}'.format(node.name, idx)
+                gd_tensor_name_to_shape[tensor_name] = shape
+    for node in graph_def.node:
+        if node.op == 'StopGradient':
+            node.op = 'Identity'
+        elif node.op == 'FusedBatchNormV3':  # can be replace by FusedBatchNorm for inference
+            found_training_consumer = False
+            for idx in range(3, 6):
+                gd_tensor_name = '{}:{}'.format(node.name, idx)
+                if gd_tensor_name_to_consumers.get(gd_tensor_name, False):
+                    found_training_consumer = True
+            if not found_training_consumer:
+                node.op = 'FusedBatchNorm'
+                node.attr.pop('U')
+                if kOutputShapes in node.attr:
+                    node.attr[kOutputShapes].list.shape.pop()
+        elif node.op == 'AddV2':
+            node.op = 'Add'
+        elif node.op == 'BatchMatMulV2':  # only change to BatchMatMul if no broadcast
+            input0, input1 = node.input[0], node.input[1]
+            if input0 not in gd_tensor_name_to_shape:
+                continue
+            if input1 not in gd_tensor_name_to_shape:
+                continue
+            shape0 = TensorShape(gd_tensor_name_to_shape[input0])
+            shape1 = TensorShape(gd_tensor_name_to_shape[input1])
+            if shape0.rank is not None and shape0.rank == shape1.rank and shape0[:-2] == shape1[:-2]:
+                node.op = 'BatchMatMul'
+    return graph_def
+
+
+def encode_inferred_shapes(graph_def, shape_feed_dict=None):
+    if shape_feed_dict is not None:
+        name_to_ports = {}
+        for tensor_name in shape_feed_dict.keys():
+            node_name, port = tensor_name.split(':')
+            port = int(port)
+            if node_name not in name_to_ports:
+                name_to_ports[node_name] = set()
+            name_to_ports[node_name].add(port)
+        for node in graph_def.node:
+            if node.name in name_to_ports:
+                inferred_shapes = node.attr[kNeuronInferredShapes].list
+                port_set = name_to_ports[node.name]
+                max_port = max(port_set)
+                for port in range(max_port + 1):
+                    shape = inferred_shapes.shape.add()
+                    if port in port_set:
+                        for size in shape_feed_dict['{}:{}'.format(node.name, port)]:
+                            shape.dim.add().size = size
+    for node in graph_def.node:
+        if kOutputShapes in node.attr:
+            output_shapes = node.attr[kOutputShapes]
+            if all(TensorShape(shape).is_fully_defined() for shape in output_shapes.list.shape):
+                node.attr[kNeuronInferredShapes].CopyFrom(output_shapes)
+    return graph_def
+
+
+def shape_inference_with_inputs(graph_def, sess, feed_dict):
+    """Infer tensor shapes by running inference.
+
+    Args:
+        graph_def: A tensorflow `GraphDef` protobuf message.
+        sess: An active tensorflow Session where we can perform inference to find tensor shapes
+        feed_dict: dict `{str: numpy.ndarray}` that maps tensor names to input
+            numpy arrays, as used in a full inference with session.run.
+
+    Returns:
+        A new tensorflow `GraphDef` protobuf message that possibly has NeuronOp's attributes
+        `input_shapes` and `output_shapes` filled.
+    """
+    neuron_nodes = get_neuron_nodes(graph_def)
+    tensor_name_map = {}
+    for node in neuron_nodes:
+        for port, name in enumerate(node.attr[knOutputNames].list.s):
+            tensor_name_map['{}:{}'.format(node.name, port)] = name.decode()
+    need_shape = []
+    for node in neuron_nodes:
+        input_shapes = node.attr[knInputShapes].list.shape
+        output_names = node.attr[knOutputNames].list.s
+        output_shapes = node.attr[knOutputShapes].list.shape
+        for name, shape_proto in zip(node.input, input_shapes):
+            if not TensorShape(shape_proto).is_fully_defined():
+                if ':' not in name:
+                    name = '{}:0'.format(name)
+                need_shape.append(tensor_name_map.get(name, name))
+        for name, shape_proto in zip(output_names, output_shapes):
+            if not TensorShape(shape_proto).is_fully_defined():
+                need_shape.append(name.decode())
+    need_shape = [sess.graph.get_tensor_by_name(name) for name in need_shape]
+    need_shape_infer = []
+    for tensor in need_shape:
+        if sess.graph.is_fetchable(tensor.op):
+            need_shape_infer.append(tensor)
+        else:
+            logging.warning('cannot infer shape for tensor {}; it is recommended '
+                            'to provide its shape in shape_feed_dict'.format(tensor))
+    if need_shape_infer:
+        tensors_repr = reprlib.Repr()
+        tensors_repr.maxlist = 8
+        tensors_repr.maxother = 80
+        ts_repr_str = tensors_repr.repr(need_shape_infer)
+        logging.warning('running inference to find shape for {} ({} tensors)'
+                        .format(ts_repr_str, len(need_shape_infer)))
+        need_shape_infer_np = sess.run(need_shape_infer, feed_dict)
+        inferred_shapes = {ts.name: TensorShape(ts_np.shape) for ts, ts_np in zip(need_shape_infer, need_shape_infer_np)}
+        for node in neuron_nodes:
+            input_shapes = node.attr[knInputShapes].list.shape
+            output_names = node.attr[knOutputNames].list.s
+            output_shapes = node.attr[knOutputShapes].list.shape
+            for idx, (name, shape_proto) in enumerate(zip(node.input, input_shapes)):
+                if not TensorShape(shape_proto).is_fully_defined():
+                    if ':' not in name:
+                        name = '{}:0'.format(name)
+                    name = tensor_name_map.get(name, name)
+                    input_shapes[idx].CopyFrom(inferred_shapes[name].as_proto())
+            for idx, (name, shape_proto) in enumerate(zip(output_names, output_shapes)):
+                if not TensorShape(shape_proto).is_fully_defined():
+                    output_shapes[idx].CopyFrom(inferred_shapes[name.decode()].as_proto())
+    return graph_def
 
 
 def restore_compiler_failures(compiled_graph_def, graph):
     """Restore `NeuronOp`'s that failed to compile
     """
-    neuron_op_dict = {node.name: node for node in compiled_graph_def.node if node.op == _NEURON_OP}
+    neuron_op_dict = {node.name: node for node in get_neuron_nodes(compiled_graph_def)}
     restore_nodes = []
     remove_node_names = set()
     gd_tensor_name_map = {}
     for node in get_neuron_nodes(compiled_graph_def):
-        if not node.attr['executable'].s:
+        if not node.attr[knExecutable].s:
             remove_node_names.add(node.name)
             subgraph_def = get_subgraph_def(node)
             sgd_tensor_name_map = {}
-            for gd_ts_name, sg_ph_name in zip(node.input, node.attr['input_names'].list.s):
+            for gd_ts_name, sg_ph_name in zip(node.input, node.attr[knInputNames].list.s):
                 sgd_ph_name = format_tensor_name(sg_ph_name.decode())
                 op_name, ts_index = _graph_def_op_index(gd_ts_name)
                 if op_name in neuron_op_dict:
                     in_node = neuron_op_dict[op_name]
-                    if not in_node.attr['executable'].s:
-                        gd_ts_name = in_node.attr['output_names'].list.s[ts_index].decode()
+                    if not in_node.attr[knExecutable].s:
+                        gd_ts_name = in_node.attr[knOutputNames].list.s[ts_index].decode()
                 sgd_tensor_name_map[sgd_ph_name] = gd_ts_name
             for sg_node in subgraph_def.node:
                 for idx, name in enumerate(sg_node.input):
                     sg_node.input[idx] = sgd_tensor_name_map.get(name, name)
-                if sg_node.op != 'Placeholder':
+                if sg_node.op != tPlaceholder:
                     restore_nodes.append(sg_node)
-            for out_idx, out_name in enumerate(node.attr['output_names'].list.s):
+            for out_idx, out_name in enumerate(node.attr[knOutputNames].list.s):
                 out_gd_ts_name = format_tensor_name('{}:{}'.format(node.name, out_idx))
                 gd_tensor_name_map[out_gd_ts_name] = format_tensor_name(out_name.decode())
     restore_node_names = {node.name for node in restore_nodes}
@@ -65,12 +210,12 @@ def restore_compiler_failures(compiled_graph_def, graph):
 
 
 def get_neuron_nodes(graph_def):
-    return (node for node in graph_def.node if node.op == _NEURON_OP)
+    return [node for node in graph_def.node if node.op == tNeuronOp]
 
 
 def get_subgraph_def(node):
     graph_def = graph_pb2.GraphDef()
-    graph_def.ParseFromString(node.attr['graph_def'].s)
+    graph_def.ParseFromString(node.attr[knGraphDef].s)
     return graph_def
 
 

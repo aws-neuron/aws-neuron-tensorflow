@@ -33,8 +33,9 @@ from tensorflow.python.framework import ops, constant_op
 from tensorflow.python.ops import array_ops, variables, variable_scope, init_ops
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
+from tensorflow.neuron.python.graph_def_util import normalize_operators
 from tensorflow.neuron.python.graph_util import (
-    normalize_operators, most_popular_namescope, logging_show_info,
+    most_popular_namescope, logging_show_info,
     get_model_config, find_neuron_cc)
 
 

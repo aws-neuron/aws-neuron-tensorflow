@@ -40,7 +40,7 @@ from tensorflow.python.client import timeline
 from tensorflow.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.neuron.python.graph_util import logging_show_info
 from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
-from tensorflow.neuron.python.graph_util import _NEURON_OP
+from tensorflow.neuron.python.graph_def_util import tNeuronOp
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -289,7 +289,7 @@ def _saved_model_pb_neuron_nodes(model_dir):
     neuron_node_list = []
     for meta_graph in saved_model_pb.meta_graphs:
         for node in meta_graph.graph_def.node:
-            if node.op == _NEURON_OP:
+            if node.op == tNeuronOp:
                 neuron_node_list.append(node)
     return saved_model_pb, neuron_node_list
 
