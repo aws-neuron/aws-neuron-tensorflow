@@ -32,11 +32,11 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops, constant_op
 from tensorflow.python.ops import array_ops, variables, variable_scope, init_ops
 from tensorflow.python.eager.context import executing_eagerly
+from tensorflow.neuron.python import neff_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.neuron.python.graph_def_util import normalize_operators
 from tensorflow.neuron.python.graph_util import (
-    most_popular_namescope, logging_show_info,
-    get_model_config, find_neuron_cc)
+    most_popular_namescope, logging_show_info, find_neuron_cc)
 
 
 _neuron_sess_run_decorated = False
@@ -145,7 +145,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             neuron_cc_job()
             with open(neff_path, 'rb') as f:
                 executable_content = f.read()
-        model_config = get_model_config(executable_content)
+        model_config = neff_util.get_model_config(executable_content)
         if eager:
             # hack to allow enable_eager_execution; see tensorflow/python/framework/ops.py
             global_default_graph = ops._default_graph_stack._global_default_graph
@@ -228,7 +228,7 @@ def neuron_decorate_run(func):
         for op, neff_path in neuron_op_neff_path_list:
             with open(neff_path, 'rb') as f:
                 executable = f.read()
-            model_config = get_model_config(executable)
+            model_config = neff_util.get_model_config(executable)
             op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
             model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
             op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))

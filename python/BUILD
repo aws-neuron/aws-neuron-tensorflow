@@ -17,9 +17,19 @@ py_library(
 )
 
 py_library(
+    name = "neff_util_py",
+    srcs = [
+        "neff_util.py",
+    ],
+)
+
+py_library(
     name = "graph_def_util_py",
     srcs = [
         "graph_def_util.py",
+    ],
+    deps = [
+        ":neff_util_py",
     ],
 )
 
@@ -68,7 +78,10 @@ py_library(
     srcs = [
         "fuse.py",
     ],
-    deps = [":neuron_op_py"],
+    deps = [
+        ":neff_util_py",
+        ":neuron_op_py",
+    ],
 )
 
 py_library(

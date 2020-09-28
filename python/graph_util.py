@@ -23,7 +23,6 @@ import argparse
 import time
 import tempfile
 import json
-import struct
 import math
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
@@ -51,6 +50,7 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.framework import meta_graph
+from tensorflow.neuron.python import neff_util
 from tensorflow.neuron.python import graph_def_util as gdu
 
 
@@ -643,39 +643,6 @@ def _wait_compiler(proc, timeout):
     return proc.returncode
 
 
-def get_model_config(executable):
-    default_model_config = [-1, -1, -1, 10]
-    if not executable:
-        return default_model_config
-    tuple_cores = _neff_get_cores_from_executable(executable)
-    if tuple_cores is None:
-        return default_model_config
-    opt_num_cores, min_num_cores = tuple_cores
-    est_infer_timeout = len(executable) / 1e8
-    infer_timeout = max(est_infer_timeout, 10)
-    model_config = [-1, opt_num_cores, opt_num_cores, infer_timeout]
-    return model_config
-
-
-_NC_HEADER_SIZE = 544
-
-
-def _neff_get_cores_from_executable(executable):
-    header = executable[:_NC_HEADER_SIZE]
-    if len(header) != _NC_HEADER_SIZE:
-        return None
-    info = struct.unpack('168xI304xI64B', header)
-    if len(info) != 66:  # 1 + 1 + 64
-        return None
-    opt_num_cores = info[0]
-    if opt_num_cores <= 0 or opt_num_cores > 64:
-        return None
-    min_num_cores = max(info[2:])
-    if min_num_cores <= 0 or min_num_cores > 64:
-        return None
-    return opt_num_cores, min_num_cores
-
-
 def mark_batch_axis(compiled_graph_def):
     for node in gdu.get_neuron_nodes(compiled_graph_def):
         subgraph = _get_subgraph(node)
@@ -900,7 +867,7 @@ def set_execution_plan(compiled_graph_def):
     mis_config = False
     neuron_nodes = list(gdu.get_neuron_nodes(compiled_graph_def))
     for node in neuron_nodes:
-        num_cores_tuple = _neff_get_cores_from_executable(node.attr['executable'].s)
+        num_cores_tuple = neff_util.get_cores_from_executable(node.attr['executable'].s)
         if num_cores_tuple is None:
             mis_config = True
         else:
