@@ -12,11 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+import math
 import reprlib
 from tensorflow.core.framework import graph_pb2
+from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.neuron.python import neff_util
 
 
 tNeuronOp = 'NeuronOp'
@@ -27,6 +29,8 @@ knExecutable = 'executable'
 knGraphDef = 'graph_def'
 knInputNames = 'input_names'
 knOutputNames = 'output_names'
+knInputDtypes = 'input_dtypes'
+knOutputDtypes = 'output_dtypes'
 knInputShapes = 'input_shapes'
 knOutputShapes = 'output_shapes'
 
@@ -209,6 +213,63 @@ def restore_compiler_failures(compiled_graph_def, graph):
     return graph_def
 
 
+def set_execution_plan(compiled_graph_def):
+    # scan to get num neuroncores and total number of bytes of input and output tensors
+    default_io_buffer_size = 128 * 1024 * 1024
+    cpu_extra_ninfer = 3
+    num_cores_tuple_map = {}
+    mis_config = False
+    neuron_nodes = list(get_neuron_nodes(compiled_graph_def))
+    for node in neuron_nodes:
+        num_cores_tuple = neff_util.get_cores_from_executable(node.attr[knExecutable].s)
+        if num_cores_tuple is None:
+            mis_config = True
+        else:
+            opt_num_cores, _ = num_cores_tuple
+            num_cores_tuple_map[node.name] = num_cores_tuple
+    total_io_bytes = 0
+    for node in neuron_nodes:
+        model_io_bytes = 0
+        for enum, shape in zip(node.attr[knInputDtypes].list.type, node.attr[knInputShapes].list.shape):
+            model_io_bytes += dtypes._INTERN_TABLE[enum].size * _prod([dim.size for dim in shape.dim])
+        for enum, shape in zip(node.attr[knOutputDtypes].list.type, node.attr[knOutputShapes].list.shape):
+            model_io_bytes += dtypes._INTERN_TABLE[enum].size * _prod([dim.size for dim in shape.dim])
+        if node.name not in num_cores_tuple_map:
+            total_io_bytes = 0
+            break
+        this_opt_num_cores, _ = num_cores_tuple_map[node.name]
+        total_io_bytes += model_io_bytes * (this_opt_num_cores + cpu_extra_ninfer)  # io size * ninfer
+    max_num_duplicates = 1
+    if total_io_bytes > 0:
+        max_num_duplicates = math.floor(default_io_buffer_size / total_io_bytes)
+        max_num_duplicates = min(max_num_duplicates, 4)  # use at most 1 MLA (4 cores) by default
+        max_num_duplicates = max(max_num_duplicates, 1)
+    if mis_config or not num_cores_tuple_map:
+        global_opt_num_cores = -1
+        max_num_duplicates = 1
+    else:
+        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
+    if len(neuron_nodes) > 2:
+        # if there are many NeuronOp's in the graph, then don't do any duplication
+        max_num_duplicates = 1
+    elif len(neuron_nodes) == 2:
+        # if there are precisely two NeuronOp's, then creates at most two duplications
+        max_num_duplicates = min(2, max_num_duplicates)
+    for node in neuron_nodes:
+        if node.name in num_cores_tuple_map:
+            this_opt_num_cores, _ = num_cores_tuple_map[node.name]
+        else:
+            this_opt_num_cores = -1
+        # Minimum timeout is 10 sec
+        # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
+        est_timeout = len(node.attr[knExecutable].s) / 1e8
+        timeout = max(est_timeout, 10)
+        # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
+        model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
+        node.attr['model_config'].list.i[:] = model_config
+    return compiled_graph_def
+
+
 def get_neuron_nodes(graph_def):
     return [node for node in graph_def.node if node.op == tNeuronOp]
 
@@ -231,3 +292,10 @@ def _graph_def_op_index(graph_def_tensor_name):
     else:
         op_name, value_index = comma_split[0], 0
     return op_name, value_index
+
+
+def _prod(num_list):
+    result = 1
+    for num in num_list:
+        result *= num
+    return result

@@ -23,7 +23,6 @@ import argparse
 import time
 import tempfile
 import json
-import math
 import multiprocessing
 from concurrent.futures import ThreadPoolExecutor
 import subprocess
@@ -50,7 +49,6 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.python.framework import meta_graph
-from tensorflow.neuron.python import neff_util
 from tensorflow.neuron.python import graph_def_util as gdu
 
 
@@ -265,7 +263,7 @@ def inference_graph_from_session(
         raise ValueError('The following subgraphs failed to compile: {}'.format(uncompiled_node_names))
 
     # execution plan analysis
-    compiled_graph_def = set_execution_plan(compiled_graph_def)
+    compiled_graph_def = gdu.set_execution_plan(compiled_graph_def)
 
     # return a new graph
     compiled_graph = _graph_def_to_graph(compiled_graph_def)
@@ -857,60 +855,3 @@ def _get_int32_values(const_op):
         return list(numpy.frombuffer(tensor_def.tensor_content, dtype=dtype.as_numpy_dtype))
     else:
         return tensor_def.int_val
-
-
-def set_execution_plan(compiled_graph_def):
-    # scan to get num neuroncores and total number of bytes of input and output tensors
-    default_io_buffer_size = 128 * 1024 * 1024
-    cpu_extra_ninfer = 3
-    num_cores_tuple_map = {}
-    mis_config = False
-    neuron_nodes = list(gdu.get_neuron_nodes(compiled_graph_def))
-    for node in neuron_nodes:
-        num_cores_tuple = neff_util.get_cores_from_executable(node.attr['executable'].s)
-        if num_cores_tuple is None:
-            mis_config = True
-        else:
-            opt_num_cores, _ = num_cores_tuple
-            num_cores_tuple_map[node.name] = num_cores_tuple
-    total_io_bytes = 0
-    for node in neuron_nodes:
-        model_io_bytes = 0
-        for enum, shape in zip(node.attr['input_dtypes'].list.type, node.attr['input_shapes'].list.shape):
-            model_io_bytes += dtypes._INTERN_TABLE[enum].size * numpy.prod([dim.size for dim in shape.dim])
-        for enum, shape in zip(node.attr['output_dtypes'].list.type, node.attr['output_shapes'].list.shape):
-            model_io_bytes += dtypes._INTERN_TABLE[enum].size * numpy.prod([dim.size for dim in shape.dim])
-        if node.name not in num_cores_tuple_map:
-            total_io_bytes = 0
-            break
-        this_opt_num_cores, _ = num_cores_tuple_map[node.name]
-        total_io_bytes += model_io_bytes * (this_opt_num_cores + cpu_extra_ninfer)  # io size * ninfer
-    max_num_duplicates = 1
-    if total_io_bytes > 0:
-        max_num_duplicates = math.floor(default_io_buffer_size / total_io_bytes)
-        max_num_duplicates = min(max_num_duplicates, 4)  # use at most 1 MLA (4 cores) by default
-        max_num_duplicates = max(max_num_duplicates, 1)
-    if mis_config or not num_cores_tuple_map:
-        global_opt_num_cores = -1
-        max_num_duplicates = 1
-    else:
-        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
-    if len(neuron_nodes) > 2:
-        # if there are many NeuronOp's in the graph, then don't do any duplication
-        max_num_duplicates = 1
-    elif len(neuron_nodes) == 2:
-        # if there are precisely two NeuronOp's, then creates at most two duplications
-        max_num_duplicates = min(2, max_num_duplicates)
-    for node in neuron_nodes:
-        if node.name in num_cores_tuple_map:
-            this_opt_num_cores, _ = num_cores_tuple_map[node.name]
-        else:
-            this_opt_num_cores = -1
-        # Minimum timeout is 10 sec
-        # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
-        est_timeout = len(node.attr['executable'].s) / 1e8
-        timeout = max(est_timeout, 10)
-        # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
-        model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
-        node.attr['model_config'].list.i[:] = model_config
-    return compiled_graph_def
