@@ -3,7 +3,11 @@ package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "neuron_py",
-    srcs = ["__init__.py", "api/v1/__init__.py"],
+    srcs = [
+        "__init__.py",
+        "api/v1/__init__.py",
+        "ops.py",
+    ],
     deps = [
         "//tensorflow/neuron/python:saved_model_py",
         "//tensorflow/neuron/python:graph_util_py",
