@@ -24,7 +24,6 @@ def _forward_module(old_name):
     return _sys.modules.setdefault(old_name, _module)
 
 _forward_module('tensorflow.neuron.python')
-_forward_module('tensorflow.neuron.ops')
 
 from tensorflow_neuron.python import graph_util
 from tensorflow_neuron.python import saved_model
