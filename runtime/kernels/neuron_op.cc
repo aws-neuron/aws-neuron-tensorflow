@@ -240,6 +240,10 @@ Status NeuronOp::initialize() {
         Tensor temp_tensor(input_dtypes.type(idx), input_shapes.shape(idx));
         input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
     }
+    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+        Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
+        output_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
+    }
 
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
@@ -434,7 +438,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
             ScopedRuntimeIO scoped_io;
             OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-                input_names, input_tensors, output_names, output_tensors,
+                input_names, input_tensor_sizes_, input_tensors,
+                output_names, output_tensor_sizes_, output_tensors,
                 nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
                 &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
@@ -485,7 +490,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                     scoped_io_queue.emplace();
                     OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
-                        input_names, sliced_inputs, output_names, output_tensors,
+                        input_names, input_tensor_sizes_, sliced_inputs,
+                        output_names, output_tensor_sizes_, output_tensors,
                         nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
 
@@ -536,7 +542,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                     scoped_io_queue.emplace();
                     OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
-                        input_names, sliced_inputs, output_names, output_tensors,
+                        input_names, input_tensor_sizes_, sliced_inputs,
+                        output_names, output_tensor_sizes_, output_tensors,
                         nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
                     if (post_bidx >= first_need_wait_infer_post_bidx) {
@@ -596,7 +603,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
+            input_names, input_tensor_sizes_, input_tensors,
+            output_names, output_tensor_sizes_, output_tensors,
+            nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
         OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
             &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
         OP_REQUIRES_OK(ctx, scoped_io.finish());
@@ -610,7 +619,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
+            input_names, input_tensor_sizes_, input_tensors,
+            output_names, output_tensor_sizes_, output_tensors,
+            nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
         {
             SemResQueue sem_res_queue;
             OK_IGNORE_ABORTED(ctx, neuron_device_->infer_post(

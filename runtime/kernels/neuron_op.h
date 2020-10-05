@@ -26,8 +26,12 @@ namespace neuron {
 class ScopedRuntimeIO {
 public:
     ScopedRuntimeIO() {}
-    Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
-                 AttrList &output_names, const std::vector<Tensor*> &output_tensors,
+    Status setup(AttrList &input_names,
+                 const std::vector<size_t> &input_tensor_sizes,
+                 const std::vector<const Tensor*> &input_tensors,
+                 AttrList &output_names,
+                 const std::vector<size_t> &output_tensor_sizes,
+                 const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, thread::ThreadPool *thread_pool,
                  std::shared_ptr<SharedMemoryBufferManager> shm_mgr) {
         shm_mgr_ = shm_mgr;
@@ -35,8 +39,7 @@ public:
         SharedMemory *shm = nullptr;
         if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
             bool allocation_ok = true;
-            for (const auto *tensor : input_tensors) {
-                size_t buf_size = tensor->tensor_data().size();
+            for (size_t buf_size : input_tensor_sizes) {
                 SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(buf_size);
                 if (nullptr == shm_buf) {
                     allocation_ok = false;
@@ -44,8 +47,7 @@ public:
                 }
                 input_shm_bufs_.push_back(shm_buf);
             }
-            for (auto *tensor : output_tensors) {
-                size_t buf_size = tensor->tensor_data().size();
+            for (size_t buf_size : output_tensor_sizes) {
                 SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(buf_size);
                 if (nullptr == shm_buf) {
                     allocation_ok = false;
@@ -107,6 +109,7 @@ private:
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
     bool ready_ = false;
     std::vector<size_t> input_tensor_sizes_;
+    std::vector<size_t> output_tensor_sizes_;
     uint32_t max_num_infers_ = 5;
     static const int64 INFER_SEM_MAX_CAPACITY = 2048;
     xla::Semaphore infer_sem_;
