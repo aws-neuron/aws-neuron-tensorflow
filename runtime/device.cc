@@ -194,6 +194,13 @@ void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {
     size_to_free_buffer_id_[size].insert(shm->get_id());
 }
 
+void SharedMemoryBufferManager::clear() {
+    tensorflow::mutex_lock lock(mutex_);
+    size_to_free_buffer_id_.clear();
+    buffer_vec_.clear();
+    is_valid_ = false;
+}
+
 
 static std::string remove_pattern(std::string data, const std::string &pattern) {
     size_t string_length = data.size();
@@ -617,6 +624,7 @@ void NeuronDevice::clear(bool from_global_state) {
     if (!from_global_state) {
         set_running(NRT_INVALID_NN_ID);
         nn_id_to_all_nn_ids_.clear();
+        shm_buf_mgr_->clear();
         vec_eg_id_.clear();
     }
 }

@@ -84,6 +84,7 @@ public:
     bool is_valid() { return is_valid_; }
     SharedMemoryPtr allocate_shm(const size_t size);
     void free_shm(SharedMemoryPtr shm);
+    void clear();
 private:
     tensorflow::mutex mutex_;
     uint64_t session_id_ = RuntimeSession::INVALID_ID;
