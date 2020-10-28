@@ -344,6 +344,20 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             for result_neuron, result_tf in zip(result_neuron_list, result_tf_list):
                 np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-5)
 
+    def test_add_with_shape(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None], name='input0')
+            shape0 = tf.shape(input0)
+            shape0_cast = tf.cast(shape0, tf.float32)
+            output0 = tf.add(input0, shape0_cast, name='output0')
+            feed_dict = {
+                'input0:0': np.random.uniform(-1, 1, size=[1]).astype(np.float32),
+            }
+            result_ref0 = sess.run(['output0:0'], feed_dict)
+            infer_graph0 = tf.neuron.graph_util.inference_graph_from_session(sess, feed_dict=feed_dict)
+        _assert_compiler_success(infer_graph0)
+
     def test_neuron_op_different_name(self):
         NUMHID = 512
         HEADSIZE = 64
