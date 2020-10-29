@@ -358,6 +358,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     OP_REQUIRES(ctx, ctx->num_outputs() == output_names.s_size(),
                 errors::InvalidArgument("incorrect number of output tensors"));
 
+    // keep a shared pointer so that RuntimeSession outlives shared memory buffers
+    std::shared_ptr<RuntimeSession> session_alive;
+
     if (use_dynamic_batch_size) {
         int64_t pad_batch_size = ((batch_size - 1) / k_batch_size + 1) * k_batch_size;
         std::vector<Tensor*> batch_output_tensors(ctx->num_outputs());
@@ -402,6 +405,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
 
         OK_IGNORE_ABORTED(ctx, initialize());
+        session_alive = neuron_device_->get_session();
 
         int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
         window_size = std::min(window_size, num_batches);
@@ -588,6 +592,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                                                      &output_tensors[idx]));
         }
         OK_IGNORE_ABORTED(ctx, initialize());
+        session_alive = neuron_device_->get_session();
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
@@ -604,6 +609,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                                                      &output_tensors[idx]));
         }
         OK_IGNORE_ABORTED(ctx, initialize());
+        session_alive = neuron_device_->get_session();
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(

@@ -23,7 +23,8 @@ typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 class NeuronDevice {
 public:
     Status initialize(const std::string &nrtd_address,
-                      const int num_cores_req, const int num_dup, const uint64_t session_id);
+                      const int num_cores_req, const int num_dup,
+                      std::shared_ptr<RuntimeSession> session);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
@@ -48,6 +49,7 @@ public:
     Status start_model_unsafe(const uint32_t nn_id);
     Status start_ping(const uint32_t nn_id);
     size_t semaphore_factor() { return vec_eg_id_.size(); }
+    std::shared_ptr<RuntimeSession> get_session() { return session_; }
     std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
 private:
     bool is_busy();
@@ -59,6 +61,7 @@ private:
     bool closed_ = false;
     RuntimeGRPC runtime_;
     uint64_t session_id_ = RuntimeSession::INVALID_ID;
+    std::shared_ptr<RuntimeSession> session_ = nullptr;
     std::vector<uint32_t> vec_eg_id_;
     uint32_t running_nn_id_;
     uint32_t num_cores_ = 0;
@@ -93,7 +96,7 @@ private:
     Status initialize(const int64_t opt_device_size, const int64_t max_num_duplicates);
     tensorflow::mutex global_mutex_;
     static const int DEFAULT_NUM_CORES = -65536;  // any negative number < -MAX_NUM_CORES
-    RuntimeSession session_;
+    std::shared_ptr<RuntimeSession> session_ = nullptr;
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     bool path_set_ = false;
     size_t device_index_ = 0;

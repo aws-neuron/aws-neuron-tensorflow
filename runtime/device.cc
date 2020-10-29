@@ -54,7 +54,8 @@ Status NeuronDeviceManager::initialize(const int64_t opt_device_size,
     // neuron-rtd address
     nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
-    TF_RETURN_IF_ERROR(session_.initialize(nrtd_address_));
+    session_ = std::make_shared<RuntimeSession>();
+    TF_RETURN_IF_ERROR(session_->initialize(nrtd_address_));
 
     // get number of neuron cores from comma-separated list of integers
     std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
@@ -116,8 +117,10 @@ Status NeuronDeviceManager::init_devices(const std::vector<int> &num_cores_req_v
         } else {
             num_dup = 1;
         }
-        status = device_array_[idx].initialize(
-            nrtd_address_, num_cores_req, num_dup, session_.get_id());
+        if (nullptr == session_) {
+            return errors::Internal("neuron runtime session is not initialized");
+        }
+        status = device_array_[idx].initialize(nrtd_address_, num_cores_req, num_dup, session_);
         if (!status.ok()) {
             if (status.code() != tensorflow::error::Code::ABORTED) {
                 LOG(WARNING) << "Cannot initialize NeuronCore Group with " << num_cores_req
@@ -229,13 +232,18 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
 Status NeuronDevice::initialize(const std::string &nrtd_address,
                                 const int num_cores_req,
                                 const int num_dup,
-                                const uint64_t session_id) {
+                                std::shared_ptr<RuntimeSession> session) {
     tensorflow::mutex_lock lock(mutex_eg_);
     if (closed_) {
         return errors::Aborted("neuron_device is closed");
     }
     nrtd_address_ = nrtd_address;
     TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address_));
+    if (nullptr == session) {
+        return errors::Internal("neuron runtime session is not initialized");
+    }
+    session_ = session;
+    uint64_t session_id = session->get_id();
     if (RuntimeSession::INVALID_ID != session_id) {
         session_id_ = session_id;
     }
