@@ -87,6 +87,7 @@ py_library(
         "fuse_test.py",
         "performance_test.py",
         "op_register_test.py",
+        "tfv1_keras_test.py",
     ],
     deps = [
         ":graph_util_py",
