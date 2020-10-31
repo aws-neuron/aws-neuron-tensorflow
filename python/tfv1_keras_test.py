@@ -7,6 +7,7 @@ import tensorflow as tf
 import tensorflow.compat.v1 as v1
 import tensorflow.neuron as tfn
 import pdb
+import os
 
 
 #each number represents the number of random 
@@ -119,13 +120,7 @@ class TestKerasTF(unittest.TestCase):
 
 
 
-                    #soon we will not be using tf.contrib anymore
-                    pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-                    pred_neuron = tf.contrib.predictor.from_saved_model(compiled_model_dir)
-                    result_ref = pred_ref(test_input)
-                    result_neuron = pred_neuron(test_input)
-                    np.testing.assert_allclose(result_neuron['output'], result_ref['output'], rtol=1e-2, atol=1e-3)
-
+                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
     def test_conv2d_conv2d_flatten_dense(self):
@@ -170,12 +165,24 @@ class TestKerasTF(unittest.TestCase):
                                         model_dir, compiled_model_dir,
                                         model_feed_dict=test_input)
 
+                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
-                    #soon we will not be using tf.contrib anymore
-                    pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-                    pred_neuron = tf.contrib.predictor.from_saved_model(compiled_model_dir)
-                    result_ref = pred_ref(test_input)
-                    result_neuron = pred_neuron(test_input)
-                    np.testing.assert_allclose(result_neuron['output'], result_ref['output'], rtol=1e-2, atol=1e-3)
 
+
+
+
+def run_inference_if_available(model_dir, compiled_model_dir, test_input):
+    #soon we will not be using tf.contrib anymore
+    #this function tests inference on inf1 hardware
+    
+    #first, check if hardware is avaiable using
+    #the NEURON_TF_COMPILE_ONLY env variable
+    #if NEURON_TF_COMPILE_ONLY is not set then
+    #hardware should be avaialable
+    if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+        pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
+        pred_neuron = tf.contrib.predictor.from_saved_model(compiled_model_dir)
+        result_ref = pred_ref(test_input)
+        result_neuron = pred_neuron(test_input)
+        np.testing.assert_allclose(result_neuron['output'], result_ref['output'], rtol=1e-2, atol=1e-3)
