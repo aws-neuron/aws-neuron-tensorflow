@@ -134,6 +134,51 @@ class TestKerasTF2(unittest.TestCase):
                     reloaded_model(test_input, training=False),
                     compiled_model(test_input, training=False))
 
+    def test_lstm_lstm_dense_dense(self):
+        
+        param_list = list(product(inputNumUnits, activations, outputNumUnits))
+        for inu, a, onu in param_list:
+            #subTest allows us to generate tests dynamically
+            #if one of the subTests fail, the error message
+            #along with the inputs (inu a onu) will be displayed.
+            #however this will still show up as 1 test even though
+            #there can be many subTests
+
+            with self.subTest(inputNumUnits=inu, activations=a, outputNumUnits=onu):
+                model = tf.keras.models.Sequential([
+                #tf.keras.layers is tf2 syntax
+                tf.keras.layers.LSTM(inu, activation=a, input_shape=(28,28), return_sequences=True),
+                tf.keras.layers.LSTM(inu, activation=a),
+                tf.keras.layers.Dense(onu, activation=a),
+                tf.keras.layers.Dense(10, activation=a)])
+
+                # Export SavedModel
+                model_dir = './keras_lstm_lstm_dense_dense'
+                shutil.rmtree(model_dir, ignore_errors=True)
+                tf.keras.models.save_model(model, model_dir)
+
+                #we would then complie using TF Neuron with 2.0
+                #support but this is just a prototype so we 
+                #skip that step for now
+
+
+                reloaded_model = tf.keras.models.load_model(model_dir)
+
+                #in real test this would actually be a compiled model
+                compiled_model = tf.keras.models.load_model(model_dir)
+
+                test_input = np.random.random((1, 28, 28))
+
+
+                #actual test would test compiler model on inf1
+                #versus tf2 model on cpu
+                np.testing.assert_allclose(
+                    reloaded_model(test_input, training=False),
+                    compiled_model(test_input, training=False))
+
+
+
+
 
 
 

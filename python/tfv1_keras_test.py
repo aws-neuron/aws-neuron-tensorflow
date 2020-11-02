@@ -168,6 +168,51 @@ class TestKerasTF(unittest.TestCase):
                     run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
+    
+    @unittest.expectedFailure
+    def test_lstm_lstm_dense_dense(self):
+        #this test is similar to the one above, but the
+        #NN and parameters vary
+        
+        param_list = list(product(inputNumUnits, activations, outputNumUnits))
+        np.random.seed(self.random_seed)
+        for inu, a, onu in param_list:
+
+            with v1.Session(graph=tf.Graph()) as sess:
+                with self.subTest(inputNumUnits=inu, activations=a, outputNumUnits=onu):
+                    model = v1.keras.models.Sequential([
+                    v1.keras.layers.LSTM(inu, activation=a, input_shape=(28,28), return_sequences=True),
+                    v1.keras.layers.LSTM(inu, activation=a),
+                    v1.keras.layers.Dense(onu, activation=a),
+                    v1.keras.layers.Dense(10, activation=a)])
+
+                    tensor_input = model.inputs[0]
+                    tensor_output = model.outputs[0]
+                    sess.run(v1.local_variables_initializer())
+                    sess.run(v1.global_variables_initializer())
+
+                    # Export SavedModel
+                    model_dir = './keras_lstm_lstm_dense_dense'
+                    shutil.rmtree(model_dir, ignore_errors=True)
+
+
+                    v1.saved_model.simple_save(sess, model_dir, {'input' : tensor_input}
+                                                , {'output' : tensor_output})
+
+
+
+                    #compile v1
+                    compiled_model_dir = './keras_lstm_lstm_dense_dense_neuron'
+                    shutil.rmtree(compiled_model_dir, ignore_errors=True)
+
+                    test_input = {'input' :np.random.rand(1, 28, 28)}
+
+                    compile_output = tfn.saved_model.compile(
+                                        model_dir, compiled_model_dir,
+                                        model_feed_dict=test_input)
+
+                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
+
 
 
 
