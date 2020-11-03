@@ -18,12 +18,12 @@ limitations under the License.
 
 #include <queue>
 #include "tensorflow/core/platform/mutex.h"
-#include "tensorflow/neuron/runtime/semaphore.h"
-#include "tensorflow/neuron/runtime/timestamps.h"
-#include "tensorflow/neuron/runtime/profiler.h"
-#include "tensorflow/neuron/runtime/tensor_util.h"
-#include "tensorflow/neuron/runtime/shared_memory.h"
-#include "tensorflow/neuron/runtime/runtime_grpc.h"
+#include "./semaphore.h"
+#include "./timestamps.h"
+#include "./profiler.h"
+#include "./tensor_util.h"
+#include "./shared_memory.h"
+#include "./runtime_grpc.h"
 
 
 namespace tensorflow {

@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/neuron/runtime/runtime_io.h"
-#include "tensorflow/neuron/runtime/kernels/neuron_op.h"
+#include "../runtime_io.h"
+#include "./neuron_op.h"
 
 
 namespace tensorflow {

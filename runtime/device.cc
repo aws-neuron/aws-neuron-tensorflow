@@ -16,8 +16,8 @@ limitations under the License.
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
-#include "tensorflow/neuron/runtime/macros.h"
-#include "tensorflow/neuron/runtime/device.h"
+#include "./macros.h"
+#include "./device.h"
 
 
 namespace tensorflow {

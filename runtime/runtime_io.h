@@ -17,9 +17,9 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_RUNTIME_IO_H_
 
 #include "tensorflow/core/lib/core/threadpool.h"
-#include "tensorflow/neuron/runtime/tensor_util.h"
-#include "tensorflow/neuron/runtime/shared_memory_io.h"
-#include "tensorflow/neuron/runtime/shared_memory.h"
+#include "./tensor_util.h"
+#include "./shared_memory_io.h"
+#include "./shared_memory.h"
 
 namespace tensorflow {
 namespace neuron {

@@ -16,11 +16,11 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 #define TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 
-#include "tensorflow/neuron/runtime/tensor_util.h"
-#include "tensorflow/neuron/runtime/shared_memory_io.h"
-#include "tensorflow/neuron/runtime/proto/nmgr_service.grpc.pb.h"
-#include "tensorflow/neuron/runtime/proto/nmgr_session_service.grpc.pb.h"
-#include "tensorflow/neuron/runtime/proto/nerr.pb.h"
+#include "./tensor_util.h"
+#include "./shared_memory_io.h"
+#include "./nmgr_service.grpc.pb.h"
+#include "./nmgr_session_service.grpc.pb.h"
+#include "./nerr.pb.h"
 
 
 namespace tensorflow {

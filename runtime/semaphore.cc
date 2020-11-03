@@ -16,7 +16,7 @@ limitations under the License.
 /* Note: this file is a copy of tensorflow/compiler/xla/python/semaphore.cc
  * with minimal namespace and header inclusion changes. */
 
-#include "tensorflow/neuron/runtime/semaphore.h"
+#include "./semaphore.h"
 
 #include "tensorflow/core/platform/logging.h"
 

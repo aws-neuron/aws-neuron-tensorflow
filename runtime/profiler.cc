@@ -19,8 +19,8 @@ limitations under the License.
 #include <sys/wait.h>
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
-#include "tensorflow/neuron/runtime/macros.h"
-#include "tensorflow/neuron/runtime/profiler.h"
+#include "./macros.h"
+#include "./profiler.h"
 
 
 namespace tensorflow {

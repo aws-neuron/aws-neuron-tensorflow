@@ -17,7 +17,7 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
 
 #include "tensorflow/core/platform/mutex.h"
-#include "tensorflow/neuron/runtime/runtime_grpc.h"
+#include "./runtime_grpc.h"
 
 namespace tensorflow {
 namespace neuron {

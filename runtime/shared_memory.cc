@@ -17,8 +17,8 @@ limitations under the License.
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "tensorflow/core/platform/env.h"
-#include "tensorflow/neuron/runtime/macros.h"
-#include "tensorflow/neuron/runtime/shared_memory.h"
+#include "./macros.h"
+#include "./shared_memory.h"
 
 
 namespace tensorflow {
