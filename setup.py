@@ -83,7 +83,11 @@ setuptools.setup(
     packages=setuptools.PEP420PackageFinder.find(),
     package_data={
         'tensorflow-plugins': [PLUGIN_NAME],
-        'tensorflow_neuron': ['../tensorflow.py'],
+        'tensorflow_neuron': [
+            '../tensorflow.py',
+            'LICENSE',
+            'THIRD-PARTY-LICENSES.txt',
+        ],
     },
     distclass=BinaryDistribution,
     cmdclass={

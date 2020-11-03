@@ -26,10 +26,17 @@ py_library(
     ],
 )
 
+filegroup(
+    name = "license",
+    data = [
+        "LICENSE",
+        "THIRD-PARTY-LICENSES.txt",
+    ],
+)
+
 sh_binary(
     name = "build_pip_package",
     srcs = ["build_pip_package.sh"],
-    data = [
-        ":neuron_py",
-    ],
+    data = [":neuron_py"],
+    deps = [":license"],
 )
