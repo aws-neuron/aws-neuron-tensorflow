@@ -1,0 +1,13 @@
+diff --git a/tensorflow_serving/model_servers/BUILD b/tensorflow_serving/model_servers/BUILD
+index f60f3d77..85ffb15e 100644
+--- a/tensorflow_serving/model_servers/BUILD
++++ b/tensorflow_serving/model_servers/BUILD
+@@ -309,6 +309,8 @@ TENSORFLOW_DEPS = [
+     "//tensorflow_serving/servables/tensorflow:predict_impl",
+ ]
+ 
++SUPPORTED_TENSORFLOW_OPS.append("//tensorflow_serving/neuron/runtime:all_ops")
++
+ cc_library(
+     name = "server_lib",
+     srcs = [
