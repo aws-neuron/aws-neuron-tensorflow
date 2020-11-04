@@ -28,13 +28,13 @@ import os
 #parameters from that catergory 
 #that will be used in testing
 
-NUM_ACTIVATIONS = 1  #Max is 6
-NUM_INPUT_UNITS = 1  #Max is 1024 (would not use more than 10)
-NUM_OUTPUT_UNITS = 1 #Max is 1024 (would not use more than 10)
-NUM_MAGIC_NUMBERS = 1#Max is 10
-NUM_KERNEL_SIZES = 1 #Max is 2
-NUM_POWERS = 1       #Max is 11
-NUM_FILTERS = 1
+NUM_ACTIVATIONS = 2  #Max is 6
+NUM_INPUT_UNITS = 2  #Max is 1024 (would not use more than 10)
+NUM_OUTPUT_UNITS = 2 #Max is 1024 (would not use more than 10)
+NUM_MAGIC_NUMBERS = 2#Max is 10
+NUM_KERNEL_SIZES = 2 #Max is 2
+NUM_POWERS = 2       #Max is 11
+NUM_FILTERS = 2
 _PARAMETER_SEED = '11251998'
 
 
