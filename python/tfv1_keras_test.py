@@ -28,13 +28,13 @@ import os
 #parameters from that catergory 
 #that will be used in testing
 
-NUM_ACTIVATIONS = 2  #Max is 6
-NUM_INPUT_UNITS = 2  #Max is 1024 (would not use more than 10)
-NUM_OUTPUT_UNITS = 2 #Max is 1024 (would not use more than 10)
-NUM_MAGIC_NUMBERS = 2#Max is 10
-NUM_KERNEL_SIZES = 2 #Max is 2
-NUM_POWERS = 2       #Max is 11
-NUM_FILTERS = 2
+NUM_ACTIVATIONS = 1  #Max is 6
+NUM_INPUT_UNITS = 1  #Max is 1024 (would not use more than 10)
+NUM_OUTPUT_UNITS = 1 #Max is 1024 (would not use more than 10)
+NUM_MAGIC_NUMBERS = 1#Max is 10
+NUM_KERNEL_SIZES = 1 #Max is 2
+NUM_POWERS = 1       #Max is 11
+NUM_FILTERS = 1
 _PARAMETER_SEED = '11251998'
 
 
@@ -101,69 +101,69 @@ class TestKerasTF(unittest.TestCase):
                     
                     #compile v1
                     model_dir = './keras_flatten_dense_dropout'
-                    test_input = {'input' :np.random.rand(1, 28, 28)}
-                    
-                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
-                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
+                test_input = {'input' :np.random.rand(1, 28, 28)}
+                
+                compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
+                run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
-    def test_conv2d_conv2d_flatten_dense(self):
-        #this test is similar to the one above, but the
-        #NN and parameters vary
-        
-        param_list = list(product(filterSizes, activations, outputNumUnits, kernelSizes))
-        np.random.seed(self.random_seed)
-        for fs, a, onu, ks in param_list:
-
-            with v1.Session(graph=tf.Graph()) as sess:
-                with self.subTest(filterSizes=fs, activations=a, outputNumUnits=onu, kernelSizes=ks):
-                    model = v1.keras.models.Sequential([
-                    v1.keras.layers.Conv2D(fs, kernel_size=ks, 
-                                            activation=a, input_shape=(28,28,ks), 
-                                            kernel_initializer = initializer),
-                    v1.keras.layers.Conv2D(fs, kernel_size=ks, activation=a,
-                                            kernel_initializer=initializer),
-                    v1.keras.layers.Flatten(),
-                    v1.keras.layers.Dense(onu, kernel_initializer=initializer)])
-
-                    model_dir = 'keras_conv2d_conv2d_flatten_dense'
-                    test_input = {'input' : np.random.rand(1, 28, 28, ks)}
-
-                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
-                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
-
-
+def test_conv2d_conv2d_flatten_dense(self):
+    #this test is similar to the one above, but the
+    #NN and parameters vary
     
-    @unittest.expectedFailure
-    def test_lstm_lstm_dense_dense(self):
-        #this test is similar to the one above, but the
-        #NN and parameters vary
-        param_list = list(product(inputNumUnits, activations, outputNumUnits))
-        np.random.seed(self.random_seed)
-        for inu, a, onu in param_list:
+    param_list = list(product(filterSizes, activations, outputNumUnits, kernelSizes))
+    np.random.seed(self.random_seed)
+    for fs, a, onu, ks in param_list:
 
-            with v1.Session(graph=tf.Graph()) as sess:
-                with self.subTest(inputNumUnits=inu, activations=a, outputNumUnits=onu):
-                    model = v1.keras.models.Sequential([
-                    v1.keras.layers.LSTM(inu, activation=a, input_shape=(28,28), return_sequences=True),
-                    v1.keras.layers.LSTM(inu, activation=a),
-                    v1.keras.layers.Dense(onu, activation=a),
-                    v1.keras.layers.Dense(10, activation=a)])
+        with v1.Session(graph=tf.Graph()) as sess:
+            with self.subTest(filterSizes=fs, activations=a, outputNumUnits=onu, kernelSizes=ks):
+                model = v1.keras.models.Sequential([
+                v1.keras.layers.Conv2D(fs, kernel_size=ks, 
+                                        activation=a, input_shape=(28,28,ks), 
+                                        kernel_initializer = initializer),
+                v1.keras.layers.Conv2D(fs, kernel_size=ks, activation=a,
+                                        kernel_initializer=initializer),
+                v1.keras.layers.Flatten(),
+                v1.keras.layers.Dense(onu, kernel_initializer=initializer)])
 
-                    model_dir = './keras_lstm_lstm_dense_dense'
-                    test_input = {'input' : np.random.rand(1, 28, 28)}
+                model_dir = 'keras_conv2d_conv2d_flatten_dense'
+                test_input = {'input' : np.random.rand(1, 28, 28, ks)}
 
-                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
-                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
-
+                compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
+                run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
-    def test_maxpool2d(self):
-        param_list = list(inputNumUnits)
-        np.random.seed(self.random_seed)
-        for inu in param_list:
-            with v1.Session(graph=tf.Graph()) as sess:
-                with self.subTest(inputNumUnits=inu):
+
+@unittest.expectedFailure
+def test_lstm_lstm_dense_dense(self):
+    #this test is similar to the one above, but the
+    #NN and parameters vary
+    param_list = list(product(inputNumUnits, activations, outputNumUnits))
+    np.random.seed(self.random_seed)
+    for inu, a, onu in param_list:
+
+        with v1.Session(graph=tf.Graph()) as sess:
+            with self.subTest(inputNumUnits=inu, activations=a, outputNumUnits=onu):
+                model = v1.keras.models.Sequential([
+                v1.keras.layers.LSTM(inu, activation=a, input_shape=(28,28), return_sequences=True),
+                v1.keras.layers.LSTM(inu, activation=a),
+                v1.keras.layers.Dense(onu, activation=a),
+                v1.keras.layers.Dense(10, activation=a)])
+
+                model_dir = './keras_lstm_lstm_dense_dense'
+                test_input = {'input' : np.random.rand(1, 28, 28)}
+
+                compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
+                run_inference_if_available(model_dir, compiled_model_dir, test_input)
+
+
+
+def test_maxpool2d(self):
+    param_list = list(inputNumUnits)
+    np.random.seed(self.random_seed)
+    for inu in param_list:
+        with v1.Session(graph=tf.Graph()) as sess:
+            with self.subTest(inputNumUnits=inu):
                     model = v1.keras.models.Sequential([
                     v1.keras.layers.MaxPool2D(pool_size=(2,2), strides=1, padding='same', input_shape=(inu, inu, 1))])
 
