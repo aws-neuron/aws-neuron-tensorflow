@@ -983,28 +983,9 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
     if returncode != 0:
         logging.warning("Failed to fuse subgraph {} with '{}'".format(subgraph_info, subprocess.list2cmdline(command)))
         if not verbose:
-            logging.warning("neuron-cc error message:")
-            full_neuron_cc_log = []
-            neuron_cc_error_message = []
-            found_error = False
-            with open(logfile, 'r') as f:
-                for line in f:
-                    if len(full_neuron_cc_log) < 20:
-                        full_neuron_cc_log.append(line)
-                    if '[neuron-cc]: *************************************************' in line:
-                        found_error = True
-                    if found_error and 'Artifacts stored' not in line:
-                        neuron_cc_error_message.append(line)
-            if len(full_neuron_cc_log) < 20:
-                logging.warning(''.join(full_neuron_cc_log))
-            else:
-                logging.warning(''.join(neuron_cc_error_message))
             io_config_index = command.index('--io-config')
             with open(os.path.join(workdir_path, 'io-config.json'), 'w') as f:
                 f.write(command[io_config_index+1])
-            if neuron_cc_error_message:
-                with open(os.path.join(workdir_path, 'neuron-cc-error.txt'), 'w') as f:
-                    f.write('\n'.join(neuron_cc_error_message))
         return None
     return True
 
