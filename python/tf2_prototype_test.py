@@ -152,12 +152,6 @@ class TestKerasTF2(unittest.TestCase):
         
         param_list = list(product(inputNumUnits, activations, outputNumUnits))
         for inu, a, onu in param_list:
-            #subTest allows us to generate tests dynamically
-            #if one of the subTests fail, the error message
-            #along with the inputs (inu a onu) will be displayed.
-            #however this will still show up as 1 test even though
-            #there can be many subTests
-
             with self.subTest(inputNumUnits=inu, activations=a, outputNumUnits=onu):
                 model = tf.keras.models.Sequential([
                 #tf.keras.layers is tf2 syntax
@@ -195,4 +189,91 @@ class TestKerasTF2(unittest.TestCase):
 
 
 
+
+    def test_maxpool2d(self):
+        #A simple test that is only parameterized by inputNumUnits
+        #which in this case describes the size of the square input
+        
+        param_list = list(inputNumUnits)
+        for inu in param_list:
+            #subTest allows us to generate tests dynamically
+            #if one of the subTests fail, the error message
+            #along with the inputs (inu a onu) will be displayed.
+            #however this will still show up as 1 test even though
+            #there can be many subTests
+
+            with self.subTest(inputNumUnits=inu):
+                model = tf.keras.models.Sequential([
+                #tf.keras.layers is tf2 syntax
+                tf.keras.layers.MaxPool2D(pool_size=(2,2), strides=1, padding='same', input_shape=(inu, inu, 1))])
+
+                # Export SavedModel
+                model_dir = './keras_maxpool2d'
+                shutil.rmtree(model_dir, ignore_errors=True)
+                tf.keras.models.save_model(model, model_dir)
+
+                #we would then complie using TF Neuron with 2.0
+                #support but this is just a prototype so we 
+                #skip that step for now
+
+
+                reloaded_model = tf.keras.models.load_model(model_dir)
+
+                #in real test this would actually be a compiled model
+                compiled_model = tf.keras.models.load_model(model_dir)
+
+                test_input = np.random.random((1, inu, inu, 1))
+
+
+                #actual test would test compiler model on inf1
+                #versus tf2 model on cpu
+                np.testing.assert_allclose(
+                    reloaded_model(test_input, training=False),
+                    compiled_model(test_input, training=False))
+
+
+    def test_toy_resnet(self):
+        inputs = tf.keras.Input(shape=(32, 32, 3), name="img")
+        x = tf.keras.layers.Conv2D(32, 3, activation="relu")(inputs)
+        x = tf.keras.layers.Conv2D(64, 3, activation="relu")(x)
+        block_1_output = tf.keras.layers.MaxPooling2D(3)(x)
+
+        x = tf.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(block_1_output)
+        x = tf.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(x)
+        block_2_output = tf.keras.layers.add([x, block_1_output])
+
+        x = tf.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(block_2_output)
+        x = tf.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(x)
+        block_3_output = tf.keras.layers.add([x, block_2_output])
+
+        x = tf.keras.layers.Conv2D(64, 3, activation="relu")(block_3_output)
+        x = tf.keras.layers.GlobalAveragePooling2D()(x)
+        x = tf.keras.layers.Dense(256, activation="relu")(x)
+        x = tf.keras.layers.Dropout(0.5)(x)
+        outputs = tf.keras.layers.Dense(10)(x)
+
+        model = tf.keras.Model(inputs, outputs, name="toy_resnet")
+        model.summary() 
+        model_dir = './keras_toy_resnet'
+        shutil.rmtree(model_dir, ignore_errors=True)
+        tf.keras.models.save_model(model, model_dir)
+
+        #we would then complie using TF Neuron with 2.0
+        #support but this is just a prototype so we 
+        #skip that step for now
+
+
+        reloaded_model = tf.keras.models.load_model(model_dir)
+
+        #in real test this would actually be a compiled model
+        compiled_model = tf.keras.models.load_model(model_dir)
+
+        test_input = np.random.random((1, 32, 32, 3))
+
+
+        #actual test would test compiler model on inf1
+        #versus tf2 model on cpu
+        np.testing.assert_allclose(
+            reloaded_model(test_input, training=False),
+            compiled_model(test_input, training=False))
 

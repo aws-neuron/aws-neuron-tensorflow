@@ -75,12 +75,6 @@ filterSizes = filterSizes[0:NUM_FILTERS]
 initializer = v1.keras.initializers.RandomNormal(stddev=.001)
 
 class TestKerasTF(unittest.TestCase):
-    #This function tests a basic NN with two dense layers.
-    #It has 3 paramaters which vary.
-    #1. Number of input units
-    #2. Number of output units
-    #3. The type of activation function that the input layer uses
-
     def setUp(self):
         #this one will be used for np rand functions
         self.random_seed = 7051994
@@ -97,43 +91,19 @@ class TestKerasTF(unittest.TestCase):
             #there can be many subTests
 
             with self.subTest(inputNumUnits = inu, activations = a, outputNumUnits = onu):
-                #old syntax
                 with v1.Session(graph=tf.Graph()) as sess:
-                    
-                    #remove old directory where the 
-                    #previous model was stored
-                    model_dir = './keras_flatten_dense_dropout'
-                    shutil.rmtree(model_dir, ignore_errors=True)
-
-
-                    #model creation and simplesave v1
                     model = v1.keras.models.Sequential([
                     v1.keras.layers.Flatten(input_shape=(28,28)),
                     v1.keras.layers.Dense(inu, activation=a, kernel_initializer=initializer),
                     v1.keras.layers.Dropout(0.2),
                     v1.keras.layers.Dense(onu, kernel_initializer=initializer)])
 
-                    tensor_input = model.inputs[0]
-
-                    tensor_output = model.outputs[0]
-                    sess.run(v1.local_variables_initializer())
-                    sess.run(v1.global_variables_initializer())
-
-                    v1.saved_model.simple_save(sess, model_dir, {'input' : tensor_input}
-                                                , {'output' : tensor_output})
                     
                     #compile v1
-                    compiled_model_dir = './keras_flatten_dense_dropout_neuron'
-                    shutil.rmtree(compiled_model_dir, ignore_errors=True)
-
+                    model_dir = './keras_flatten_dense_dropout'
                     test_input = {'input' :np.random.rand(1, 28, 28)}
-
-                    compile_output = tfn.saved_model.compile(
-                                        model_dir, compiled_model_dir,
-                                        model_feed_dict=test_input)
-
-
-
+                    
+                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
                     run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
@@ -156,29 +126,10 @@ class TestKerasTF(unittest.TestCase):
                     v1.keras.layers.Flatten(),
                     v1.keras.layers.Dense(onu, kernel_initializer=initializer)])
 
-                    tensor_input = model.inputs[0]
-                    tensor_output = model.outputs[0]
-                    sess.run(v1.local_variables_initializer())
-                    sess.run(v1.global_variables_initializer())
+                    model_dir = 'keras_conv2d_conv2d_flatten_dense'
+                    test_input = {'input' : np.random.rand(1, 28, 28, ks)}
 
-                    model_dir = './keras_conv2d_conv2d_flatten_dense'
-                    shutil.rmtree(model_dir, ignore_errors=True)
-
-                    v1.saved_model.simple_save(sess, model_dir, {'input' : tensor_input}
-                                                , {'output' : tensor_output})
-
-
-
-                    #compile v1
-                    compiled_model_dir = './keras_conv2d_conv2d_flatten_dense_neuron'
-                    shutil.rmtree(compiled_model_dir, ignore_errors=True)
-
-                    test_input = {'input' :np.random.rand(1, 28, 28, ks)}
-
-                    compile_output = tfn.saved_model.compile(
-                                        model_dir, compiled_model_dir,
-                                        model_feed_dict=test_input)
-
+                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
                     run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
 
@@ -187,7 +138,6 @@ class TestKerasTF(unittest.TestCase):
     def test_lstm_lstm_dense_dense(self):
         #this test is similar to the one above, but the
         #NN and parameters vary
-        
         param_list = list(product(inputNumUnits, activations, outputNumUnits))
         np.random.seed(self.random_seed)
         for inu, a, onu in param_list:
@@ -200,33 +150,83 @@ class TestKerasTF(unittest.TestCase):
                     v1.keras.layers.Dense(onu, activation=a),
                     v1.keras.layers.Dense(10, activation=a)])
 
-                    tensor_input = model.inputs[0]
-                    tensor_output = model.outputs[0]
-                    sess.run(v1.local_variables_initializer())
-                    sess.run(v1.global_variables_initializer())
-
-                    # Export SavedModel
                     model_dir = './keras_lstm_lstm_dense_dense'
-                    shutil.rmtree(model_dir, ignore_errors=True)
+                    test_input = {'input' : np.random.rand(1, 28, 28)}
 
-
-                    v1.saved_model.simple_save(sess, model_dir, {'input' : tensor_input}
-                                                , {'output' : tensor_output})
-
-
-
-                    #compile v1
-                    compiled_model_dir = './keras_lstm_lstm_dense_dense_neuron'
-                    shutil.rmtree(compiled_model_dir, ignore_errors=True)
-
-                    test_input = {'input' :np.random.rand(1, 28, 28)}
-
-                    compile_output = tfn.saved_model.compile(
-                                        model_dir, compiled_model_dir,
-                                        model_feed_dict=test_input)
-
+                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
                     run_inference_if_available(model_dir, compiled_model_dir, test_input)
 
+
+
+    def test_maxpool2d(self):
+        param_list = list(inputNumUnits)
+        np.random.seed(self.random_seed)
+        for inu in param_list:
+            with v1.Session(graph=tf.Graph()) as sess:
+                with self.subTest(inputNumUnits=inu):
+                    model = v1.keras.models.Sequential([
+                    v1.keras.layers.MaxPool2D(pool_size=(2,2), strides=1, padding='same', input_shape=(inu, inu, 1))])
+
+                    model_dir = './keras_maxpool2d'
+                    test_input = {'input' : np.random.rand(1, inu, inu, 1)}
+
+                    compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
+                    run_inference_if_available(model_dir, compiled_model_dir, test_input)
+
+    def test_toy_resnet(self):
+        with v1.Session(graph=tf.Graph()) as sess:
+            np.random.seed(self.random_seed)
+
+            inputs = v1.keras.Input(shape=(32, 32, 3), name="img")
+            x = v1.keras.layers.Conv2D(32, 3, activation="relu")(inputs)
+            x = v1.keras.layers.Conv2D(64, 3, activation="relu")(x)
+            block_1_output = v1.keras.layers.MaxPooling2D(3)(x)
+
+            x = v1.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(block_1_output)
+            x = v1.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(x)
+            block_2_output = v1.keras.layers.add([x, block_1_output])
+
+            x = v1.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(block_2_output)
+            x = v1.keras.layers.Conv2D(64, 3, activation="relu", padding="same")(x)
+            block_3_output = v1.keras.layers.add([x, block_2_output])
+
+            x = v1.keras.layers.Conv2D(64, 3, activation="relu")(block_3_output)
+            x = v1.keras.layers.GlobalAveragePooling2D()(x)
+            x = v1.keras.layers.Dense(256, activation="relu")(x)
+            x = v1.keras.layers.Dropout(0.5)(x)
+            outputs = v1.keras.layers.Dense(10)(x)
+
+            model = v1.keras.Model(inputs, outputs, name="toy_resnet")
+
+            model_dir = './keras_toy_resnet'
+            test_input = {'input' : np.random.rand(1,32,32,3)}
+
+            compiled_model_dir = run_v1_compile(model, sess, model_dir, test_input)
+            run_inference_if_available(model_dir, compiled_model_dir, test_input)
+        
+
+
+def run_v1_compile(model, sess, model_dir, test_input):
+    tensor_input = model.inputs[0]
+
+    tensor_output = model.outputs[0]
+    sess.run(v1.local_variables_initializer())
+    sess.run(v1.global_variables_initializer())
+
+    shutil.rmtree(model_dir, ignore_errors=True)
+    v1.saved_model.simple_save(sess, model_dir, {'input' : tensor_input}
+                                , {'output' : tensor_output})
+    
+    #compile v1
+    compiled_model_dir = model_dir + '_neuron'
+    shutil.rmtree(compiled_model_dir, ignore_errors=True)
+
+
+    compile_output = tfn.saved_model.compile(
+                        model_dir, compiled_model_dir,
+                        model_feed_dict=test_input)
+
+    return compiled_model_dir
 
 
 
