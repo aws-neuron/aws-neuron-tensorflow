@@ -277,3 +277,68 @@ class TestKerasTF2(unittest.TestCase):
             reloaded_model(test_input, training=False),
             compiled_model(test_input, training=False))
 
+    def test_multiple_io(self):
+        num_tags = 12  # Number of unique issue tags
+        num_words = 10000  # Size of vocabulary obtained when preprocessing text data
+        num_departments = 4  # Number of departments for predictions
+
+        title_input = tf.keras.Input(
+            shape=(None,), name="title"
+        )  # Variable-length sequence of ints
+        body_input = tf.keras.Input(shape=(None,), name="body")  # Variable-length sequence of ints
+        tags_input = tf.keras.Input(
+            shape=(num_tags,), name="tags"
+        )  # Binary vectors of size `num_tags`
+
+        # Embed each word in the title into a 64-dimensional vector
+        title_features = tf.keras.layers.Embedding(num_words, 64)(title_input)
+        # Embed each word in the text into a 64-dimensional vector
+        body_features = tf.keras.layers.Embedding(num_words, 64)(body_input)
+
+        # Reduce sequence of embedded words in the title into a single 128-dimensional vector
+        title_features = tf.keras.layers.LSTM(128)(title_features)
+        # Reduce sequence of embedded words in the body into a single 32-dimensional vector
+        body_features = tf.keras.layers.LSTM(32)(body_features)
+
+        # Merge all available features into a single large vector via concatenation
+        x = tf.keras.layers.concatenate([title_features, body_features, tags_input])
+
+        # Stick a logistic regression for priority prediction on top of the features
+        priority_pred = tf.keras.layers.Dense(1, name="priority")(x)
+        # Stick a department classifier on top of the features
+        department_pred = tf.keras.layers.Dense(num_departments, name="department")(x)
+
+        # Instantiate an end-to-end model predicting both priority and department
+        model = tf.keras.Model(
+            inputs=[title_input, body_input, tags_input],
+            outputs=[priority_pred, department_pred],
+        )
+
+        model_dir = './keras_multiple_io'
+        shutil.rmtree(model_dir, ignore_errors=True)
+        tf.keras.models.save_model(model, model_dir)
+
+        #we would then complie using TF Neuron with 2.0
+        #support but this is just a prototype so we 
+        #skip that step for now
+
+
+        reloaded_model = tf.keras.models.load_model(model_dir)
+
+        #in real test this would actually be a compiled model
+        compiled_model = tf.keras.models.load_model(model_dir)
+
+        # Dummy input data
+        title_data = np.random.randint(num_words, size=(1280, 10))
+        body_data = np.random.randint(num_words, size=(1280, 100))
+        tags_data = np.random.randint(2, size=(1280, num_tags)).astype("float32")
+
+        result_ref = reloaded_model([title_data, body_data, tags_data], training=False)
+        result_neuron = reloaded_model([title_data, body_data, tags_data], training=False)
+
+        #actual test would test compiler model on inf1
+        #versus tf2 model on cpu
+        np.testing.assert_allclose(result_ref[0], result_neuron[0])
+        np.testing.assert_allclose(result_ref[1], result_neuron[1])
+
+
