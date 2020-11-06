@@ -980,12 +980,11 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
         with open(logfile, 'w') as logfd:
             proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
             returncode = _wait_compiler(proc, timeout)
+    io_config_index = command.index('--io-config')
+    with open(os.path.join(workdir_path, 'graph_def.io-config.json'), 'w') as f:
+        f.write(command[io_config_index+1])
     if returncode != 0:
         logging.warning("Failed to fuse subgraph {} with '{}'".format(subgraph_info, subprocess.list2cmdline(command)))
-        if not verbose:
-            io_config_index = command.index('--io-config')
-            with open(os.path.join(workdir_path, 'io-config.json'), 'w') as f:
-                f.write(command[io_config_index+1])
         return None
     return True
 
