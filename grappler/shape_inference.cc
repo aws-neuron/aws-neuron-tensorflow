@@ -61,6 +61,12 @@ Status PropagateShapes(Graph* graph,
   std::vector<Node*> order;
   GetReversePostOrder(*graph, &order);
 
+  std::unordered_map<std::string, int64> resolved_ints;
+  std::unordered_map<std::string, TensorShape> resolved_shapes;
+  typedef gtl::InlinedVector<int64, 4> GtlInt64Vector;
+  std::unordered_map<std::string, GtlInt64Vector> resolved_vectors;
+  std::unordered_map<std::string, int64> resolved_tensor_array_sizes;
+  std::unordered_map<std::string, int64> resolved_range_sizes;
   for (Node* n : order) {
     // Ignore the status returned by the shape_refiner. We want the best effort
     // shapes, even if no shape function is registered for a node.
@@ -83,11 +89,114 @@ Status PropagateShapes(Graph* graph,
               context->MakeShapeFromPartialTensorShape(shape, &handle));
             context->set_output(i, handle);
             if (shape.IsFullyDefined()) {
+              std::string tensor_name = n->name() + ":" + std::to_string(i);
+              std::string gd_tensor_name = i == 0 ? n->name() : tensor_name;
+              resolved_shapes[gd_tensor_name] = shape_list[i];
               VLOG(1) << "Set fully defined shape for node " << n->name()
                       << " at output port " << i;
             }
           }
         }
+      }
+      if (n->type_string() == "TensorArrayGatherV3") {
+        std::string input1_name = n->def().input(1);
+        if (resolved_range_sizes.count(input1_name)) {
+          PartialTensorShape shape(n->def().attr().at("element_shape").shape());
+          if (shape.IsFullyDefined()) {
+            shape.InsertDim(0, resolved_range_sizes[input1_name]);
+            shape_inference::ShapeHandle handle = context->output(0);
+            TF_RETURN_IF_ERROR(
+              context->MakeShapeFromPartialTensorShape(shape, &handle));
+            context->set_output(0, handle);
+            VLOG(1) << "Inferred fully defined shape of " << n->name()
+                    << " using TensorArray operator shape inference mechanism";
+          }
+        }
+      }
+    }
+
+    if (n->type_string() == "Const") {
+      const auto& tensor = n->def().attr().at("value").tensor();
+      if (tensor.dtype() == DT_INT32 && tensor.int_val_size() == 1) {
+        int64 int_val = tensor.int_val(0);
+        resolved_ints[n->name()] = int_val;
+        VLOG(2) << "filled resolved_ints[" << n->name() << "] with " << int_val;
+      }
+    }
+
+    if (n->type_string() == "Shape") {
+      std::string input0_name = n->def().input(0);
+      if (resolved_shapes.count(input0_name)) {
+        auto& shape = resolved_shapes[input0_name];
+        resolved_vectors[n->name()] = shape.dim_sizes();
+        VLOG(2) << "filled resolved_vectors[" << n->name()
+                << "] with vector " << shape;
+      }
+    }
+
+    if (n->type_string() == "StridedSlice") {
+      const auto& n_def = n->def();
+      const auto& attr = n_def.attr();
+      if (attr.at("Index").type() == DT_INT32 &&
+          attr.at("T").type() == DT_INT32 &&
+          attr.at("begin_mask").i() == 0 &&
+          attr.at("ellipsis_mask").i() == 0 &&
+          attr.at("end_mask").i() == 0 &&
+          attr.at("new_axis_mask").i() == 0 &&
+          attr.at("shrink_axis_mask").i() == 1 &&
+          resolved_vectors.count(n_def.input(0)) &&
+          resolved_ints.count(n_def.input(1)) &&
+          resolved_ints.count(n_def.input(2)) &&
+          resolved_ints.count(n_def.input(3))) {
+        int64 start = resolved_ints[n_def.input(1)];
+        int64 end = resolved_ints[n_def.input(2)];
+        int64 step = resolved_ints[n_def.input(3)];
+        auto& vector = resolved_vectors[n_def.input(0)];
+        if (end - start == 1 && step == 1 && start < (int64)vector.size()) {
+          int64 int_val = vector[start];
+          resolved_ints[n->name()] = int_val;
+          VLOG(2) << "filled resolved_ints[" << n->name()
+                  << "] with " << int_val;
+        }
+      }
+    }
+
+    if (n->type_string() == "TensorArrayV3") {
+      const auto& n_def = n->def();
+      const auto& attr = n_def.attr();
+      if (!attr.at("dynamic_size").b() && resolved_ints.count(n_def.input(0))) {
+        int64 int_val = resolved_ints[n_def.input(0)];
+        resolved_tensor_array_sizes[n->name()] = int_val;
+        VLOG(2) << "filled resolved_tensor_array_sizes[" << n->name()
+                << "] with " << int_val;
+      }
+    }
+
+    if (n->type_string() == "TensorArraySizeV3") {
+      const auto& n_def = n->def();
+      if (resolved_tensor_array_sizes.count(n_def.input(0))) {
+        int64 int_val = resolved_tensor_array_sizes[n_def.input(0)];
+        resolved_tensor_array_sizes[n->name()] = int_val;
+        VLOG(2) << "filled resolved_tensor_array_sizes[" << n->name()
+                << "] with " << int_val;
+      }
+    }
+
+    if (n->type_string() == "Range") {
+      const auto& n_def = n->def();
+      const auto& attr = n_def.attr();
+      if (attr.at("Tidx").type() == DT_INT32 &&
+          resolved_ints.count(n_def.input(0)) &&
+          resolved_tensor_array_sizes.count(n_def.input(1)) &&
+          resolved_ints.count(n_def.input(2))) {
+        int64 start = resolved_ints[n_def.input(0)];
+        int64 end = resolved_tensor_array_sizes[n_def.input(1)];
+        int64 step = resolved_ints[n_def.input(2)];
+        int64 diff = end - start;
+        int64 num_elements = diff / step + diff % step;
+        resolved_range_sizes[n->name()] = num_elements;
+        VLOG(2) << "filled resolved_range_sizes[" << n->name()
+                << "] with " << num_elements;
       }
     }
 
