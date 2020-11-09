@@ -75,8 +75,8 @@ Status FuseSupportedOperators::Init(const tensorflow::RewriterConfig_CustomGraph
     return Status::OK();
 }
 
-Status FuseSupportedOperators::Optimize(Cluster* cluster, const GrapplerItem& item,
-                                        GraphDef* output) {
+Status FuseSupportedOperators::Optimize(Cluster *cluster, const GrapplerItem &item,
+                                        GraphDef *output) {
     if (cluster == nullptr) {
         return errors::InvalidArgument("cluster == nullptr");
     }
@@ -88,9 +88,9 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster, const GrapplerItem& it
     return Status::OK();
 }
 
-void FuseSupportedOperators::Feedback(Cluster* cluster, const GrapplerItem& item,
-                                      const GraphDef& optimize_output, double result) {
-  // Nothing to do for FuseSupportedOperators.
+void FuseSupportedOperators::Feedback(Cluster *cluster, const GrapplerItem &item,
+                                      const GraphDef &optimize_output, double result) {
+    // Nothing to do for FuseSupportedOperators.
 }
 
 REGISTER_NEURON_GRAPH_OPTIMIZER_AS(FuseSupportedOperators, name_optimizer);
