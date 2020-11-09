@@ -28,6 +28,8 @@ namespace tensorflow {
 
 namespace {
 
+const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+
 // Converts a shape inference handle to a PartialTensorShape.
 Status ShapeHandleToTensorShape(shape_inference::InferenceContext* context,
                                 const shape_inference::ShapeHandle& handle,
@@ -72,6 +74,20 @@ Status PropagateShapes(Graph* graph,
         shape_inference::ShapeHandle handle = context->output(i);
         VLOG(4) << "Output " << i << " for node " << n->name() << ": "
                 << context->DebugString(handle);
+        auto& attr = n->def().attr();
+        if (attr.count(kNeuronInferredShapes)) {
+          auto& shape_list = attr.at(kNeuronInferredShapes).list().shape();
+          if (i < shape_list.size()) {
+            PartialTensorShape shape(shape_list[i]);
+            TF_RETURN_IF_ERROR(
+              context->MakeShapeFromPartialTensorShape(shape, &handle));
+            context->set_output(i, handle);
+            if (shape.IsFullyDefined()) {
+              VLOG(1) << "Set fully defined shape for node " << n->name()
+                      << " at output port " << i;
+            }
+          }
+        }
       }
     }
 
