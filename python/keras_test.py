@@ -31,7 +31,7 @@ _RANDOM_SEED = 15213
 
 
 class TestKeras(unittest.TestCase):
-    @unittest.expectedFailure
+
     def test_keras_resnet50_float16_compile(self):
         # Instantiate Keras ResNet50 model
         keras.backend.set_learning_phase(0)
