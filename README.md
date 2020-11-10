@@ -58,6 +58,13 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
     1. `USE_BAZEL_VERSION=0.26.1 bazel build --incompatible_remap_main_repo --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0" //tensorflow/neuron:build_pip_package`
     1. `./bazel-bin/tensorflow/neuron/build_pip_package ./`
     1. pip whl can be found by `ls tensorflow_neuron-*.whl`
+1. (Optional) Validate the `tensorflow-neuron` pip whl
+    1. `mkdir ../rundir`
+    1. `cd ../rundir`
+    1. `pip install pytest neuron-cc tensorflow/tensorflow_neuron-*.whl --extra-index-url=https://pip.repos.neuron.amazonaws.com`
+    1. `env NEURON_TF_COMPILE_ONLY=1 pytest --pyargs tensorflow_neuron`, all tests should pass.
+        - If tests are running on `inf1` instances with `aws-neuron-runtime` installed,
+        then you may simply run `pytest --pyargs tensorflow_neuron` and expect all tests passing.
 
 ### `tensorflow_model_server_neuron` binary executable
 We recommend building `tensorflow_model_server_neuron` in docker image
