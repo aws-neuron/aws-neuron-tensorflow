@@ -471,8 +471,8 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     return graph_def
 
 
-def _get_subgraph(node):
-    return _graph_def_to_graph(gdu.get_subgraph_def(node))
+def _get_subgraph(node, volatile=False):
+    return _graph_def_to_graph(gdu.get_subgraph_def(node, volatile=volatile))
 
 
 def compile_subgraphs(graph_def,
@@ -736,7 +736,7 @@ def set_dynamic_batch_size(compiled_graph_def):
     dbs = DynamicBatchSizeHelper()
     subgraph_enable_map = {}
     for node in gdu.get_neuron_nodes(compiled_graph_def):
-        subgraph = _get_subgraph(node)
+        subgraph = _get_subgraph(node, volatile=True)
         input_names = [name.decode() for name in node.attr['input_names'].list.s]
         output_names = [name.decode() for name in node.attr['output_names'].list.s]
         tensor_dynamic_map = {}
@@ -752,7 +752,7 @@ def set_dynamic_batch_size(compiled_graph_def):
         subgraph_enable_map.get(node.name, False) for node in gdu.get_neuron_nodes(compiled_graph_def))
     if dynamic_batch_size:
         for node in gdu.get_neuron_nodes(compiled_graph_def):
-            subgraph = _get_subgraph(node)
+            subgraph = _get_subgraph(node, volatile=True)
             node.attr['input_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'input_names')
             node.attr['output_batch_axis'].list.i[:] = _batch_axis(node, subgraph, 'output_names')
     return compiled_graph_def, dynamic_batch_size

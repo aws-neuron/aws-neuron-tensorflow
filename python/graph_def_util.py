@@ -274,10 +274,32 @@ def get_neuron_nodes(graph_def):
     return [node for node in graph_def.node if node.op == tNeuronOp]
 
 
-def get_subgraph_def(node):
+def get_subgraph_def(node, volatile=False):
     graph_def = graph_pb2.GraphDef()
     graph_def.ParseFromString(node.attr[knGraphDef].s)
+    if volatile:
+        erase_constants(graph_def)
     return graph_def
+
+
+def erase_constants(graph_def):
+    # Destroys the input graph_def! Please don't call it on a graph_def that you'll use later
+    large_const_threshold = 1024
+    for node in graph_def.node:
+        if node.op == 'Const' and node.ByteSize() > large_const_threshold:
+            tensor = node.attr['value'].tensor
+            tensor.tensor_content = b''
+            tensor.bool_val[:] = []
+            tensor.dcomplex_val[:] = []
+            tensor.double_val[:] = []
+            tensor.float_val[:] = []
+            tensor.half_val[:] = []
+            tensor.int64_val[:] = []
+            tensor.int_val[:] = []
+            tensor.scomplex_val[:] = []
+            tensor.string_val[:] = []
+            tensor.uint32_val[:] = []
+            tensor.uint64_val[:] = []
 
 
 def format_tensor_name(tensor_name):
