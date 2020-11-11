@@ -419,6 +419,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     Returns:
         A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
+    original_graph_def = graph_def
     graph = _graph_def_to_graph(graph_def)
     if input_tensors is None:
         input_tensors = {op.outputs[0] for op in graph.get_operations()
@@ -474,15 +475,14 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # add subgraph's control input to `NeuronOp`'s control input
-    all_op_names = {op.name for op in graph.get_operations()}
+    original_node_with_control_inputs = gdu.get_node_with_control_inputs(original_graph_def)
     post_part_node_names = {node.name for node in graph_def.node}
     for node in gdu.get_neuron_nodes(graph_def):
         for sg_node in gdu.get_subgraph_def(node).node:
-            if sg_node.name in all_op_names:
-                op_original = graph.get_operation_by_name(sg_node.name)
-                for control_input in op_original.control_inputs:
-                    if control_input.name in post_part_node_names:
-                        node.input.append('^{}'.format(control_input.name))
+            if sg_node.name in original_node_with_control_inputs:
+                for inp in original_node_with_control_inputs[sg_node.name]:
+                    if inp.lstrip('^') in post_part_node_names and inp not in node.input:
+                        node.input.append(inp)
     return graph_def
 
 

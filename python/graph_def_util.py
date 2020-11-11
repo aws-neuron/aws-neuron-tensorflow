@@ -198,11 +198,7 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     restore_node_names = {node.name for node in restore_nodes}
     remove_node_names.update(
         node.name for node in compiled_graph_def.node if node.name in restore_node_names)
-    original_node_with_control_inputs = {}
-    for node in original_graph_def.node:
-        control_inputs = [inp for inp in node.input if inp.startswith('^')]
-        if control_inputs:
-            original_node_with_control_inputs[node.name] = control_inputs
+    original_node_with_control_inputs = get_node_with_control_inputs(original_graph_def)
     for node in restore_nodes:
         if node.name in original_node_with_control_inputs:
             node.input.extend(original_node_with_control_inputs[node.name])
@@ -308,6 +304,15 @@ def erase_constants(graph_def):
 
 def format_tensor_name(tensor_name):
     return tensor_name.split(':')[0] if tensor_name.endswith(':0') else tensor_name
+
+
+def get_node_with_control_inputs(graph_def):
+    node_with_control_inputs = {}
+    for node in graph_def.node:
+        control_inputs = [inp for inp in node.input if inp.startswith('^')]
+        if control_inputs:
+            node_with_control_inputs[node.name] = control_inputs
+    return node_with_control_inputs
 
 
 def _graph_def_op_index(graph_def_tensor_name):
