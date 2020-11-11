@@ -167,7 +167,7 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
     return graph_def
 
 
-def restore_compiler_failures(compiled_graph_def, graph):
+def restore_compiler_failures(compiled_graph_def, original_graph_def):
     """Restore `NeuronOp`'s that failed to compile
     """
     neuron_op_dict = {node.name: node for node in get_neuron_nodes(compiled_graph_def)}
@@ -198,10 +198,14 @@ def restore_compiler_failures(compiled_graph_def, graph):
     restore_node_names = {node.name for node in restore_nodes}
     remove_node_names.update(
         node.name for node in compiled_graph_def.node if node.name in restore_node_names)
+    original_node_with_control_inputs = {}
+    for node in original_graph_def.node:
+        control_inputs = [inp for inp in node.input if inp.startswith('^')]
+        if control_inputs:
+            original_node_with_control_inputs[node.name] = control_inputs
     for node in restore_nodes:
-        op_original = graph.get_operation_by_name(node.name)
-        for control_input in op_original.control_inputs:
-            node.input.append('^{}'.format(control_input.name))
+        if node.name in original_node_with_control_inputs:
+            node.input.extend(original_node_with_control_inputs[node.name])
     for node in compiled_graph_def.node:
         for idx, name in enumerate(node.input):
             node.input[idx] = gd_tensor_name_map.get(name, name)

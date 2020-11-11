@@ -185,21 +185,32 @@ def inference_graph_from_session(
     with replace_extract_sub_graph():
         graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
             sess, graph_def, list(protected_op_names))
-    graph = _graph_def_to_graph(graph_def)
+    original_graph_def = graph_def
 
     # setup op exclusions
     no_fuse_ops = set() if no_fuse_ops is None else set(no_fuse_ops)
-    control_op_names = [op.name for op in graph.get_operations() if op._control_outputs]
+    control_op_names = [node.name for node in graph_def.node if _has_control_input(node)]
 
     # exclude ops with control outputs
     no_fuse_ops.update(control_op_names)
 
     # exclude ops that are attached to string tensors
-    for op in graph.get_operations():
-        for ts in op.outputs:
-            if ts.dtype == dtypes.string:
-                no_fuse_ops.add(ts.op.name)
-                no_fuse_ops.update(op.name for op in ts.consumers())
+    name_to_consumers = {}
+    for node in graph_def.node:
+        for inp in node.input:
+            input_node_name = inp[:inp.index(':')] if ':' in inp else inp
+            if input_node_name not in name_to_consumers:
+                name_to_consumers[input_node_name] = set()
+            name_to_consumers[input_node_name].add(node.name)
+    for node in graph_def.node:
+        if 'T' in node.attr:
+            if node.attr['T'].type == dtypes.string.as_datatype_enum:
+                no_fuse_ops.add(node.name)
+                no_fuse_ops.update(name_to_consumers.get(node.name, []))
+        if 'dtype' in node.attr:
+            if node.attr['dtype'].type == dtypes.string.as_datatype_enum:
+                no_fuse_ops.add(node.name)
+                no_fuse_ops.update(name_to_consumers.get(node.name, []))
 
     # normalize operators
     graph_def = gdu.normalize_operators(graph_def)
@@ -231,7 +242,7 @@ def inference_graph_from_session(
         compiled_graph_def = mark_batch_axis(compiled_graph_def)
 
     if compiler_recovery:
-        compiled_graph_def = gdu.restore_compiler_failures(compiled_graph_def, graph)
+        compiled_graph_def = gdu.restore_compiler_failures(compiled_graph_def, original_graph_def)
         compiled_graph_def = nchw_to_nhwc(compiled_graph_def)
 
     # try to enable dynamic batch size if possible
@@ -337,6 +348,10 @@ def _output_ops(graph, output_names=None):
                    if all(not ts.consumers() for ts in op.outputs)}
     else:
         return {graph.get_tensor_by_name(name).op for name in output_names}
+
+
+def _has_control_input(node):
+    return any(inp.startswith('^') for inp in node.input)
 
 
 @contextmanager
