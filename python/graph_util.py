@@ -311,10 +311,11 @@ def most_popular_namescope(all_node_names):
 
 def compiled_graph_op_counts(compiled_graph):
     neuron_ops = [op for op in _neuron_ops(compiled_graph)]
-    num_ops_on_neuron = sum(
-        len(_get_subgraph(op.node_def).get_operations()) - len(op.get_attr('input_names'))
-        for op in neuron_ops if op.get_attr('executable')
-    )
+    num_ops_on_neuron = 0
+    for op in neuron_ops:
+        if op.get_attr('executable'):
+            subgraph_def = gdu.get_subgraph_def(op.node_def)
+            num_ops_on_neuron += len(subgraph_def.node) - len(op.get_attr('input_names'))
     num_ops_tfn = len(compiled_graph.get_operations()) + num_ops_on_neuron - len(neuron_ops)
     return max(num_ops_tfn, 0), max(num_ops_on_neuron, 0)
 
