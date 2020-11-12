@@ -46,14 +46,6 @@ class BDistWheelCommand(BDistWheelCommandBase):
         return python, abi, plat
 
 
-if sys.platform == 'linux':
-    PLUGIN_NAME = 'libaws_neuron_plugin.so'
-elif sys.platform == 'darwin':
-    PLUGIN_NAME = 'libaws_neuron_plugin.dylib'
-else:
-    raise NotImplementedError('platform {} is unsupported'.format(sys.platform))
-
-
 setuptools.setup(
     name='tensorflow-neuron',
     version='_VERSION',
@@ -82,7 +74,7 @@ setuptools.setup(
     include_package_data=True,
     packages=setuptools.PEP420PackageFinder.find(),
     package_data={
-        'tensorflow-plugins': [PLUGIN_NAME],
+        'tensorflow-plugins': ['*'],
         'tensorflow_neuron': [
             '../tensorflow.py',
             'LICENSE',
