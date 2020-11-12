@@ -65,6 +65,7 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
     1. `env NEURON_TF_COMPILE_ONLY=1 pytest --pyargs tensorflow_neuron`, all tests should pass.
         - If tests are running on `inf1` instances with `aws-neuron-runtime` installed,
         then you may simply run `pytest --pyargs tensorflow_neuron` and expect all tests passing.
+        - Known issue: if you have `h5py>=3` installed, some Keras related tests may fail due to https://github.com/tensorflow/tensorflow/issues/44467
 
 ### `tensorflow_model_server_neuron` binary executable
 We recommend building `tensorflow_model_server_neuron` in docker image

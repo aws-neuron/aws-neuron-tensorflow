@@ -242,10 +242,10 @@ def inference_graph_from_session(
     with replace_extract_sub_graph():
         graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
             sess, graph_def, list(protected_op_names))
-    graph = _graph_def_to_graph(graph_def)
 
     # strip out large constants
     large_constants = erase_large_constants(graph_def)
+    graph = _graph_def_to_graph(graph_def)
 
     # setup op exclusions
     no_fuse_ops = set() if no_fuse_ops is None else set(no_fuse_ops)
@@ -980,12 +980,11 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
         with open(logfile, 'w') as logfd:
             proc = subprocess.Popen(command, cwd=workdir_path, stdout=logfd, stderr=logfd)
             returncode = _wait_compiler(proc, timeout)
+    io_config_index = command.index('--io-config')
+    with open(os.path.join(workdir_path, 'graph_def.io-config.json'), 'w') as f:
+        f.write(command[io_config_index+1])
     if returncode != 0:
         logging.warning("Failed to fuse subgraph {} with '{}'".format(subgraph_info, subprocess.list2cmdline(command)))
-        if not verbose:
-            io_config_index = command.index('--io-config')
-            with open(os.path.join(workdir_path, 'io-config.json'), 'w') as f:
-                f.write(command[io_config_index+1])
         return None
     return True
 
@@ -1102,6 +1101,13 @@ def _get_shapes(node, names_key, subgraph_shapes, subgraph):
 def nchw_to_nhwc(graph_def):
     """Convert data formats of all Conv2D/MaxPool/AvgPool ops to NCHW and insert transposes
     """
+    func_map = {
+        'Conv2D': nn_ops.conv2d,
+        'MaxPool': nn_ops.max_pool,
+        'AvgPool': nn_ops.avg_pool,
+    }
+    if all(node.op not in func_map for node in graph_def.node):
+        return graph_def
     remove_node_names = set()
     node_rename_map = {}
     graph = _graph_def_to_graph(graph_def)
@@ -1115,11 +1121,6 @@ def nchw_to_nhwc(graph_def):
             return attribute
 
     with graph.as_default():
-        func_map = {
-            'Conv2D': nn_ops.conv2d,
-            'MaxPool': nn_ops.max_pool,
-            'AvgPool': nn_ops.avg_pool,
-        }
         for op in graph.get_operations():
             if op.type in func_map and op.get_attr('data_format') == b'NCHW':
                 if op.type == 'Conv2D':
