@@ -25,7 +25,10 @@ Conceptually, `NeuronOp` is a [gRPC](https://grpc.io/) client based on the
 We recommend [Bazelisk](https://github.com/bazelbuild/bazelisk) (go-version)
 which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
 1. Install [go](https://golang.org/)
-    - On Debian-based OS (e. g., Ubuntu): `sudo apt-get install golang`
+    - On Debian-based OS (e. g., Ubuntu):
+        1. `sudo add-apt-repository -y ppa:longsleep/golang-backports`
+        1. `sudo apt-get update`
+        1. `sudo apt-get install golang`
     - On AmazonLinux2: `sudo yum install golang`
     - On other CentOS-based OS:
         1. `sudo rpm --import https://mirror.go-repo.io/centos/RPM-GPG-KEY-GO-REPO`
@@ -36,16 +39,17 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
     1. `go get github.com/bazelbuild/bazelisk`
     1. `mkdir -p $HOME/bin`
     1. `install $(go env GOPATH)/bin/bazelisk $HOME/bin/bazel`
+    1. `export PATH=$PATH:$HOME/bin`
     1. Verify by running `bazel version`
 
 ## Build procedures
 ### `tensorflow-neuron` pip whl
 1. Install Python3 developer package
-    - On Debian-based OS (e. g., Ubuntu): `sudo apt install python3-dev python3-pip`
+    - On Debian-based OS (e. g., Ubuntu): `sudo apt install python3-dev python3-pip python3-venv`
     - On AmazonLinux2 or other CentOS-based OS: `sudo yum install python3-devel python3-pip`
 1. Setup build `venv` and install dependencies
     1. `python3 -m venv env_tfn`
-    1. `source activate ./env_tfn/bin/activate`
+    1. `source ./env_tfn/bin/activate`
     1. `pip install pip numpy wheel`
     1. `pip install keras_preprocessing --no-deps`
 1. Clone `tensorflow` source code and setup `tensorflow-neuron` and Neuron runtime `proto` directories
@@ -54,6 +58,7 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
     1. `git clone https://github.com/aws/aws-neuron-runtime-proto ./tensorflow/tensorflow/neuron/runtime/proto`
 1. Build `tensorflow-neuron` pip whl
     1. `cd tensorflow`
+    1. `git checkout refs/tags/v1.15.4`
     1. `USE_BAZEL_VERSION=0.26.1 ./configure`
     1. `USE_BAZEL_VERSION=0.26.1 bazel build --incompatible_remap_main_repo --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0" //tensorflow/neuron:build_pip_package`
     1. `./bazel-bin/tensorflow/neuron/build_pip_package ./`
@@ -70,7 +75,8 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
 ### `tensorflow_model_server_neuron` binary executable
 We recommend building `tensorflow_model_server_neuron` in docker image
 `tensorflow/serving:1.15.0-devel` which includes the source code of
-tf-serving 1.15.0 and its entire build dependency environment.
+tf-serving 1.15.0 and its entire build dependency environment. To install docker, please refer to
+https://docs.docker.com/engine/install/.
 1. `docker run -it --rm -v $(pwd):/host_workspace tensorflow/serving:1.15.0-devel bash`
     - This step should let you drop into `/tensorflow-serving` which has the same content as
     https://github.com/tensorflow/serving/tree/1.15.0.
