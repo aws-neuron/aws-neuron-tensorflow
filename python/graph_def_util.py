@@ -215,6 +215,15 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     return graph_def
 
 
+def erase_constants_from_compiled_subgraphs(compiled_graph_def):
+    for node in get_neuron_nodes(compiled_graph_def):
+        if node.attr[knExecutable].s:
+            subgraph_def = get_subgraph_def(node)
+            erase_constants(subgraph_def)
+            node.attr[knGraphDef].s = subgraph_def.SerializeToString()
+    return compiled_graph_def
+
+
 def set_execution_plan(compiled_graph_def):
     # scan to get num neuroncores and total number of bytes of input and output tensors
     default_io_buffer_size = 128 * 1024 * 1024
