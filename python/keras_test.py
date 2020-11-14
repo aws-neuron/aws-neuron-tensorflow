@@ -12,11 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
-import os
 import shutil
 import unittest
 import numpy as np
@@ -47,9 +43,9 @@ class TestKeras(unittest.TestCase):
         # Compile using Neuron
         compiled_model_dir = './keras_resnet50_float16_neuron'
         shutil.rmtree(compiled_model_dir, ignore_errors=True)
-        try:
-            compile_output = tfn.saved_model.compile(
-                model_dir, compiled_model_dir,
-                model_feed_dict={'input' : np.random.rand(1, 224, 224, 3)})
-        except ValueError as ve:
-            assert 'half is not in the list of allowed values' in str(ve)
+        compile_output = tfn.saved_model.compile(
+            model_dir, compiled_model_dir,
+            model_feed_dict={'input' : np.random.rand(1, 224, 224, 3)})
+        with tf.Session(graph=tf.Graph()) as sess:
+            tf.saved_model.loader.load(sess, ['serve'], compiled_model_dir)
+            _assert_compiler_success(sess.graph)

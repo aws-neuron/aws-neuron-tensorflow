@@ -51,6 +51,8 @@ def normalize_operators(graph_def):
         if node.op == 'StopGradient':
             node.op = 'Identity'
         elif node.op == 'FusedBatchNormV3':  # can be replace by FusedBatchNorm for inference
+            if node.attr['T'].type != dtypes.float32.as_datatype_enum:
+                continue
             found_training_consumer = False
             for idx in range(3, 6):
                 gd_tensor_name = '{}:{}'.format(node.name, idx)

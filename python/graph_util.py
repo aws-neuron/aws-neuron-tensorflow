@@ -44,7 +44,6 @@ from tensorflow.python.framework import graph_util_impl as tf_graph_util
 from tensorflow.python.framework.tensor_shape import TensorShape, dimension_value
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
-from tensorflow.python.training import saver
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
@@ -396,8 +395,7 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
     rewriter_config.optimizers.append('aws_neuron_static_shape_inference')
 
     # create meta_graph_def and run grappler passes
-    graph = _graph_def_to_graph(graph_def)
-    meta_graph_def = saver.export_meta_graph(graph_def=graph_def, graph=graph)
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
     value = meta_graph_def.collection_def[ops.GraphKeys.TRAIN_OP].node_list.value
     value.extend(getattr(key, 'name', key) for key in shape_feed_dict)
     value.extend(getattr(ts, 'name', ts) for ts in output_tensors)
@@ -426,7 +424,6 @@ def whitelist_partition(graph_def, signature_def,
         A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
     original_graph_def = graph_def
-    graph = _graph_def_to_graph(graph_def)
     if op_whitelist is None:
         neuron_cc = find_neuron_cc()
         if neuron_cc is None:
@@ -467,7 +464,7 @@ def whitelist_partition(graph_def, signature_def,
     param_map['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
 
     # create meta_graph_def and run grappler passes
-    meta_graph_def = saver.export_meta_graph(graph_def=graph_def, graph=graph)
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
     meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
