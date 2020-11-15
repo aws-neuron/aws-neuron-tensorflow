@@ -5,7 +5,7 @@ py_library(
     name = "neuron_py",
     srcs = [
         "__init__.py",
-        "api/v1/__init__.py",
+        "api/__init__.py",
         "tensorflow.py",
     ],
     deps = [

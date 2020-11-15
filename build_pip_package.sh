@@ -62,7 +62,9 @@ function main() {
     mv ${TMPDIR}/tensorflow_neuron/python/libaws_neuron_plugin.* "${TMPDIR}/tensorflow-plugins"
     mv ${TMPDIR}/tensorflow_neuron/tensorflow.py "${TMPDIR}/"
     mkdir -p "${TMPDIR}/tensorflow_core/neuron/"
-    cp "${TMPDIR}/tensorflow_neuron/api/v1/__init__.py" "${TMPDIR}/tensorflow_core/neuron/"
+    cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow_core/neuron/"
+    mkdir -p "${TMPDIR}/tensorflow/neuron/"
+    cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow/neuron/"
     sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
 
     # Before we leave the top-level directory, make sure we know how to
