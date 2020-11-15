@@ -406,7 +406,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 return tf.matmul(v, broadcast_w, name='broadcast_' + _name)
 
             inputs_sum = tf.reduce_sum(inputs, axis=[-1], keepdims=True, name='sum')
-            factor = 1.0 / (num_channels.value*10)
+            factor = 1.0 / (int(num_channels) * 10)
             mean = tf.multiply(inputs_sum, -factor, name='mean')
             mean_b = broadcast_c(mean, 'b1')
             residuals = tf.add(inputs, mean_b, name='residuals')
