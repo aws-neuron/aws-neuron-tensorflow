@@ -20,7 +20,8 @@ import time
 from concurrent import futures
 from distutils import spawn
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+from tensorflow.core.framework.tensor_pb2 import TensorProto
 import tensorflow.neuron as tfn
 
 
@@ -52,7 +53,7 @@ class TestMeasurePerformance(unittest.TestCase):
                 pred(model_feed_dict)
 
         max_workers = 4
-        pred_list = [tf.contrib.predictor.from_saved_model(export_dir_test) for _ in range(max_workers)]
+        pred_list = [tfn.predictor.from_saved_model(export_dir_test) for _ in range(max_workers)]
         model_feed_dict = {ph.name: np.random.rand(size, size)}
         with tfn.measure_performance():
             executor = futures.ThreadPoolExecutor(max_workers=max_workers)
@@ -76,7 +77,7 @@ class TestMeasurePerformance(unittest.TestCase):
             for _ in range(1000):
                 pred(model_feed_dict)
 
-        pred = tf.contrib.predictor.from_saved_model(export_dir_test)
+        pred = tfn.predictor.from_saved_model(export_dir_test)
         model_feed_dict = {ph.name: np.random.rand(size, size)}
         with tfn.measure_performance(func=pred) as pred:
             one_thread(pred, model_feed_dict)
@@ -111,10 +112,14 @@ class TestMeasurePerformanceServing(unittest.TestCase):
         channel = grpc.insecure_channel('localhost:{}'.format(self.port))
         stub = prediction_service_pb2_grpc.PredictionServiceStub(channel)
         data = np.random.rand(self.size, self.size).astype(np.float32)
-        data = tf.contrib.util.make_tensor_proto(data, shape=data.shape)
+        tensor_proto = TensorProto()
+        tensor_proto.dtype = tf.float32.as_datatype_enum
+        for size in data.shape:
+            tensor_proto.tensor_shape.dim.add().size = size
+        tensor_proto.tensor_content = data.tobytes()
         request = predict_pb2.PredictRequest()
         request.model_spec.name = 'default'
-        request.inputs['input'].CopyFrom(data)
+        request.inputs['input'].CopyFrom(tensor_proto)
         with tfn.measure_performance():
             for _ in range(1000):
                 result = stub.Predict(request).outputs
