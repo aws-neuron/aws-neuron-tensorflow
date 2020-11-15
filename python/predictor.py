@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 import os
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import gfile
 from tensorflow.python.framework import ops
@@ -34,7 +33,6 @@ DEFAULT_TAGS = 'serve'
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.predictor.from_saved_model')
 def from_saved_model(export_dir, signature_def_key=None, signature_def=None,
                      input_names=None, output_names=None, tags=None, graph=None, config=None):
   """Constructs a `Predictor` from a `SavedModel` on disk.
@@ -78,7 +76,6 @@ def from_saved_model(export_dir, signature_def_key=None, signature_def=None,
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.predictor.from_graph_def')
 def from_graph_def(export_dir, signature_def_key=None, signature_def=None,
                    input_names=None, output_names=None, tags=None, graph=None, config=None):
   """Constructs a `Predictor` from a serialized `GraphDef` protocol buffer

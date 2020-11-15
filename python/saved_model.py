@@ -12,16 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import sys
 import os
 import argparse
 import json
 import numpy
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
@@ -44,7 +40,6 @@ from tensorflow.neuron.python.graph_def_util import tNeuronOp
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.saved_model.simple_save')
 def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch_size=1, **kwargs):
     """Convenience function to build a `SavedModel` suitable for serving.
     Args:
@@ -100,7 +95,6 @@ def _infer_input_shapes(input_tensors, batch_size):
     return shape_feed_dict
 
 
-@tf_export('neuron.saved_model.compile')
 def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                model_shape_feed_dict=None, model_feed_dict=None,
                                tags=None, signature_def_key=None, strip_default_attrs=False,
@@ -252,7 +246,6 @@ def _get_signature_def(meta_graph, signature_def_key):
     return signature_def_key, signature_def_map[signature_def_key]
 
 
-@tf_export('neuron.saved_model.set_core_binding')
 def set_core_binding(model_dir, index_list):
     saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
     default_model_config = [-1, -1, -1, 10, -1]
@@ -268,7 +261,6 @@ def set_core_binding(model_dir, index_list):
         f.write(saved_model_pb.SerializeToString())
 
 
-@tf_export('neuron.saved_model.inspect_core_binding')
 def inspect_core_binding(model_dir):
     saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
     with logging_show_info():
@@ -296,80 +288,6 @@ def _saved_model_pb_neuron_nodes(model_dir):
     return saved_model_pb, neuron_node_list
 
 
-def convert_to_inference_model_cli(args):
-    if args.inputs or args.input_exprs or args.input_examples:
-        from tensorflow.python.tools.saved_model_cli import load_inputs_from_input_arg_string
-        model_feed_dict = load_inputs_from_input_arg_string(
-            args.inputs, args.input_exprs, args.input_examples)
-        kwargs = dict(model_feed_dict=model_feed_dict)
-    elif args.input_shape_dict:
-        kwargs = dict(model_shape_feed_dict=json.loads(args.input_shape_dict))
-    else:
-        kwargs = dict(batch_size=args.batch_size)
-    convert_to_inference_model(
-        args.dir, args.output_dir, tags=args.tag_set.split(','),
-        signature_def_key=args.signature_def,
-        compiler_workdir=args.compiler_workdir,
-        minimum_segment_size=args.minimum_segment_size, **kwargs)
-
-
-def register_convert_parser(convert_subparsers):
-    parser = convert_subparsers.add_parser(
-        'neuron',
-        description='Convert the SavedModel with Tensorflow-Neuron integration',
-        formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument(
-        '--signature_def',
-        type=str,
-        default=None,
-        metavar='SIGNATURE_DEF_KEY',
-        help='key of SignatureDef to run')
-    parser.add_argument(
-        '--batch_size',
-        type=int,
-        default=1,
-        help='optimal size for the input batch')
-    parser.add_argument(
-        '--minimum_segment_size',
-        type=int,
-        default=2,
-        help=('the minimum number of nodes required for a subgraph to be replaced'
-              'in a NeuronOp node'))
-    parser.add_argument(
-        '--input_shape_dict',
-        default=None,
-        help='Serialized dictionary for inputs names and shapes (JSON).')
-    parser.add_argument('--compiler_workdir', help='path to compiler workdir')
-    msg = ('Loading inputs from files, in the format of \'<input_key>=<filename>,'
-           ' or \'<input_key>=<filename>[<variable_name>]\', separated by \';\'.'
-           ' The file format can only be from .npy, .npz or pickle.')
-    parser.add_argument('--inputs', type=str, default='', help=msg)
-    msg = ('Specifying inputs by python expressions, in the format of'
-           ' "<input_key>=\'<python expression>\'", separated by \';\'. '
-           'numpy module is available as \'np\'. '
-           'Will override duplicate input keys from --inputs option.')
-    parser.add_argument('--input_exprs', type=str, default='', help=msg)
-    msg = (
-        'Specifying tf.Example inputs as list of dictionaries. For example: '
-        '<input_key>=[{feature0:value_list,feature1:value_list}]. Use ";" to '
-        'separate input keys. Will override duplicate input keys from --inputs '
-        'and --input_exprs option.')
-    parser.add_argument('--input_examples', type=str, default='', help=msg)
-    parser.set_defaults(func=convert_to_inference_model_cli)
-
-
-if sys.argv[0].endswith('saved_model_cli'):
-    def convert_add_subparsers(*args, **kwargs):
-        parser = add_subparsers(*args, **kwargs)
-        if kwargs.get('title', None) == 'conversion methods':
-            register_convert_parser(parser)
-        return parser
-    if argparse.ArgumentParser.add_subparsers is not convert_add_subparsers:
-        add_subparsers = argparse.ArgumentParser.add_subparsers
-        argparse.ArgumentParser.add_subparsers = convert_add_subparsers
-
-
-@tf_export('neuron.saved_model.profile')
 def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=None,
             model_feed_dict=None, tags=None, signature_def_key=None, config=None,
             num_warmup_runs=1, op_log=None, cmd='scope', options=None):

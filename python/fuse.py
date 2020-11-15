@@ -22,7 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import wraps, partial
 from contextlib import contextmanager
 import tensorflow
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
@@ -48,7 +47,6 @@ _neuron_grad_func_set = set()
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.fuse')
 def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout=None,
          verbose=0, workdir=None, input_shapes=None, output_shapes=None,
          batch_size=None, dynamic_batch_size=False, executable=b'', grad_func=None):

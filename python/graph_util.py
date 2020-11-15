@@ -33,7 +33,6 @@ import pkg_resources
 from distutils import spawn
 from contextlib import contextmanager
 import numpy
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
@@ -54,7 +53,6 @@ from tensorflow.neuron.python import graph_def_util as gdu
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.graph_util.inference_graph_from_session')
 def inference_graph_from_session(
         sess=None, input_tensors=None, output_tensors=None, signature_def=None,
         shape_feed_dict=None, feed_dict=None, dynamic_batch_size=False,
