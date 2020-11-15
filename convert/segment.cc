@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/compiler/tf2tensorrt/segment/segment.h"
+#include "segment.h"
 
 #include <queue>
 #include <set>
@@ -21,7 +21,7 @@ limitations under the License.
 #include <vector>
 
 #include "absl/strings/str_cat.h"
-#include "tensorflow/compiler/tf2tensorrt/segment/union_find.h"
+#include "union_find.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/graph_constructor.h"
@@ -453,13 +453,13 @@ Status SegmentGraph(const Graph* tf_graph,
   }
   string msg = StrCat(
       "There are ", num_unsupported_ops, " ops of ", unsupported_ops.size(),
-      " different types in the graph that", " are not converted to TensorRT: ");
+      " different types in the graph that", " are not compiled by neuron-cc: ");
   for (const auto& elem : unsupported_ops) {
     StrAppend(&msg, elem, ", ");
   }
   LOG(INFO) << msg << "(For more information see "
-            << "https://docs.nvidia.com/deeplearning"
-            << "/frameworks/tf-trt-user-guide/index.html#supported-ops).";
+            << "https://github.com/aws/aws-neuron-sdk"
+            << "/blob/master/release-notes/neuron-cc-ops/neuron-cc-ops-tensorflow.md).";
 
   // The segmentation algorithm below visits nodes in reverse topological order
   // and attempts to merge nodes along output edges. That means that subgraphs
