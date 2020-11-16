@@ -9,9 +9,6 @@ cc_library(
     deps = [
         ":segment",
         "//tensorflow/neuron/runtime:macros",
-        "//tensorflow/core:core_cpu_headers_lib",
-        "//tensorflow/core:framework_headers_lib",
-        "//tensorflow/core:lib",
     ],
 )
 
@@ -26,8 +23,6 @@ cc_library(
     ],
     copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
-        "//tensorflow/core:core",
-        "//tensorflow/core:protos_all_cc",
-        "@com_google_protobuf//:protobuf_headers",
+        "//tensorflow/core:core_cpu",
     ],
 )
