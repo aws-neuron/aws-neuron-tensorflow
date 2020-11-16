@@ -295,63 +295,6 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
-    def test_while_loop(self):
-        np.random.seed(_RANDOM_SEED)
-        kernel0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
-        maximum_iterations = 5
-        with tf.Session(graph=tf.Graph()) as sess:
-            input0 = tf.placeholder(tf.float16, shape=[128, 128], name='input0')
-
-            def body(input0):
-                kernel0 = tf.constant(kernel0_np, name='kernel0')
-                matmul0 = tf.matmul(input0, kernel0, transpose_a=True, name='matmul0')
-                output0 = tf.nn.relu(matmul0, name='output0')
-                return output0
-
-            output0 = tf.while_loop(lambda x: True, body, [input0], maximum_iterations=maximum_iterations)
-            input0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
-            feed_dict = {input0.name: input0_np}
-            result_np = input0_np
-            for _ in range(maximum_iterations):
-                result_np = np.matmul(result_np.T, kernel0_np)
-                result_np = np.maximum(result_np, 0.0)
-            result_tf = sess.run(output0, feed_dict)
-            np.testing.assert_allclose(result_np, result_tf, rtol=1e-2, atol=1e-4)
-            infer_graph = graph_util.inference_graph_from_session(
-                sess, compiler_workdir='./workdir', output_tensors={output0})
-        _assert_compiler_success(infer_graph)
-        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            with tf.Session(graph=infer_graph) as sess:
-                result_neuron = sess.run(output0.name, feed_dict=feed_dict)
-                np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-4)
-
-    def test_while_parloop(self):
-        np.random.seed(_RANDOM_SEED)
-        kernel0_np = np.random.uniform(-0.1, 0.1, size=[8, 8]).astype(np.float16)
-        with tf.Session(graph=tf.Graph()) as sess:
-            input0 = tf.placeholder(tf.float16, shape=[8, 8], name='input0')
-
-            def body(input1):
-                kernel0 = tf.constant(kernel0_np, name='kernel0')
-                matmul0 = tf.matmul(input0, kernel0, name='matmul0')
-                output0 = tf.nn.relu(matmul0, name='output0')
-                return output0
-
-            output0 = tf.while_loop(lambda x: True, body, [input0], maximum_iterations=6,
-                                    parallel_iterations=16, name='while')
-            input0_np = np.random.uniform(-1.0, 1.0, size=[8, 8]).astype(np.float16)
-            feed_dict = {input0.name: input0_np}
-            result_tf_list = [sess.run(output0, feed_dict) for _ in range(2)]
-            infer_graph = graph_util.inference_graph_from_session(
-                sess, compiler_workdir='./workdir', output_tensors={output0},
-                no_fuse_ops={'while/kernel0'})
-        _assert_compiler_success(infer_graph)
-        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            with tf.Session(graph=infer_graph) as sess:
-                result_neuron_list = [sess.run(output0.name, feed_dict) for _ in range(2)]
-            for result_neuron, result_tf in zip(result_neuron_list, result_tf_list):
-                np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-5)
-
     def test_add_with_shape(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
@@ -1193,36 +1136,6 @@ class TestLargeIO(unittest.TestCase):
 
 
 class TestShapeInference(unittest.TestCase):
-
-    def test_with_inputs_while_loop(self):
-        np.random.seed(_RANDOM_SEED)
-        kernel0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
-        maximum_iterations = 5
-        with tf.Session(graph=tf.Graph()) as sess:
-            input0 = tf.placeholder(tf.float16, shape=[128, 128], name='input0')
-
-            def body(input0):
-                kernel0 = tf.constant(kernel0_np, name='kernel0')
-                matmul0 = tf.matmul(input0, kernel0, transpose_a=True, name='matmul0')
-                output0 = tf.nn.relu(matmul0, name='output0')
-                return output0
-
-            output0 = tf.while_loop(lambda x: True, body, [input0], maximum_iterations=maximum_iterations)
-            input0_np = np.random.uniform(-0.1, 0.1, size=[128, 128]).astype(np.float16)
-            feed_dict = {input0.name: input0_np}
-            result_np = input0_np
-            for _ in range(maximum_iterations):
-                result_np = np.matmul(result_np.T, kernel0_np)
-                result_np = np.maximum(result_np, 0.0)
-            result_tf = sess.run(output0, feed_dict)
-            np.testing.assert_allclose(result_np, result_tf, rtol=1e-2, atol=1e-4)
-            infer_graph = graph_util.inference_graph_from_session(
-                sess, compiler_workdir='./workdir', output_tensors={output0}, feed_dict=feed_dict)
-        _assert_compiler_success(infer_graph)
-        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            with tf.Session(graph=infer_graph) as sess:
-                result_neuron = sess.run(output0.name, feed_dict=feed_dict)
-                np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-4)
 
     def test_no_inputs_simple(self):
         np.random.seed(_RANDOM_SEED)
