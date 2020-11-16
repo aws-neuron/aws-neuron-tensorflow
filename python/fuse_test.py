@@ -15,11 +15,10 @@
 import os
 import sys
 import subprocess
-import unittest
-import pkg_resources
 import numpy as np
 import tensorflow as tf
 from tensorflow.neuron import fuse
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213
@@ -40,7 +39,7 @@ def network_neuron(input0, input1, kernel0, kernel1):
     return network_body(input0, input1, kernel0, kernel1)
 
 
-class TestFuse(unittest.TestCase):
+class TestFuse(TestV1Only):
 
     def test_simple(self):
         relu0, sigmoid0 = self._body_fuse(1)

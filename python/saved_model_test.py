@@ -21,13 +21,14 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
 from tensorflow.python.saved_model.saved_model import signature_constants
+from tensorflow.neuron.python.unittest_base import TestV1Only
 from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
 
 
 _RANDOM_SEED = 15213
 
 
-class TestSimpleSave(unittest.TestCase):
+class TestSimpleSave(TestV1Only):
 
     def test_simple(self):
         export_dir_ref = './simple_save_ref'
@@ -72,7 +73,7 @@ class TestSimpleSave(unittest.TestCase):
                 np.testing.assert_allclose(result_test[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
 
-class TestConvertToInferenceModel(unittest.TestCase):
+class TestConvertToInferenceModel(TestV1Only):
 
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
@@ -457,7 +458,7 @@ class TestConvertToInferenceModel(unittest.TestCase):
             np.testing.assert_allclose(result_neuron['scores'], result_ref['scores'], rtol=1e-2, atol=1e-3)
 
 
-class TestProfile(unittest.TestCase):
+class TestProfile(TestV1Only):
 
     def test_simple(self):
         export_dir = './simple_save_profile'
@@ -484,7 +485,7 @@ class TestProfile(unittest.TestCase):
         tfn.saved_model.profile(export_dir)
 
 
-class TestCoreBinding(unittest.TestCase):
+class TestCoreBinding(TestV1Only):
 
     def test_set(self):
         model_dir = self._gen_saved_model()

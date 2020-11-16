@@ -18,12 +18,13 @@ import unittest
 import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.neuron.python import graph_util
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213
 
 
-class TestInferenceGraphFromSession(unittest.TestCase):
+class TestInferenceGraphFromSession(TestV1Only):
 
     def test_while_loop(self):
         np.random.seed(_RANDOM_SEED)
@@ -83,7 +84,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                 np.testing.assert_allclose(result_neuron, result_tf, rtol=1e-2, atol=1e-5)
 
 
-class TestShapeInference(unittest.TestCase):
+class TestShapeInference(TestV1Only):
 
     def test_with_inputs_while_loop(self):
         np.random.seed(_RANDOM_SEED)

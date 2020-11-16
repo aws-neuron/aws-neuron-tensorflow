@@ -22,6 +22,7 @@ import tensorflow.compat.v1 as v1
 import tensorflow.neuron as tfn
 import pdb
 import os
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
 #each number represents the number of random 
@@ -74,7 +75,7 @@ filterSizes = filterSizes[0:NUM_FILTERS]
 #help assert_allclose pass
 initializer = v1.keras.initializers.RandomNormal(stddev=.001)
 
-class TestKerasTF(unittest.TestCase):
+class TestKerasTF(TestV1Only):
     def setUp(self):
         #this one will be used for np rand functions
         self.random_seed = 7051994

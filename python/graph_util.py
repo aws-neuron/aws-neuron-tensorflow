@@ -29,7 +29,6 @@ import subprocess
 import shlex
 import collections
 import itertools
-import pkg_resources
 from distutils import spawn
 from contextlib import contextmanager
 import numpy

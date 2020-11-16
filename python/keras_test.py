@@ -14,19 +14,19 @@
 # ==============================================================================
 
 import shutil
-import unittest
 import numpy as np
 import tensorflow as tf
 import tensorflow.compat.v1.keras as keras
 from tensorflow.compat.v1.keras.applications.resnet50 import ResNet50
 import tensorflow.neuron as tfn
+from tensorflow.neuron.python.unittest_base import TestV1Only
 from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
 
 
 _RANDOM_SEED = 15213
 
 
-class TestKeras(unittest.TestCase):
+class TestKeras(TestV1Only):
 
     def test_keras_resnet50_float16_compile(self):
         # Instantiate Keras ResNet50 model

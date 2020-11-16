@@ -103,6 +103,7 @@ py_library(
         "performance_test.py",
         "op_register_test.py",
         "tfv1_keras_test.py",
+        "unittest_base.py",
     ],
     deps = [
         ":graph_util_py",
