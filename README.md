@@ -50,7 +50,8 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
 1. Setup build `venv` and install dependencies
     1. `python3 -m venv env_tfn`
     1. `source ./env_tfn/bin/activate`
-    1. `pip install pip numpy wheel`
+    1. `pip install pip -U`
+    1. `pip install numpy==1.18.5 wheel six`
     1. `pip install keras_preprocessing --no-deps`
 1. Clone `tensorflow` source code and setup `tensorflow-neuron` and Neuron runtime `proto` directories
     1. `git clone https://github.com/tensorflow/tensorflow.git -b v1.15.4 tensorflow`
@@ -66,14 +67,15 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
 1. (Optional) Validate the `tensorflow-neuron` pip whl
     1. `mkdir ../rundir`
     1. `cd ../rundir`
-    1. `pip install pytest neuron-cc tensorflow/tensorflow_neuron-*.whl --extra-index-url=https://pip.repos.neuron.amazonaws.com`
+    1. `pip install pytest`
+    1. `pip install neuron-cc ../tensorflow/tensorflow_neuron-*.whl --extra-index-url=https://pip.repos.neuron.amazonaws.com`
     1. `env NEURON_TF_COMPILE_ONLY=1 pytest --pyargs tensorflow_neuron`, all tests should pass.
         - If tests are running on `inf1` instances with `aws-neuron-runtime` installed,
         then you may simply run `pytest --pyargs tensorflow_neuron` and expect all tests passing.
         - Known issue: if you have `h5py>=3` installed, some Keras related tests may fail due to https://github.com/tensorflow/tensorflow/issues/44467
 
 ### `tensorflow_model_server_neuron` binary executable
-We recommend building `tensorflow_model_server_neuron` in docker image
+We recommend building and running `tensorflow_model_server_neuron` on docker image
 `tensorflow/serving:1.15.0-devel` which includes the source code of
 tf-serving 1.15.0 and its entire build dependency environment. To install docker, please refer to
 https://docs.docker.com/engine/install/.
@@ -92,6 +94,5 @@ https://docs.docker.com/engine/install/.
     `tensorflow_serving/model_servers/BUILD` to let `SUPPORTED_TENSORFLOW_OPS` include
     Bazel target `"//tensorflow_serving/neuron/runtime:all_ops"`.
 1. `bazel build //tensorflow_serving/model_servers:tensorflow_model_server`
-1. `cp bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server /host_workspace/tensorflow_model_server_neuron`
-1. Get out of Docker container by `exit`
+1. `install bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server ./tensorflow_model_server_neuron`
 1. Verify by running `./tensorflow_model_server_neuron --help`
