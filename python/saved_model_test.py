@@ -461,6 +461,7 @@ class TestConvertToInferenceModel(TestV1Only):
 class TestProfile(TestV1Only):
 
     def test_simple(self):
+        np.random.seed(_RANDOM_SEED)
         export_dir = './simple_save_profile'
         tags = [tf.saved_model.tag_constants.SERVING]
         with tf.Session(graph=tf.Graph()) as sess:
@@ -482,7 +483,8 @@ class TestProfile(TestV1Only):
             # Save the current session using tensorflow's simple_save() method
             shutil.rmtree(export_dir, ignore_errors=True)
             tf.saved_model.simple_save(sess, export_dir=export_dir, inputs=inputs, outputs=outputs)
-        tfn.saved_model.profile(export_dir)
+        model_feed_dict = {'x0': np.random.rand(1, 2, 2, 3), 'x1': np.random.rand(1, 2, 2, 3)}
+        tfn.saved_model.profile(export_dir, model_feed_dict=model_feed_dict)
 
 
 class TestCoreBinding(TestV1Only):

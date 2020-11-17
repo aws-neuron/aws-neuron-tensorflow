@@ -594,6 +594,30 @@ class TestDynamicBatchSize(unittest.TestCase):
                     for res_neuron, res_ref in zip(result_neuron, result_ref):
                         np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
+    def test_concat_tensor_content(self):
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [None, 3], name='input0')
+            matmul0 = tf.matmul(input0, np.random.uniform(-1, 1, size=[3, 3]).astype(np.float16), name='matmul0')
+            relu0 = tf.nn.relu(matmul0, name='relu0')
+            matmul1 = tf.matmul(input0, np.random.uniform(-1, 1, size=[3, 3]).astype(np.float16), name='matmul1')
+            relu1 = tf.nn.relu(matmul1, name='relu1')
+            concat0 = tf.concat([matmul0, matmul1], axis=-2, name='concat0')
+            feed_dict_compile = {
+                'input0:0': np.random.uniform(-1, 1, size=[1, 3]).astype(np.float16),
+            }
+            result_names = ['concat0:0']
+            graph_def = sess.graph.as_graph_def()
+        tensor_proto = graph_def.node[7].attr['value'].tensor
+        tensor_proto.tensor_content = np.array([-2], np.int32).tobytes()
+        tensor_proto.int_val.pop()
+        with tf.Session(graph=tf.Graph()) as sess:
+            tf.import_graph_def(graph_def, name='')
+            infer_graph = graph_util.inference_graph_from_session(
+                sess, op_whitelist={'MatMul', 'Const', 'Relu', 'ConcatV2'},
+                feed_dict=feed_dict_compile, output_tensors=result_names)
+        _assert_compiler_success(infer_graph)
+        assert infer_graph.get_operations()[-2].get_attr('input_batch_axis') == [-1]
+
 
 class TestSpecialOperator(unittest.TestCase):
 

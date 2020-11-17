@@ -12,9 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import sys
 import os
@@ -31,7 +28,6 @@ import collections
 import itertools
 from distutils import spawn
 from contextlib import contextmanager
-import numpy
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
@@ -166,7 +162,9 @@ def inference_graph_from_session(
         protected_op_names.update(sess.graph.get_tensor_by_name(name).op.name
                                   for name in feed_dict.keys())
         if shape_feed_dict is None:
-            shape_feed_dict = {key: numpy.asarray(val).shape for key, val in feed_dict.items()}
+            key_dict = {key: key for key in feed_dict}
+            evaluated_feed_dict = sess.run(key_dict, feed_dict)
+            shape_feed_dict = {key: value.shape for key, value in evaluated_feed_dict.items()}
     if shape_feed_dict is not None:
         protected_op_names.update(sess.graph.get_tensor_by_name(name).op.name
                                   for name in shape_feed_dict.keys())
@@ -820,6 +818,11 @@ class DynamicBatchSizeHelper:
             axis_op = op.inputs[-1].op
             if axis_op.type == 'Const':
                 axis_list = _get_int32_values(axis_op)
+                if any(axis < 0 for axis in axis_list):
+                    rank = op.inputs[0].shape.rank
+                    if rank is None:
+                        return [], []
+                    axis_list = [axis if axis >= 0 else (axis + rank) for axis in axis_list]
                 if axis_list and 0 not in axis_list:
                     return list(op.inputs[:-1]), op.outputs
         elif op.type == 'ExpandDims':
@@ -853,11 +856,16 @@ class DynamicBatchSizeHelper:
 
 
 def _get_int32_values(const_op):
-    tensor_def = const_op.node_def.attr['value'].tensor
-    dtype = dtypes._INTERN_TABLE[tensor_def.dtype]
+    tensor_proto = const_op.node_def.attr['value'].tensor
+    dtype = dtypes._INTERN_TABLE[tensor_proto.dtype]
     if dtype is not dtypes.int32:
         return []
-    if tensor_def.tensor_content:
-        return list(numpy.frombuffer(tensor_def.tensor_content, dtype=dtype.as_numpy_dtype))
+    content = tensor_proto.tensor_content
+    if content:
+        int_val = []
+        for start in range(0, len(content), dtype.size):
+            encoded_int = content[start:start+dtype.size]
+            int_val.append(int.from_bytes(encoded_int, byteorder=sys.byteorder, signed=True))
+        return int_val
     else:
-        return tensor_def.int_val
+        return tensor_proto.int_val

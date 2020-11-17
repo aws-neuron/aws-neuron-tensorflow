@@ -17,7 +17,6 @@ import sys
 import os
 import argparse
 import json
-import numpy
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
@@ -288,8 +287,8 @@ def _saved_model_pb_neuron_nodes(model_dir):
     return saved_model_pb, neuron_node_list
 
 
-def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=None,
-            model_feed_dict=None, tags=None, signature_def_key=None, config=None,
+def profile(model_dir, model_feed_dict=None, timeline_json=None,
+            tags=None, signature_def_key=None, config=None,
             num_warmup_runs=1, op_log=None, cmd='scope', options=None):
     """Run tensorflow profiler on a `SavedModel`.
 
@@ -297,11 +296,6 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
         model_dir: The path of the `SavedModel`.
         timeline_json: The path to which a 'timeline' json tracing will be saved.
             This json can be visualized using chrome://tracing.
-        batch_size: Positive integer representing batch size used in inference.
-            Defaults to 1.
-        model_shape_feed_dict: Dictionary {str: list} used for creating input data
-            from tensor shapes. Keys should match model input names and values are lists
-            of positive integers representing model input tensor shapes.
         model_feed_dict: Dictionary {str: numpy.array} used for inference.
             Useful for inferring tensor shapes. Keys should match model input names
             and values are numpy arrays that can be fed as inputs to the `SavedModel`.
@@ -336,15 +330,6 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
                   for name, ts in signature_def.inputs.items()}
         outputs = {name: sess.graph.get_tensor_by_name(ts.name)
                    for name, ts in signature_def.outputs.items()}
-        if model_feed_dict is None:
-            model_feed_dict = {}
-            for name, tensor in inputs.items():
-                if model_shape_feed_dict is None:
-                    shape = tensor.shape.as_list()
-                    shape[0] = batch_size
-                else:
-                    shape = json.loads(model_shape_feed_dict)[name]
-                model_feed_dict[name] = numpy.zeros(shape, dtype=tensor.dtype.as_numpy_dtype)
         feed_dict = {tensor: model_feed_dict[name] for name, tensor in inputs.items()}
 
         # warm up run
