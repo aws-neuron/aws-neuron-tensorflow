@@ -24,3 +24,11 @@ class TestV1Only(unittest.TestCase):
     def setUpClass(cls):
         if LooseVersion(tf.__version__) >= LooseVersion('2.0.0'):
             raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
+
+
+class TestV2Only(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        if LooseVersion(tf.__version__) < LooseVersion('2.0.0'):
+            raise unittest.SkipTest('tf v2 only tests is not supported under tf 1.x')

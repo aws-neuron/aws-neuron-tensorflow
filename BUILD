@@ -10,6 +10,7 @@ py_library(
     ],
     deps = [
         "//tensorflow/neuron/python:saved_model_py",
+        "//tensorflow/neuron/python:saved_model_v2_py",
         "//tensorflow/neuron/python:graph_util_py",
         "//tensorflow/neuron/python:predictor_py",
         "//tensorflow/neuron/python:neuron_op_py",

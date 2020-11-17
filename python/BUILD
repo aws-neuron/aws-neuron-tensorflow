@@ -50,6 +50,13 @@ py_library(
     deps = [":graph_util_py"],
 )
 
+py_library(
+    name = "saved_model_v2_py",
+    srcs = [
+        "saved_model_v2.py",
+    ],
+)
+
 tf_custom_op_library(
     name = "aws_neuron_plugin",
     per_os_targets = True,
@@ -104,6 +111,7 @@ py_library(
         "op_register_test.py",
         "tfv1_keras_test.py",
         "unittest_base.py",
+        "saved_model_v2_test.py",
     ],
     deps = [
         ":graph_util_py",
