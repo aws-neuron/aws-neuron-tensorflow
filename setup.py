@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import sys
-import setuptools
+from distutils.version import LooseVersion
+from setuptools import setup, PEP420PackageFinder
 from setuptools.command.install import install as InstallCommandBase
 from setuptools.dist import Distribution
 from wheel.bdist_wheel import bdist_wheel as BDistWheelCommandBase
@@ -46,9 +46,22 @@ class BDistWheelCommand(BDistWheelCommandBase):
         return python, abi, plat
 
 
-setuptools.setup(
+def get_version():
+    return '_VERSION'
+
+
+def get_install_requires():
+    major, minor, *_ = LooseVersion(get_version()).version
+    tf_compat_version = '{}.{}.0'.format(major, minor)
+    install_requires = ['tensorflow ~= {}'.format(tf_compat_version)]
+    if major < 2:
+        install_requires.append('tensorboard-neuron ~= {}'.format(tf_compat_version))
+    return install_requires
+
+
+setup(
     name='tensorflow-neuron',
-    version='_VERSION',
+    version=get_version(),
     description='TensorFlow Neuron integration',
     author='AWS Neuron SDK',
     author_email='aws-neuron-support@amazon.com',
@@ -72,7 +85,7 @@ setuptools.setup(
     ],
     keywords='tensorflow aws neuron',
     include_package_data=True,
-    packages=setuptools.PEP420PackageFinder.find(),
+    packages=PEP420PackageFinder.find(),
     package_data={
         'tensorflow-plugins': ['*'],
         'tensorflow_neuron': [
@@ -86,8 +99,5 @@ setuptools.setup(
         'bdist_wheel': BDistWheelCommand,
         'install': InstallCommand,
     },
-    install_requires=[
-        'tensorflow ~= 1.15.0',
-        'tensorboard-neuron ~= 1.15.0',
-    ],
+    install_requires=get_install_requires(),
 )
