@@ -147,6 +147,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     tags = _normalize_tags(tags, model_dir)
     with tf_session.Session(graph=ops.Graph(), config=config_proto) as sess:
         meta_graph = tf_saved_model.loader.load.__wrapped__(sess, tags, model_dir)
+        _check_for_compatible_tf_version(model_dir, sess)
         signature_def_key, signature_def = _get_signature_def(meta_graph, signature_def_key)
         input_tensors = {sess.graph.get_tensor_by_name(ts.name)
                          for ts in signature_def.inputs.values()}
@@ -447,3 +448,12 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
         if options is None:
             options = option_builder.ProfileOptionBuilder.time_and_memory()
         return model_analyzer.profile(sess.graph, run_metadata, op_log=op_log, cmd=cmd, options=options)
+
+def _check_for_compatible_tf_version(model_dir, sess):
+    for op in sess.graph.get_operations():
+        if op.type == 'StatefulPartitionedCall':
+            raise AssertionError('Tensorflow Neuron currently only supports Tensorflow 1.15.x '
+                                'models, we have detected that your model is of a '
+                                'Tensorflow2.x type. Please save your model with '
+                                'Tensorflow 1.15.x and try again.')
+
