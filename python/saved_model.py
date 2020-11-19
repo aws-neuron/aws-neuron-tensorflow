@@ -450,10 +450,15 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
         return model_analyzer.profile(sess.graph, run_metadata, op_log=op_log, cmd=cmd, options=options)
 
 def _check_for_compatible_tf_version(model_dir, sess):
+    #this function checks for a StatefulPartitionedCall
+    #operator, which is not supported in TF1.15.x
+    #Therefore if we find this operator we know that
+    #the model is using TF2.x which is unsupported
     for op in sess.graph.get_operations():
         if op.type == 'StatefulPartitionedCall':
-            raise AssertionError('Tensorflow Neuron currently only supports Tensorflow 1.15.x '
-                                'models, we have detected that your model is of a '
-                                'Tensorflow2.x type. Please save your model with '
-                                'Tensorflow 1.15.x and try again.')
-
+            raise NotImplementedError('Model {} is of type tensorflow2.x. '
+                                        'As of now, tensorflow-neuron only supports '
+                                        'models saved in tensorflow1.15.x. Please '
+                                        'save your model with tensorflow1.15.x '
+                                        'and try again.'.format(model_dir))
+                                        
