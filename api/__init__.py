@@ -25,6 +25,7 @@ def _forward_module(old_name):
 
 _forward_module('tensorflow.neuron.python')
 
+from tensorflow_neuron import __version__
 from tensorflow_neuron.python import graph_util
 from tensorflow_neuron.python import saved_model
 from tensorflow_neuron.python import predictor
