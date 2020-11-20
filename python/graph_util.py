@@ -28,6 +28,7 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import shlex
 import collections
+import itertools
 import pkg_resources
 from distutils import spawn
 from contextlib import contextmanager
@@ -48,6 +49,7 @@ from tensorflow.core.framework import graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
+from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import meta_graph
 from tensorflow.neuron.python import graph_def_util as gdu
 
@@ -55,7 +57,7 @@ from tensorflow.neuron.python import graph_def_util as gdu
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 @tf_export('neuron.graph_util.inference_graph_from_session')
 def inference_graph_from_session(
-        sess=None, input_tensors=None, output_tensors=None,
+        sess=None, input_tensors=None, output_tensors=None, signature_def=None,
         shape_feed_dict=None, feed_dict=None, dynamic_batch_size=False,
         protected_op_names=None,
         op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
@@ -79,6 +81,7 @@ def inference_graph_from_session(
             arbitrary tensors that are not placeholder tensors.
         output_tensors: None or iterable of strings/tensors (unordered). Strings should be
             tensor names.
+        signature_def: None or a `SignatureDef` protobuf message marking graph inputs and outputs.
         shape_feed_dict: Dict `{str: shape}` used by `shape_inference`.
         feed_dict: Dict `{str: numpy.ndarray}` used by `shape_inference_with_inputs`.
             Optional. If both `shape_feed_dict` and `feed_dict` are unspecified, no shape
@@ -131,35 +134,38 @@ def inference_graph_from_session(
                 compiler_args.extend(neuron_cc_args)
     if sess is None:
         sess = ops.get_default_session()
-    # determine input tensor names and normalize feed_dict/shape_feed_dict keys to tensor names
     if feed_dict is not None:
         feed_dict = {getattr(ts, 'name', ts): value for ts, value in feed_dict.items()}
-        input_names = set(feed_dict.keys())
-    elif shape_feed_dict is not None:
-        shape_feed_dict = {getattr(ts, 'name', ts): value
-                           for ts, value in shape_feed_dict.items()}
-        input_names = set(shape_feed_dict.keys())
-    else:
-        input_names = {op.outputs[0].name for op in sess.graph.get_operations()
-                                          if op.type == 'Placeholder'}
-    if input_tensors is not None:
-        input_names = {getattr(ts, 'name', ts) for ts in input_tensors}
-
-    # determine output tensor names
-    if output_tensors is None:
-        output_ops = _output_ops(sess.graph)
-        output_names = {ts.name for op in output_ops for ts in op.outputs}
-    else:
-        output_names = {getattr(ts, 'name', ts) for ts in output_tensors}
-        output_ops = _output_ops(sess.graph, output_names)
+    if shape_feed_dict is not None:
+        shape_feed_dict = {getattr(ts, 'name', ts): value for ts, value in shape_feed_dict.items()}
+    if signature_def is None:
+        # build a SignatureDef from input/output tensors
+        if input_tensors is None:
+            if feed_dict is not None:
+                input_names = feed_dict.keys()
+            elif shape_feed_dict is not None:
+                input_names = shape_feed_dict.keys()
+            else:
+                input_names = [op.outputs[0].name for op in sess.graph.get_operations()
+                                                  if op.type == 'Placeholder']
+        else:
+            input_names = [getattr(ts, 'name', ts) for ts in input_tensors]
+        input_tensors = [sess.graph.get_tensor_by_name(name) for name in input_names]
+        if output_tensors is None:
+            output_ops = [op for op in sess.graph.get_operations()
+                             if all(not ts.consumers() for ts in op.outputs)]
+            output_names = [ts.name for op in output_ops for ts in op.outputs]
+        else:
+            output_names = [getattr(ts, 'name', ts) for ts in output_tensors]
+        output_tensors = [sess.graph.get_tensor_by_name(name) for name in output_names]
+        signature_def = build_signature_def(input_tensors, output_tensors)
 
     # convert variables to constants
     if protected_op_names is None:
         protected_op_names = set()
     protected_op_names = set(protected_op_names)
-    protected_op_names.update(op.name for op in output_ops)
-    protected_op_names.update(sess.graph.get_tensor_by_name(name).op.name
-                              for name in input_names)
+    io_infos = itertools.chain(signature_def.inputs.values(), signature_def.outputs.values())
+    protected_op_names.update(sess.graph.get_tensor_by_name(info.name).op.name for info in io_infos)
     if feed_dict is not None:
         protected_op_names.update(sess.graph.get_tensor_by_name(name).op.name
                                   for name in feed_dict.keys())
@@ -220,7 +226,7 @@ def inference_graph_from_session(
 
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
-        graph_def, input_names, output_names, op_whitelist=op_whitelist,
+        graph_def, signature_def, op_whitelist=op_whitelist,
         no_fuse_ops=no_fuse_ops, force_fuse_ops=force_fuse_ops,
         minimum_segment_size=minimum_segment_size)
 
@@ -299,6 +305,17 @@ def inference_graph_from_session(
     return compiled_graph
 
 
+def build_signature_def(input_tensors, output_tensors):
+    sdef = meta_graph_pb2.SignatureDef()
+    for tensors, info_map in zip([input_tensors, output_tensors], [sdef.inputs, sdef.outputs]):
+        for tensor in tensors:
+            tensor_info = info_map[tensor.name]
+            tensor_info.name = tensor.name
+            tensor_info.dtype = tensor.dtype.as_datatype_enum
+            tensor_info.tensor_shape.CopyFrom(tensor.shape.as_proto())
+    return sdef
+
+
 def find_neuron_cc():
     path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
     return spawn.find_executable('neuron-cc', path)
@@ -340,14 +357,6 @@ def _graph_def_to_graph(graph_def):
 
 def _neuron_ops(graph):
     return (op for op in graph.get_operations() if op.type == gdu.tNeuronOp)
-
-
-def _output_ops(graph, output_names=None):
-    if output_names is None:
-        return {op for op in graph.get_operations()
-                   if all(not ts.consumers() for ts in op.outputs)}
-    else:
-        return {graph.get_tensor_by_name(name).op for name in output_names}
 
 
 def _has_control_input(node):
@@ -396,7 +405,7 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
     return graph_def
 
 
-def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
+def whitelist_partition(graph_def, signature_def,
                         op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
                         minimum_segment_size=None):
     """Partitions a `GraphDef` proto according to a TensorFlow op whitelist and
@@ -404,10 +413,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
 
     Args:
         graph_def: input `GraphDef` proto.
-        input_tensors: None or iterable of strings/tensors (unordered). Strings should be
-            tensor names.
-        output_tensors: None or iterable of strings/tensors (unordered). Strings should be
-            tensor names.
+        signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
         op_whitelist: None or iterable of strings (unordered) representing
             whitelisted op type names.
         no_fuse_ops: None or iterable of strings (unordered) representing
@@ -421,11 +427,6 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     """
     original_graph_def = graph_def
     graph = _graph_def_to_graph(graph_def)
-    if input_tensors is None:
-        input_tensors = {op.outputs[0] for op in graph.get_operations()
-                                       if op.type == 'Placeholder'}
-    if output_tensors is None:
-        output_tensors = {ts for op in _output_ops(graph) for ts in op.outputs}
     if op_whitelist is None:
         neuron_cc = find_neuron_cc()
         if neuron_cc is None:
@@ -448,8 +449,6 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     if minimum_segment_size is None:
         num_ops = len([node for node in graph_def.node if node.op != 'Placeholder'])
         minimum_segment_size = min(2, max(1, num_ops))
-    input_names = [compat.as_bytes(getattr(ts, 'name', ts)) for ts in input_tensors]
-    output_names = [compat.as_str(getattr(ts, 'name', ts)) for ts in output_tensors]
     opt_config = config_pb2.ConfigProto()
     rewriter_config = opt_config.graph_options.rewrite_options
     rewriter_config.meta_optimizer_iterations = 1
@@ -460,8 +459,8 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     param_map = fuser_config.parameter_map
-    param_map['inputs'].list.s.extend(input_names)
-    param_map['outputs'].list.s.extend(compat.as_bytes(name) for name in output_names)
+    param_map['inputs'].list.s.extend(info.name.encode() for info in signature_def.inputs.values())
+    param_map['outputs'].list.s.extend(info.name.encode() for info in signature_def.outputs.values())
     param_map['minimum_segment_size'].i = minimum_segment_size
     param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
     param_map['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
@@ -469,9 +468,7 @@ def whitelist_partition(graph_def, input_tensors=None, output_tensors=None,
 
     # create meta_graph_def and run grappler passes
     meta_graph_def = saver.export_meta_graph(graph_def=graph_def, graph=graph)
-    value = meta_graph_def.collection_def[ops.GraphKeys.TRAIN_OP].node_list.value
-    value.extend(input_names)
-    value.extend(output_names)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # add subgraph's control input to `NeuronOp`'s control input

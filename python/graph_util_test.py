@@ -1554,16 +1554,18 @@ class TestWhitelistPartition(unittest.TestCase):
             add0 = tf.add(conv2d0, conv2d1, name='add0')
             relu0 = tf.nn.relu(add0, name='relu0')
             sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
+        graph_def = graph.as_graph_def(add_shapes=True)
+        signature_def0 = graph_util.build_signature_def([input0, input1], [add0, relu0, sigmoid0])
         partitioned_graph_def0 = graph_util.whitelist_partition(
-            graph.as_graph_def(add_shapes=True), input_tensors={'input0:0', 'input1:0'},
-            output_tensors={'add0:0', 'relu0:0', 'sigmoid0:0'},
+            graph_def, signature_def=signature_def0,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+        signature_def1 = graph_util.build_signature_def([conv2d0, input1], [add0, relu0, sigmoid0])
         partitioned_graph_def1 = graph_util.whitelist_partition(
-            graph.as_graph_def(add_shapes=True), input_tensors={'conv2d0:0', 'input1:0'},
-            output_tensors={'add0:0', 'relu0:0', 'sigmoid0:0'},
+            graph_def, signature_def=signature_def1,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+        signature_def2 = graph_util.build_signature_def([input0, input1], [relu0, sigmoid0])
         partitioned_graph_def2 = graph_util.whitelist_partition(
-            graph.as_graph_def(add_shapes=True),
+            graph_def, signature_def=signature_def2,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         assert len(partitioned_graph_def0.node) == 6
         assert len(partitioned_graph_def0.node[2].attr['output_names'].list.s) == 2
@@ -1593,9 +1595,9 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, add0], feed_dict)
+        signature_def = graph_util.build_signature_def([input0], [add0, relu0])
         partitioned_graph_def = graph_util.whitelist_partition(
-            sess.graph.as_graph_def(add_shapes=True), input_tensors={'input0:0'},
-            output_tensors={'add0:0', 'relu0:0'},
+            sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
         neuron_op_node = partitioned_graph_def.node[1]
         assert len(neuron_op_node.input) == 1
@@ -1637,8 +1639,9 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, relu1, relu2], feed_dict)
+        signature_def = graph_util.build_signature_def([input0], [relu0, relu1, relu2])
         partitioned_graph_def = graph_util.whitelist_partition(
-            sess.graph.as_graph_def(add_shapes=True),
+            sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
             no_fuse_ops=['add0'])
         assert len(partitioned_graph_def.node) == 8
@@ -1674,8 +1677,9 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, relu1, relu2], feed_dict)
+        signature_def = graph_util.build_signature_def([input0], [relu0, relu1, relu2])
         partitioned_graph_def = graph_util.whitelist_partition(
-            sess.graph.as_graph_def(add_shapes=True),
+            sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
             op_whitelist={'Conv2D', 'Const', 'Relu'},
             no_fuse_ops=[conv2d2.op], force_fuse_ops=['add0', add5.op])
         assert len(partitioned_graph_def.node) == 12
