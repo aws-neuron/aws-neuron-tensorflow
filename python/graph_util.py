@@ -456,8 +456,6 @@ def whitelist_partition(graph_def, signature_def,
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     param_map = fuser_config.parameter_map
-    param_map['inputs'].list.s.extend(info.name.encode() for info in signature_def.inputs.values())
-    param_map['outputs'].list.s.extend(info.name.encode() for info in signature_def.outputs.values())
     param_map['minimum_segment_size'].i = minimum_segment_size
     param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
     param_map['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)

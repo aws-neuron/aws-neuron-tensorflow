@@ -696,8 +696,8 @@ Status PreProcessingGraphDef(GraphDef& in_graph_def) {
 // Step 2: Calls functions to create Neuron subgraphs.
 Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const GraphDef &graph_def,
-                            const std::vector<std::string> &inputs,
-                            const std::vector<std::string> &outputs,
+                            const std::vector<std::string> &input_op_names,
+                            const std::vector<std::string> &output_op_names,
                             const int minimum_segment_size,
                             const std::set<std::string> &op_whitelist,
                             const std::set<std::string> &no_fuse_ops,
@@ -709,6 +709,23 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
                                              graph_def.library());
+
+  // Build output tensor names
+  std::unordered_map<std::string, std::string> op_name_to_type;
+  for (const auto &node : graph_def.node()) {
+    op_name_to_type[node.name()] = node.op();
+  }
+  std::vector<std::string> outputs;
+  for (const auto &op_name : output_op_names) {
+    const tensorflow::OpRegistrationData *op_reg_data;
+    TF_RETURN_IF_ERROR(flib.LookUp(op_name_to_type[op_name], &op_reg_data));
+    int64 num_outputs = op_reg_data->op_def.output_arg_size();
+    VLOG(1) << "Output " << op_name << " contains " << num_outputs << " outputs";
+    for (int64 idx = 0; idx < num_outputs; ++idx) {
+      outputs.push_back(op_name + ":" + std::to_string(idx));
+    }
+  }
+
   tensorflow::Graph temp_graph(flib);
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
       tensorflow::GraphConstructorOptions(), graph_def, &temp_graph));
@@ -744,8 +761,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   }
 
   // All inout nodes to exclude list
-  for (auto omit_node_name : inputs) {
-    auto node_name = split(omit_node_name, ":")[0];
+  for (auto node_name : input_op_names) {
     segment_options.exclude_node_list.insert(node_name);
 
     // Adding all the nodes before the input node to exclude list.

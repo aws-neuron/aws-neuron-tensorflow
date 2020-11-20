@@ -35,8 +35,6 @@ public:
     void Feedback(Cluster *cluster, const GrapplerItem &item,
                   const GraphDef &optimize_output, double result) override;
 private:
-    std::vector<std::string> inputs_;
-    std::vector<std::string> outputs_;
     int minimum_segment_size_ = 2;
     std::set<std::string> op_whitelist_;
     std::set<std::string> no_fuse_ops_;
