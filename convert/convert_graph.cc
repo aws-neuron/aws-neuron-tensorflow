@@ -662,8 +662,7 @@ void PreProcessSegmentsForResources(
 // Performing :
 // 1. Clearing device info from all nodes
 // 2. Removing _class:loc attr from nodedef
-Status PreProcessingGraphDef(const std::vector<string>& output_names,
-                             GraphDef& in_graph_def) {
+Status PreProcessingGraphDef(GraphDef& in_graph_def) {
   VLOG(1) << " Creating Identities for all outputs";
 
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
@@ -703,13 +702,6 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const std::set<std::string> &op_whitelist,
                             const std::set<std::string> &no_fuse_ops,
                             const std::set<std::string> &force_fuse_ops) {
-
-  // For storing just names without tensor
-  std::vector<string> output_names;
-  for (auto name : outputs) {
-    output_names.push_back(split(name, ":")[0]);
-  }
-
   // Segment the graph into subgraphs that can be converted to Neuron op
   tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
@@ -723,7 +715,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   GraphDef temp_graph_def;
   temp_graph.ToGraphDef(&temp_graph_def);
-  TF_RETURN_IF_ERROR(PreProcessingGraphDef(outputs, temp_graph_def));
+  TF_RETURN_IF_ERROR(PreProcessingGraphDef(temp_graph_def));
 
   tensorflow::Graph graph(flib);
 
