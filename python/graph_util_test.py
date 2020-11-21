@@ -25,6 +25,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.neuron.python import graph_util
+from tensorflow.neuron.python import meta_graph_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
 
@@ -1489,15 +1490,15 @@ class TestWhitelistPartition(unittest.TestCase):
             relu0 = tf.nn.relu(add0, name='relu0')
             sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
         graph_def = graph.as_graph_def(add_shapes=True)
-        signature_def0 = graph_util.build_signature_def([input0, input1], [add0, relu0, sigmoid0])
+        signature_def0 = meta_graph_util.build_signature_def([input0, input1], [add0, relu0, sigmoid0])
         partitioned_graph_def0 = graph_util.whitelist_partition(
             graph_def, signature_def=signature_def0,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-        signature_def1 = graph_util.build_signature_def([conv2d0, input1], [add0, relu0, sigmoid0])
+        signature_def1 = meta_graph_util.build_signature_def([conv2d0, input1], [add0, relu0, sigmoid0])
         partitioned_graph_def1 = graph_util.whitelist_partition(
             graph_def, signature_def=signature_def1,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
-        signature_def2 = graph_util.build_signature_def([input0, input1], [relu0, sigmoid0])
+        signature_def2 = meta_graph_util.build_signature_def([input0, input1], [relu0, sigmoid0])
         partitioned_graph_def2 = graph_util.whitelist_partition(
             graph_def, signature_def=signature_def2,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
@@ -1529,7 +1530,7 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, add0], feed_dict)
-        signature_def = graph_util.build_signature_def([input0], [add0, relu0])
+        signature_def = meta_graph_util.build_signature_def([input0], [add0, relu0])
         partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
@@ -1573,7 +1574,7 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, relu1, relu2], feed_dict)
-        signature_def = graph_util.build_signature_def([input0], [relu0, relu1, relu2])
+        signature_def = meta_graph_util.build_signature_def([input0], [relu0, relu1, relu2])
         partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
             op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
@@ -1611,7 +1612,7 @@ class TestWhitelistPartition(unittest.TestCase):
                 input0.name: np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
             }
             result_ref = sess.run([relu0, relu1, relu2], feed_dict)
-        signature_def = graph_util.build_signature_def([input0], [relu0, relu1, relu2])
+        signature_def = meta_graph_util.build_signature_def([input0], [relu0, relu1, relu2])
         partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
             op_whitelist={'Conv2D', 'Const', 'Relu'},

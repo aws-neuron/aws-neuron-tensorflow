@@ -45,6 +45,7 @@ from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import meta_graph
 from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python import meta_graph_util as mgu
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -150,7 +151,7 @@ def inference_graph_from_session(
         else:
             output_names = [getattr(ts, 'name', ts) for ts in output_tensors]
         output_tensors = [sess.graph.get_tensor_by_name(name) for name in output_names]
-        signature_def = build_signature_def(input_tensors, output_tensors)
+        signature_def = mgu.build_signature_def(input_tensors, output_tensors)
 
     # convert variables to constants
     if protected_op_names is None:
@@ -298,17 +299,6 @@ def inference_graph_from_session(
         logging.warning('')
         logging.warning('***************************************************************')
     return compiled_graph
-
-
-def build_signature_def(input_tensors, output_tensors):
-    sdef = meta_graph_pb2.SignatureDef()
-    for tensors, info_map in zip([input_tensors, output_tensors], [sdef.inputs, sdef.outputs]):
-        for tensor in tensors:
-            tensor_info = info_map[tensor.name]
-            tensor_info.name = tensor.name
-            tensor_info.dtype = tensor.dtype.as_datatype_enum
-            tensor_info.tensor_shape.CopyFrom(tensor.shape.as_proto())
-    return sdef
 
 
 def find_neuron_cc():

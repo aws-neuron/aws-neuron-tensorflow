@@ -12,6 +12,7 @@ py_library(
     ],
     deps = [
         ":graph_def_util_py",
+        ":meta_graph_util_py",
         ":neuron_op_py",
     ],
 )
@@ -30,6 +31,13 @@ py_library(
     ],
     deps = [
         ":neff_util_py",
+    ],
+)
+
+py_library(
+    name = "meta_graph_util_py",
+    srcs = [
+        "meta_graph_util.py",
     ],
 )
 
