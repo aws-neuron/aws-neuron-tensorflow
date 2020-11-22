@@ -26,6 +26,7 @@ cc_library(
         "//tensorflow/core/grappler:grappler_item",
         "//tensorflow/compiler/jit:xla_jit_headers_lib",
         "//tensorflow/compiler/xla:statusor",
+        ":graph_constructor_wrapper",
         ":graph_optimizer_registry",
     ],
 )
@@ -36,5 +37,13 @@ cc_library(
     hdrs = ["graph_optimizer_registry.h"],
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer_registry",
+    ],
+)
+
+cc_library(
+    name = "graph_constructor_wrapper",
+    hdrs = ["graph_constructor_wrapper.h"],
+    deps = [
+        "//tensorflow/neuron/runtime:macros",
     ],
 )

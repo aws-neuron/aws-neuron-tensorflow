@@ -13,10 +13,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "tensorflow/core/graph/graph_constructor.h"
 #include "tensorflow/core/grappler/grappler_item.h"
 #include "tensorflow/core/grappler/op_types.h"
 #include "tensorflow/compiler/jit/shape_inference.h"
+#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 #include "tensorflow/neuron/grappler/static_shape_inference.h"
 

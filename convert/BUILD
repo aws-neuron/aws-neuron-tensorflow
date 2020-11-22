@@ -8,6 +8,7 @@ cc_library(
     copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         ":segment",
+        "//tensorflow/neuron/grappler:graph_constructor_wrapper",
         "//tensorflow/neuron/runtime:macros",
     ],
 )

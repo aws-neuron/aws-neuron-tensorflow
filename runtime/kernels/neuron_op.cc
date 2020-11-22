@@ -654,7 +654,11 @@ Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_ten
 REGISTER_KERNEL_BUILDER(Name("NeuronOp").Device(DEVICE_CPU), NeuronOp);
 #else
 // need to override kernel_builder as NeuronName to prevent multiple kernel registrations
-REGISTER_KERNEL_BUILDER(NeuronName(), NeuronOp);
+# if TF_VERSION_LESS_THAN(2, 4)
+REGISTER_KERNEL_BUILDER(NeuronName(), neuron::NeuronOp);
+# else
+REGISTER_KERNEL_BUILDER_IMPL_2("NeuronOp", register_kernel::NeuronName(), false, NeuronOp);
+# endif
 #endif  // NEURONTFSERV
 
 }  // namespace neuron
