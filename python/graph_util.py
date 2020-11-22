@@ -45,6 +45,8 @@ from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import meta_graph
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import meta_graph_util as mgu
+from tensorflow.neuron.python import neuron_cc as ncc
+from tensorflow.neuron.python import utils
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -253,7 +255,7 @@ def inference_graph_from_session(
     # rename NeuronOp's for better visualization
     name_change_map = {}
     for node in gdu.get_neuron_nodes(compiled_graph_def):
-        prefix = most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
+        prefix = utils.most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
         if not prefix:
             continue
         new_op_name = '/'.join([prefix, node.name])
@@ -283,11 +285,11 @@ def inference_graph_from_session(
     # statistics on number of operations
     num_ops_original = len(sess.graph.get_operations())
     num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(compiled_graph_def)
-    with logging_show_info():
+    with utils.logging_show_info():
         logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
         logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
         logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
-    if find_neuron_cc() is None:
+    if ncc.find_neuron_cc() is None:
         logging.warning('***************************************************************')
         logging.warning('')
         logging.warning('  neuron-cc is not found.')
@@ -298,27 +300,6 @@ def inference_graph_from_session(
         logging.warning('')
         logging.warning('***************************************************************')
     return compiled_graph
-
-
-def find_neuron_cc():
-    path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
-    return spawn.find_executable('neuron-cc', path)
-
-
-def most_popular_namescope(all_node_names):
-    all_splitted = [name.split('/') for name in all_node_names]
-    max_level = max(len(splitted) for splitted in all_splitted)
-    most_popular_namescope = []
-    max_popularity = 0
-    for lvl in range(max_level):
-        names = [splitted[lvl] for splitted in all_splitted if lvl < len(splitted)]
-        (scope, popularity), = collections.Counter(names).most_common(1)
-        if popularity >= max_popularity:
-            most_popular_namescope.append(scope)
-            max_popularity = popularity
-        else:
-            break
-    return '/'.join(most_popular_namescope)
 
 
 def _graph_def_to_graph(graph_def):
@@ -334,16 +315,6 @@ def _neuron_ops(graph):
 
 def _has_control_input(node):
     return any(inp.startswith('^') for inp in node.input)
-
-
-@contextmanager
-def logging_show_info():
-    verbosity = logging.get_verbosity()
-    logging.set_verbosity(logging.INFO)
-    try:
-        yield
-    finally:
-        logging.set_verbosity(verbosity)
 
 
 @contextmanager
@@ -399,7 +370,7 @@ def whitelist_partition(graph_def, signature_def,
     """
     original_graph_def = graph_def
     if op_whitelist is None:
-        neuron_cc = find_neuron_cc()
+        neuron_cc = ncc.find_neuron_cc()
         if neuron_cc is None:
             return graph_def
         else:
@@ -488,7 +459,7 @@ def compile_subgraphs(graph_def,
     Compiler = collections.namedtuple('Compiler', 'command verbose workdir_path subgraph_info')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
-    neuron_cc = find_neuron_cc()
+    neuron_cc = ncc.find_neuron_cc()
     if neuron_cc is None:
         return graph_def
     subgraph_info_format = '{{subgraph {} with input tensors {}, output tensors {}}}'.format
@@ -535,7 +506,7 @@ def compile_subgraphs(graph_def,
         command.extend(['--verbose=35'])
         _, _, workdir_path, subgraph_info = subgraph_compilers[node_name]
         info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
-        with logging_show_info():
+        with utils.logging_show_info():
             logging.info(info_string)
         neuron_cc_stderr_txt_path = os.path.join(workdir_path, 'neuron-cc-stderr.txt')
         try:
@@ -629,7 +600,7 @@ def _fork_compiler(subgraph_compilers, node_name, timeout, try_progress_bar_mode
     if not verbose:
         info_string = '{}; you may check progress by inspecting file {}'.format(info_string, logfile)
     if not try_progress_bar_mode:
-        with logging_show_info():
+        with utils.logging_show_info():
             logging.info(info_string)
     if verbose:
         proc = subprocess.Popen(command, cwd=workdir_path)

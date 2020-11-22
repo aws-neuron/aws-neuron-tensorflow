@@ -41,8 +41,8 @@ from tensorflow.python.training.saver import Saver
 from tensorflow.python.framework import importer
 from tensorflow.core.framework import graph_pb2
 from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.graph_util import inference_graph_from_session
-from tensorflow.neuron.python.graph_util import logging_show_info
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -222,7 +222,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         'for current limitations of the AWS Neuron SDK. We are actively improving '
         '(and hiring)!'.format(ops_msg, unless_msg))
     if on_neuron_ratio > 0.3:
-        with logging_show_info():
+        with utils.logging_show_info():
             logging.info('Successfully converted {}'.format(converted_msg))
     elif on_neuron_ratio == 0.0:
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
@@ -285,7 +285,7 @@ def set_core_binding(model_dir, index_list):
 
 def inspect_core_binding(model_dir):
     saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
-    with logging_show_info():
+    with utils.logging_show_info():
         for node in neuron_node_list:
             if len(node.attr['model_config'].list.i) > 4:
                 device_index = node.attr['model_config'].list.i[4]

@@ -22,7 +22,7 @@ from distutils import spawn
 
 
 def list_operators():
-    neuron_cc = _find_neuron_cc()
+    neuron_cc = find_neuron_cc()
     if neuron_cc is None:
         return set()
     command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
@@ -41,7 +41,7 @@ def list_operators():
 def compile_savetemps(graph_def, io_config, workdir=None, compiler_args=None):
     """Returns raw neff bytes (empty bytes if neuron-cc crashed)
     """
-    neuron_cc = _find_neuron_cc()
+    neuron_cc = find_neuron_cc()
     if neuron_cc is None:
         return b''
     neuron_cc_input_name = 'graph_def.pb'
@@ -73,6 +73,6 @@ def compile_savetemps(graph_def, io_config, workdir=None, compiler_args=None):
     return executable
 
 
-def _find_neuron_cc():
+def find_neuron_cc():
     path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
     return spawn.find_executable('neuron-cc', path)

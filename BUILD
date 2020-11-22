@@ -16,7 +16,6 @@ py_library(
         "//tensorflow/neuron/python:neuron_op_py",
         "//tensorflow/neuron/python:fuse_py",
         "//tensorflow/neuron/python:performance_py",
-        "//tensorflow/neuron/python:neuron_cc_py",
         "//tensorflow/neuron/python:unittest_py",
     ],
 )

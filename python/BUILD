@@ -13,7 +13,15 @@ py_library(
     deps = [
         ":graph_def_util_py",
         ":meta_graph_util_py",
+        ":neuron_cc_py",
         ":neuron_op_py",
+    ],
+)
+
+py_library(
+    name = "utils_py",
+    srcs = [
+        "utils.py",
     ],
 )
 
@@ -30,6 +38,7 @@ py_library(
         "graph_def_util.py",
     ],
     deps = [
+        ":neuron_cc_py",
         ":neff_util_py",
     ],
 )
@@ -66,6 +75,7 @@ py_library(
     deps = [
         ":graph_def_util_py",
         ":meta_graph_util_py",
+        ":neuron_cc_py",
     ],
 )
 
@@ -74,6 +84,9 @@ py_library(
     srcs = [
         "neuron_cc.py",
     ],
+    deps = [
+        ":utils_py",
+    ]
 )
 
 tf_custom_op_library(
@@ -104,6 +117,7 @@ py_library(
         "fuse.py",
     ],
     deps = [
+        ":neuron_cc_py",
         ":neff_util_py",
         ":neuron_op_py",
     ],
