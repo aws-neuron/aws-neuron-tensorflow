@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+import os
 import shutil
 import numpy as np
 import tensorflow as tf
+from tensorflow.python.framework import convert_to_constants
 import tensorflow.neuron as tfn
 from tensorflow.neuron.python.unittest_base import TestV2Only
 
@@ -57,10 +58,12 @@ class TestCompileV1SavedModel(TestV2Only):
         model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_ref = model_ref.signatures['serving_default']
         wfunc_neuron = model_neuron.signatures['serving_default']
-        result_ref = wfunc_ref(**feeds)
-        result_neuron = wfunc_neuron(**feeds)
-        for name in result_ref.keys():
-            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+        _assert_compiler_success_v2(wfunc_neuron)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_ref = wfunc_ref(**feeds)
+            result_neuron = wfunc_neuron(**feeds)
+            for name in result_ref.keys():
+                np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-2)
 
     def test_3segments(self):
         np.random.seed(_RANDOM_SEED)
@@ -94,10 +97,12 @@ class TestCompileV1SavedModel(TestV2Only):
         )
         model_ref = tf.saved_model.load(model_dir)
         model_neuron = tf.saved_model.load(new_model_dir)
-        result_ref = model_ref.signatures['serving_default'](**feeds)
-        result_neuron = model_neuron.signatures['serving_default'](**feeds)
-        for name in result_ref.keys():
-            np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-3)
+        _assert_compiler_success_v2(model_neuron.signatures['serving_default'])
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_ref = model_ref.signatures['serving_default'](**feeds)
+            result_neuron = model_neuron.signatures['serving_default'](**feeds)
+            for name in result_ref.keys():
+                np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-2)
 
 
 class TestCompileKerasSavedModel(TestV2Only):
@@ -112,25 +117,28 @@ class TestCompileKerasSavedModel(TestV2Only):
         ])
         shutil.rmtree(model_dir, ignore_errors=True)
         tf.keras.models.save_model(model, model_dir)
-        shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir)
         model_ref = tf.saved_model.load(model_dir)
-        model_neuron = tf.saved_model.load(new_model_dir)
-        input_tensor = tf.random.uniform([2, 28])
-        result_model_ref = model_ref(input_tensor)
-        result_model_neuron = model_neuron(input_tensor)
-        np.testing.assert_allclose(result_model_ref, result_model_neuron, rtol=1e-2, atol=1e-3)
         wfunc_ref = model_ref.signatures['serving_default']
+        input_tensor = tf.random.uniform([2, 28])
+        feeds = {wfunc_ref.function_def.signature.input_arg[0].name: input_tensor}
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_neuron = model_neuron.signatures['serving_default']
-        result_positional_ref = wfunc_ref(input_tensor)
-        result_positional_neuron = wfunc_neuron(input_tensor)
-        output_key = list(wfunc_ref.structured_outputs.keys())[0]
-        np.testing.assert_allclose(result_positional_neuron[output_key], result_positional_ref[output_key], rtol=1e-2, atol=1e-3)
-        input_key = list(wfunc_ref.structured_input_signature[1].keys())[0]
-        feed_dict = {input_key: input_tensor}
-        result_keyword_ref = wfunc_ref(**feed_dict)
-        result_keyword_neuron = wfunc_neuron(**feed_dict)
-        np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-3)
+        _assert_compiler_success_v2(wfunc_neuron)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_model_ref = model_ref(input_tensor)
+            result_model_neuron = model_neuron(input_tensor)
+            np.testing.assert_allclose(result_model_ref, result_model_neuron, rtol=1e-2, atol=1e-3)
+            result_positional_ref = wfunc_ref(input_tensor)
+            result_positional_neuron = wfunc_neuron(input_tensor)
+            output_key = list(wfunc_ref.structured_outputs.keys())[0]
+            np.testing.assert_allclose(result_positional_neuron[output_key], result_positional_ref[output_key], rtol=1e-2, atol=1e-2)
+            input_key = list(wfunc_ref.structured_input_signature[1].keys())[0]
+            feed_dict = {input_key: input_tensor}
+            result_keyword_ref = wfunc_ref(**feed_dict)
+            result_keyword_neuron = wfunc_neuron(**feed_dict)
+            np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-2)
 
     def test_keras_save_single_input_single_output(self):
         tf.random.set_seed(_RANDOM_SEED)
@@ -142,25 +150,28 @@ class TestCompileKerasSavedModel(TestV2Only):
         ])
         shutil.rmtree(model_dir, ignore_errors=True)
         model.save(model_dir)
-        shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir)
         model_ref = tf.saved_model.load(model_dir)
-        model_neuron = tf.saved_model.load(new_model_dir)
-        input_tensor = tf.random.uniform([2, 28])
-        result_model_ref = model_ref(input_tensor)
-        result_model_neuron = model_neuron(input_tensor)
-        np.testing.assert_allclose(result_model_ref, result_model_neuron, rtol=1e-2, atol=1e-3)
         wfunc_ref = model_ref.signatures['serving_default']
+        input_tensor = tf.random.uniform([2, 28])
+        feeds = {wfunc_ref.function_def.signature.input_arg[0].name: input_tensor}
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_neuron = model_neuron.signatures['serving_default']
-        result_positional_ref = wfunc_ref(input_tensor)
-        result_positional_neuron = wfunc_neuron(input_tensor)
-        output_key = list(wfunc_ref.structured_outputs.keys())[0]
-        np.testing.assert_allclose(result_positional_neuron[output_key], result_positional_ref[output_key], rtol=1e-2, atol=1e-3)
-        input_key = list(wfunc_ref.structured_input_signature[1].keys())[0]
-        feed_dict = {input_key: input_tensor}
-        result_keyword_ref = wfunc_ref(**feed_dict)
-        result_keyword_neuron = wfunc_neuron(**feed_dict)
-        np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-3)
+        _assert_compiler_success_v2(wfunc_neuron)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_model_ref = model_ref(input_tensor)
+            result_model_neuron = model_neuron(input_tensor)
+            np.testing.assert_allclose(result_model_ref, result_model_neuron, rtol=1e-2, atol=1e-2)
+            result_positional_ref = wfunc_ref(input_tensor)
+            result_positional_neuron = wfunc_neuron(input_tensor)
+            output_key = list(wfunc_ref.structured_outputs.keys())[0]
+            np.testing.assert_allclose(result_positional_neuron[output_key], result_positional_ref[output_key], rtol=1e-2, atol=1e-2)
+            input_key = list(wfunc_ref.structured_input_signature[1].keys())[0]
+            feed_dict = {input_key: input_tensor}
+            result_keyword_ref = wfunc_ref(**feed_dict)
+            result_keyword_neuron = wfunc_neuron(**feed_dict)
+            np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-2)
 
     def test_keras_models_save_model_3in_5out_stateful(self):
         tf.random.set_seed(_RANDOM_SEED)
@@ -182,30 +193,31 @@ class TestCompileKerasSavedModel(TestV2Only):
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         shutil.rmtree(model_dir, ignore_errors=True)
         tf.keras.models.save_model(model, model_dir)
-        model.save(model_dir)
-        shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir)
         model_ref = tf.saved_model.load(model_dir)
-        model_neuron = tf.saved_model.load(new_model_dir)
+        wfunc_ref = model_ref.signatures['serving_default']
         input0_tensor = tf.random.uniform([2, 28])
         input1_tensor = tf.random.uniform([2, 28])
         input2_tensor = tf.random.uniform([2, 28])
-        result_model_ref = model_ref([input0_tensor, input1_tensor, input2_tensor])
-        result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
-        assert len(result_model_ref) == len(result_model_neuron)
-        for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
-            np.testing.assert_allclose(res_ref, res_neuron, rtol=1e-2, atol=1e-3)
-        wfunc_ref = model_ref.signatures['serving_default']
-        wfunc_neuron = model_neuron.signatures['serving_default']
         feed_dict = {
             wfunc_ref.function_def.signature.input_arg[0].name: input0_tensor,
             wfunc_ref.function_def.signature.input_arg[1].name: input1_tensor,
             wfunc_ref.function_def.signature.input_arg[2].name: input2_tensor,
         }
-        result_keyword_ref = wfunc_ref(**feed_dict)
-        result_keyword_neuron = wfunc_neuron(**feed_dict)
-        for output_key in result_keyword_ref:
-            np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-3)
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
+        model_neuron = tf.saved_model.load(new_model_dir)
+        wfunc_neuron = model_neuron.signatures['serving_default']
+        _assert_compiler_success_v2(wfunc_neuron)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_model_ref = model_ref([input0_tensor, input1_tensor, input2_tensor])
+            result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
+            assert len(result_model_ref) == len(result_model_neuron)
+            for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
+                np.testing.assert_allclose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+            result_keyword_ref = wfunc_ref(**feed_dict)
+            result_keyword_neuron = wfunc_neuron(**feed_dict)
+            for output_key in result_keyword_ref:
+                np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-2)
 
     def test_keras_models_save_model_3in_5out_stateless(self):
         tf.random.set_seed(_RANDOM_SEED)
@@ -224,27 +236,36 @@ class TestCompileKerasSavedModel(TestV2Only):
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         shutil.rmtree(model_dir, ignore_errors=True)
         tf.keras.models.save_model(model, model_dir)
-        model.save(model_dir)
-        shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir)
         model_ref = tf.saved_model.load(model_dir)
-        model_neuron = tf.saved_model.load(new_model_dir)
+        wfunc_ref = model_ref.signatures['serving_default']
         input0_tensor = tf.random.uniform([2, 28])
         input1_tensor = tf.random.uniform([2, 28])
         input2_tensor = tf.random.uniform([2, 28])
-        result_model_ref = model_ref([input0_tensor, input1_tensor, input2_tensor])
-        result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
-        assert len(result_model_ref) == len(result_model_neuron)
-        for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
-            np.testing.assert_allclose(res_ref, res_neuron, rtol=1e-2, atol=1e-3)
-        wfunc_ref = model_ref.signatures['serving_default']
-        wfunc_neuron = model_neuron.signatures['serving_default']
         feed_dict = {
             wfunc_ref.function_def.signature.input_arg[0].name: input0_tensor,
             wfunc_ref.function_def.signature.input_arg[1].name: input1_tensor,
             wfunc_ref.function_def.signature.input_arg[2].name: input2_tensor,
         }
-        result_keyword_ref = wfunc_ref(**feed_dict)
-        result_keyword_neuron = wfunc_neuron(**feed_dict)
-        for output_key in result_keyword_ref:
-            np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-3)
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
+        model_neuron = tf.saved_model.load(new_model_dir)
+        wfunc_neuron = model_neuron.signatures['serving_default']
+        _assert_compiler_success_v2(wfunc_neuron)
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_model_ref = model_ref([input0_tensor, input1_tensor, input2_tensor])
+            result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
+            assert len(result_model_ref) == len(result_model_neuron)
+            for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
+                np.testing.assert_allclose(res_ref, res_neuron, rtol=1e-2, atol=1e-3)
+            result_keyword_ref = wfunc_ref(**feed_dict)
+            result_keyword_neuron = wfunc_neuron(**feed_dict)
+            for output_key in result_keyword_ref:
+                np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-2)
+
+
+def _assert_compiler_success_v2(wfunc):
+    cfunc = convert_to_constants.convert_variables_to_constants_v2(wfunc)
+    # TODO: don't know how to extract the underlying graph with NeuronOps yet... for now
+    # asserting convert_variables_to_constants_v2 cannot unroll StatefulPartitionedCall
+    # due to that the grappler function optimizer doesn't recognize NeuronOp
+    assert any(op.type == 'StatefulPartitionedCall' for op in cfunc.graph.get_operations())
