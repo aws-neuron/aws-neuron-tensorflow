@@ -53,7 +53,8 @@ class TestCompileV1SavedModel(TestV2Only):
             'x1': tf.random.uniform([1, 2, 2, 3], dtype=tf.float16),
         }
         shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        assert result_compile['OnNeuronRatio'] > 0.05
         model_ref = tf.saved_model.load(model_dir)
         model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_ref = model_ref.signatures['serving_default']
@@ -91,10 +92,11 @@ class TestCompileV1SavedModel(TestV2Only):
             'x1': tf.convert_to_tensor(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)),
         }
         shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(
+        result_compile = tfn.saved_model.compile(
             model_dir, new_model_dir, model_feed_dict=feeds,
             op_whitelist={'Conv2D', 'Const'}, minimum_segment_size=1,
         )
+        assert result_compile['OnNeuronRatio'] > 0.05
         model_ref = tf.saved_model.load(model_dir)
         model_neuron = tf.saved_model.load(new_model_dir)
         _assert_compiler_success_v2(model_neuron.signatures['serving_default'])
@@ -122,7 +124,8 @@ class TestCompileKerasSavedModel(TestV2Only):
         input_tensor = tf.random.uniform([2, 28])
         feeds = {wfunc_ref.function_def.signature.input_arg[0].name: input_tensor}
         shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_neuron = model_neuron.signatures['serving_default']
         _assert_compiler_success_v2(wfunc_neuron)
@@ -155,7 +158,8 @@ class TestCompileKerasSavedModel(TestV2Only):
         input_tensor = tf.random.uniform([2, 28])
         feeds = {wfunc_ref.function_def.signature.input_arg[0].name: input_tensor}
         shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
+        assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_neuron = model_neuron.signatures['serving_default']
         _assert_compiler_success_v2(wfunc_neuron)
@@ -204,7 +208,8 @@ class TestCompileKerasSavedModel(TestV2Only):
             wfunc_ref.function_def.signature.input_arg[2].name: input2_tensor,
         }
         shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
+        result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
+        assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_neuron = model_neuron.signatures['serving_default']
         _assert_compiler_success_v2(wfunc_neuron)
@@ -247,7 +252,8 @@ class TestCompileKerasSavedModel(TestV2Only):
             wfunc_ref.function_def.signature.input_arg[2].name: input2_tensor,
         }
         shutil.rmtree(new_model_dir, ignore_errors=True)
-        tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
+        result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
+        assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
         wfunc_neuron = model_neuron.signatures['serving_default']
         _assert_compiler_success_v2(wfunc_neuron)

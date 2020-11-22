@@ -22,6 +22,7 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.saved_model import loader_impl
 from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators
 
 
@@ -138,4 +139,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     saved_model.save(model, new_model_dir, signatures)
 
     # report compilation result
-    return dict(OnNeuronRatio=0.0)
+    num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(graph_def)
+    on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0
+    utils.model_conversion_report(model_dir, new_model_dir, on_neuron_ratio)
+    return dict(OnNeuronRatio=on_neuron_ratio)

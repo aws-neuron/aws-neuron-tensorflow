@@ -209,25 +209,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         builder.save()
     num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(infer_graph.as_graph_def())
     on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0
-    converted_msg = '{} to {}'.format(model_dir, new_model_dir)
-    if on_neuron_ratio == 0.0:
-        ops_msg = 'no operator'
-        unless_msg = ''
-    else:
-        ops_msg = 'only a small portion of operators'
-        unless_msg = ' (well, unless there are too many training operators in your SavedModel)'
-    warning_msg = (
-        'but {} will be running on AWS machine learning accelerators. This is probably '
-        'not what you want{}. Please refer to https://github.com/aws/aws-neuron-sdk '
-        'for current limitations of the AWS Neuron SDK. We are actively improving '
-        '(and hiring)!'.format(ops_msg, unless_msg))
-    if on_neuron_ratio > 0.3:
-        with utils.logging_show_info():
-            logging.info('Successfully converted {}'.format(converted_msg))
-    elif on_neuron_ratio == 0.0:
-        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
-    else:
-        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
+    utils.model_conversion_report(model_dir, new_model_dir, on_neuron_ratio)
     return dict(OnNeuronRatio=on_neuron_ratio)
 compile = convert_to_inference_model
 
