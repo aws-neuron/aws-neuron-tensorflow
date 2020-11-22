@@ -27,7 +27,7 @@ from tensorflow.neuron.python.neuron_cc import list_operators
 
 def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
             minimum_segment_size=2, op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
-            compiler_args=None, compiler_workdir=None, **kwargs):
+            compiler_args=None, compiler_workdir=None, compiler_recovery=True, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -101,7 +101,10 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
 
     # call graph_def_util passes
     graph_def = gdu.run_compiler_on_subgraphs(graph_def, compiler_workdir, compiler_args)
-    graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
+    if compiler_recovery:
+        graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
+    graph_def = gdu.erase_constants_from_compiled_subgraphs(graph_def)
+    graph_def = gdu.set_execution_plan(graph_def)
 
     # re-wrap GraphDef as a WrappedFunction
     captured_inputs = {ts.ref() for _, ts in wfunc.graph.captures}
