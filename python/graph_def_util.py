@@ -25,8 +25,6 @@ from tensorflow.neuron.python.neuron_cc import compile_savetemps
 from tensorflow.neuron.python import neff_util
 
 
-
-
 tNeuronOp = 'NeuronOp'
 tPlaceholder = 'Placeholder'
 kNeuronInferredShapes = '_aws_neuron_inferred_shapes'
@@ -373,6 +371,17 @@ def get_node_with_control_inputs(graph_def):
         if control_inputs:
             node_with_control_inputs[node.name] = control_inputs
     return node_with_control_inputs
+
+
+def compiled_graph_op_counts(graph_def):
+    neuron_nodes = [node for node in graph_def.node if node.op == tNeuronOp]
+    num_ops_on_neuron = 0
+    for node in neuron_nodes:
+        if node.attr['executable'].s:
+            subgraph_def = get_subgraph_def(node)
+            num_ops_on_neuron += len(subgraph_def.node) - len(node.attr['input_names'].list.s)
+    num_ops_tfn = len(graph_def.node) + num_ops_on_neuron - len(neuron_nodes)
+    return max(num_ops_tfn, 0), max(num_ops_on_neuron, 0)
 
 
 def _graph_def_op_index(graph_def_tensor_name):

@@ -282,7 +282,7 @@ def inference_graph_from_session(
 
     # statistics on number of operations
     num_ops_original = len(sess.graph.get_operations())
-    num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(compiled_graph)
+    num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(compiled_graph_def)
     with logging_show_info():
         logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
         logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
@@ -319,17 +319,6 @@ def most_popular_namescope(all_node_names):
         else:
             break
     return '/'.join(most_popular_namescope)
-
-
-def compiled_graph_op_counts(compiled_graph):
-    neuron_ops = [op for op in _neuron_ops(compiled_graph)]
-    num_ops_on_neuron = 0
-    for op in neuron_ops:
-        if op.get_attr('executable'):
-            subgraph_def = gdu.get_subgraph_def(op.node_def)
-            num_ops_on_neuron += len(subgraph_def.node) - len(op.get_attr('input_names'))
-    num_ops_tfn = len(compiled_graph.get_operations()) + num_ops_on_neuron - len(neuron_ops)
-    return max(num_ops_tfn, 0), max(num_ops_on_neuron, 0)
 
 
 def _graph_def_to_graph(graph_def):

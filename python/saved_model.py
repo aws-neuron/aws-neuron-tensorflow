@@ -33,17 +33,16 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import saved_model_pb2
 from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.client import timeline
-from tensorflow.neuron.python.graph_util import inference_graph_from_session
-from tensorflow.neuron.python.graph_util import logging_show_info
-from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
-from tensorflow.neuron.python.graph_def_util import tNeuronOp
 from tensorflow.python.ops.variables import global_variables_initializer
 from tensorflow.python.training import checkpoint_utils
 from tensorflow.python.ops.variable_scope import get_variable
 from tensorflow.python.ops.init_ops import Zeros as zeros_initializer
 from tensorflow.python.training.saver import Saver
-from tensorflow.python.framework import ops, importer
+from tensorflow.python.framework import importer
 from tensorflow.core.framework import graph_pb2
+from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python.graph_util import inference_graph_from_session
+from tensorflow.neuron.python.graph_util import logging_show_info
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -208,7 +207,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                              strip_default_attrs=strip_default_attrs,
                                              main_op=main_op)
         builder.save()
-    num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(infer_graph)
+    num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(infer_graph.as_graph_def())
     on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0
     converted_msg = '{} to {}'.format(model_dir, new_model_dir)
     if on_neuron_ratio == 0.0:
@@ -306,7 +305,7 @@ def _saved_model_pb_neuron_nodes(model_dir):
     neuron_node_list = []
     for meta_graph in saved_model_pb.meta_graphs:
         for node in meta_graph.graph_def.node:
-            if node.op == tNeuronOp:
+            if node.op == gdu.tNeuronOp:
                 neuron_node_list.append(node)
     return saved_model_pb, neuron_node_list
 
