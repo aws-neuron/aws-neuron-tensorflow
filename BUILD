@@ -17,13 +17,6 @@ py_library(
         "//tensorflow/neuron/python:fuse_py",
         "//tensorflow/neuron/python:performance_py",
         "//tensorflow/neuron/python:unittest_py",
-        "//tensorflow/python:framework",
-        "//tensorflow/python:array_ops",
-        "//tensorflow/python:client",
-        "//tensorflow/python:check_ops",
-        "//tensorflow/python:nn_ops",
-        "//tensorflow/python/profiler",
-        "//tensorflow/python/saved_model",
     ],
 )
 
