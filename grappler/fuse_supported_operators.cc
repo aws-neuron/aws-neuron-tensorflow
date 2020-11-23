@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/core/grappler/grappler_item.h"
-#include "tensorflow/neuron/convert/convert_graph.h"
+#include "tensorflow/neuron/grappler/convert/convert_graph.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 #include "tensorflow/neuron/grappler/fuse_supported_operators.h"
 

@@ -19,8 +19,8 @@ limitations under the License.
 #include "tensorflow/core/lib/hash/hash.h"
 #include "tensorflow/neuron/runtime/macros.h"
 #include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
-#include "tensorflow/neuron/convert/segment.h"
-#include "tensorflow/neuron/convert/convert_graph.h"
+#include "tensorflow/neuron/grappler/convert/segment.h"
+#include "tensorflow/neuron/grappler/convert/convert_graph.h"
 
 
 namespace tensorflow {
