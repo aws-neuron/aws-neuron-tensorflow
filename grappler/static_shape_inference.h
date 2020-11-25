@@ -30,7 +30,7 @@ public:
     Status Init(const tensorflow::RewriterConfig_CustomGraphOptimizer *config=nullptr) override;
     ~StaticShapeInference() override {}
     std::string name() const override { return name_static_shape_inference; }
-    bool UsesFunctionLibrary() const override { return true; }
+    bool UsesFunctionLibrary() const { return true; }
     Status Optimize(Cluster *cluster, const GrapplerItem &item, GraphDef *output) override;
     void Feedback(Cluster *cluster, const GrapplerItem &item,
                   const GraphDef &optimize_output, double result) override;
