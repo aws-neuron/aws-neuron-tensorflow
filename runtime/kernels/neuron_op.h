@@ -33,7 +33,7 @@ public:
     ~NeuronOp() override;
 
 private:
-    Status initialize();
+    Status initialize(const std::string &session_handle);
     Status check_input_tensors(const std::vector<const Tensor*> &input_tensors);
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;

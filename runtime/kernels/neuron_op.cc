@@ -183,7 +183,7 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
     VLOG(1) << "NeuronOp constructor done";
 }
 
-Status NeuronOp::initialize() {
+Status NeuronOp::initialize(const std::string &session_handle) {
     tensorflow::mutex_lock lock(mutex_model_);
     if (ready_) {
         VLOG(1) << "NeuronOp is already initialized";
@@ -195,7 +195,8 @@ Status NeuronOp::initialize() {
     model_config.parse_device_index(model_config_attr);
     TF_RETURN_IF_ERROR(
         global_neuron_device_manager.apply_for_device(
-            &neuron_device_, model_config.opt_device_size_, model_config.max_num_duplicates_,
+            &neuron_device_, session_handle,
+            model_config.opt_device_size_, model_config.max_num_duplicates_,
             model_config.device_index_)
     );
     model_config.parse_timeout(model_config_attr);
@@ -407,7 +408,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
         }
 
-        OK_IGNORE_ABORTED(ctx, initialize());
+        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
 
         int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
@@ -594,7 +595,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
-        OK_IGNORE_ABORTED(ctx, initialize());
+        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
@@ -611,7 +612,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
-        OK_IGNORE_ABORTED(ctx, initialize());
+        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
