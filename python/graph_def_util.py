@@ -175,18 +175,8 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
 
 def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
     for node in get_neuron_nodes(graph_def):
-        not_fusing_reasons = []
-        # skip compiling this subgraph for the following reasons
-        if len(node.attr[knInputNames].list.s) == 0:
-            not_fusing_reasons.append('it does not have inputs')
-        if len(node.attr[knOutputNames].list.s) == 0:
-            not_fusing_reasons.append('it does not have outputs')
-        if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knInputShapes].list.shape):
-            not_fusing_reasons.append('input shapes are not fully defined')
-        if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knOutputShapes].list.shape):
-            not_fusing_reasons.append('output shapes are not fully defined')
-        if not_fusing_reasons:
-            reason = ' and '.join(not_fusing_reasons)
+        is_compilable, reason = neuron_node_is_compilable(node)
+        if not is_compilable:
             logging.warning('Not fusing subgraph {} because {}'.format(node.name, reason))
             continue
 
@@ -212,6 +202,23 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
             subgraph_def, io_config, workdir=subgraph_workdir, compiler_args=compiler_args)
         node.attr[knExecutable].s = executable
     return graph_def
+
+
+def neuron_node_is_compilable(node):
+    reasons = []
+    # skip compiling this subgraph for the following reasons
+    if len(node.attr[knInputNames].list.s) == 0:
+        reasons.append('it does not have inputs')
+    if len(node.attr[knOutputNames].list.s) == 0:
+        reasons.append('it does not have outputs')
+    if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knInputShapes].list.shape):
+        reasons.append('input shapes are not fully defined')
+    if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knOutputShapes].list.shape):
+        reasons.append('output shapes are not fully defined')
+    if reasons:
+        return False, ' and '.join(reasons)
+    else:
+        return True, None
 
 
 def restore_compiler_failures(compiled_graph_def, original_graph_def):

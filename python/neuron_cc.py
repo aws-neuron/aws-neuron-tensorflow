@@ -33,9 +33,11 @@ def list_operators():
                         'installation, or reinstall by "pip install --force neuron-cc".')
         return set()
     op_whitelist = {op_type.strip() for op_type in list_operators_output.decode()[:-1].split('\n')}
-    op_whitelist.discard('Placeholder')
-    op_whitelist.discard('IdentityN')
-    return op_whitelist
+    tf_reserved_ops = [
+        'Placeholder',
+        'IdentityN',
+    ]
+    return op_whitelist.difference(tf_reserved_ops)
 
 
 def compile_savetemps(graph_def, io_config, workdir=None, compiler_args=None):

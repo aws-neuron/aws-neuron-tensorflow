@@ -81,8 +81,13 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     opt_config = config_pb2.ConfigProto()
     rewriter_config = opt_config.graph_options.rewrite_options
     rewriter_config.meta_optimizer_iterations = 1
-    rewriter_config.optimizers.append('constfold')
-    rewriter_config.optimizers.append('aws_neuron_static_shape_inference')
+    graph_passes = [
+        'debug_stripper',
+        'pruning',
+        'dependency',
+        'aws_neuron_static_shape_inference',
+    ]
+    rewriter_config.optimizers.extend(graph_passes)
 
     # configure operator fusion
     fuser_config = rewriter_config.custom_optimizers.add()
@@ -101,6 +106,25 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # call graph_def_util passes
+    subgraph_passes = [
+        'constfold',
+        'debug_stripper',
+        'constfold',
+        'pruning',
+        'dependency',
+        'constfold',
+        'remap',
+        'constfold',
+        'memory',
+        'constfold',
+        'common_subgraph_elimination',
+        'constfold',
+        'arithmetic',
+        'constfold',
+        'loop',
+        'constfold',
+    ]
+    graph_def = mgu.run_grappler_on_subgraphs(graph_def, subgraph_passes)
     graph_def = gdu.run_compiler_on_subgraphs(graph_def, compiler_workdir, compiler_args)
     if compiler_recovery:
         graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
