@@ -260,12 +260,9 @@ def set_execution_plan(compiled_graph_def):
         max_num_duplicates = 1
     else:
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
-    if len(neuron_nodes) > 2:
+    if len(neuron_nodes) > 1:
         # if there are many NeuronOp's in the graph, then don't do any duplication
         max_num_duplicates = 1
-    elif len(neuron_nodes) == 2:
-        # if there are precisely two NeuronOp's, then creates at most two duplications
-        max_num_duplicates = min(2, max_num_duplicates)
     for node in neuron_nodes:
         if node.name in num_cores_tuple_map:
             this_opt_num_cores, _ = num_cores_tuple_map[node.name]
