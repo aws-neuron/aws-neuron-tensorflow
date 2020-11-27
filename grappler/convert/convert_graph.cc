@@ -49,24 +49,6 @@ class OutputEdgeValidator {
   }
 };
 
-
-// Helper function to split tensor and tensor spec (i.e conv:2 -> conv, 2)
-std::vector<string> split(string str, string token) {
-  std::vector<string> result;
-  while (str.size()) {
-    size_t index = str.find(token);
-    if (index != string::npos) {
-      result.push_back(str.substr(0, index));
-      str = str.substr(index + token.size());
-      if (str.size() == 0) result.push_back(str);
-    } else {
-      result.push_back(str);
-      str = "";
-    }
-  }
-  return result;
-}
-
 // Helper function
 void GetSubGraphIncomingEdges(const tensorflow::Graph& graph,
                               const std::set<int>& subgraph_node_ids,

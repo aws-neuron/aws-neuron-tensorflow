@@ -72,11 +72,9 @@ Status FuseSupportedOperators::Optimize(Cluster *cluster, const GrapplerItem &it
     }
     VLOG(2) << "input_op_names " << container_debug_string(input_op_names);
     VLOG(2) << "output_op_names " << container_debug_string(item.fetch);
-    GrapplerItem optimized_item(item);
     TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
-        &optimized_item.graph, item.graph, input_op_names, item.fetch,
+        output, item.graph, input_op_names, item.fetch,
         minimum_segment_size_, op_whitelist_, no_fuse_ops_, force_fuse_ops_));
-    output->Swap(&optimized_item.graph);
     return Status::OK();
 }
 
