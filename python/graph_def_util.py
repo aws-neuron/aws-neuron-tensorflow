@@ -176,6 +176,7 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     restore_nodes = []
     remove_node_names = set()
     gd_tensor_name_map = {}
+    all_expected_node_names = {node.name for node in compiled_graph_def.node if node.op != tNeuronOp}
     for node in get_neuron_nodes(compiled_graph_def):
         if not node.attr[knExecutable].s:
             remove_node_names.add(node.name)
@@ -194,6 +195,7 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
                     sg_node.input[idx] = sgd_tensor_name_map.get(name, name)
                 if sg_node.op != tPlaceholder:
                     restore_nodes.append(sg_node)
+                    all_expected_node_names.add(sg_node.name)
             for out_idx, out_name in enumerate(node.attr[knOutputNames].list.s):
                 out_gd_ts_name = format_tensor_name('{}:{}'.format(node.name, out_idx))
                 gd_tensor_name_map[out_gd_ts_name] = format_tensor_name(out_name.decode())
@@ -203,7 +205,10 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     original_node_with_control_inputs = get_node_with_control_inputs(original_graph_def)
     for node in restore_nodes:
         if node.name in original_node_with_control_inputs:
-            node.input.extend(original_node_with_control_inputs[node.name])
+            input_names = original_node_with_control_inputs[node.name]
+            for name in input_names:
+                if name.split(':')[0] in all_expected_node_names:
+                    node.input.append(name)
     for node in compiled_graph_def.node:
         for idx, name in enumerate(node.input):
             node.input[idx] = gd_tensor_name_map.get(name, name)
