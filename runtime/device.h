@@ -78,6 +78,7 @@ private:
     std::vector<uint32_t> vec_eg_id_;
     uint32_t running_nn_id_;
     uint32_t num_cores_ = 0;
+    uint64 last_infer_timestamp_ = 0;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
     std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;

@@ -44,7 +44,6 @@ public:
 namespace neuron {
 
 
-static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 extern NeuronDeviceManager global_neuron_device_manager;
 
@@ -486,11 +485,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 int64_t first_need_wait_infer_post_bidx = num_batches - window_size;
                 neuron_device_->acquire_mutex(&mutex_lock_queue);
                 OK_IGNORE_ABORTED(ctx, neuron_device_->start_model_unsafe(nn_id_));
-                uint64 infer_timestamp = Env::Default()->NowMicros();
-                if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
-                    // need an extra grpc call to re-establish channel in case of seeing grpc 14
-                    OK_IGNORE_ABORTED(ctx, neuron_device_->start_ping(nn_id_));
-                }
+                // need an extra unary grpc call to re-establish channel in case of seeing grpc 14
+                // as start_model_unsafe may not call grpc start
+                OK_IGNORE_ABORTED(ctx, neuron_device_->start_ping(nn_id_));
                 // post ninfer ones
                 for (int64_t post_bidx = 0; post_bidx < window_size; ++post_bidx) {
                     // setup inputs
@@ -607,7 +604,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
                     need_wait_infer_post.pop();
                 }
-                last_infer_timestamp_ = Env::Default()->NowMicros();
             }   // unlock device
 
             // wait for remaining ones in the queue

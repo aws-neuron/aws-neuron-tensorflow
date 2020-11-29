@@ -40,7 +40,6 @@ private:
     uint32_t max_num_infers_ = 5;
     std::shared_ptr<xla::Semaphore> infer_sem_ = nullptr;
     ProfilerInterface profile_;
-    uint64 last_infer_timestamp_ = 0;
 };
 
 

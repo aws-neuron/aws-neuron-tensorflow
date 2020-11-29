@@ -25,6 +25,7 @@ namespace neuron {
 
 
 NeuronDeviceManager global_neuron_device_manager;
+static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 
 
 #ifdef NEURONTFSERV
@@ -393,6 +394,7 @@ Status NeuronDevice::post_infer_post(RuntimeIO *runtime_io) {
 }
 
 Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
+    last_infer_timestamp_ = Env::Default()->NowMicros();
     return runtime_.wait_infer_post(runtime_io);
 }
 
@@ -408,6 +410,7 @@ Status NeuronDevice::post_infer(RuntimeIO *runtime_io) {
 }
 
 Status NeuronDevice::wait_infer(RuntimeIO *runtime_io) {
+    last_infer_timestamp_ = Env::Default()->NowMicros();
     return runtime_.wait_infer(runtime_io);
 }
 
@@ -492,7 +495,11 @@ Status NeuronDevice::start_ping(const uint32_t nn_id) {
     if (closed_) {
         return errors::Aborted("neuron_device is closed");
     }
-    return runtime_.start_ping(nn_id);
+    uint64 infer_timestamp = Env::Default()->NowMicros();
+    if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
+        return runtime_.start_ping(nn_id);
+    }
+    return Status::OK();
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
