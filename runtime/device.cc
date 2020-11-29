@@ -16,8 +16,8 @@ limitations under the License.
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
-#include "./macros.h"
-#include "./device.h"
+#include "macros.h"
+#include "device.h"
 
 
 namespace tensorflow {
@@ -380,6 +380,24 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     }
     nn_id_to_all_nn_ids_.erase(nn_id);
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
+}
+
+Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
+                                             AttrList &input_names,
+                                             const std::vector<size_t> &input_tensor_sizes,
+                                             const std::vector<const Tensor*> &input_tensors,
+                                             AttrList &output_names,
+                                             const std::vector<size_t> &output_tensor_sizes,
+                                             const std::vector<Tensor*> &output_tensors,
+                                             const uint32_t nn_id,
+                                             thread::ThreadPool *thread_pool) {
+    if (nullptr == scoped_io) {
+        return errors::Internal("bad ScopedRuntimeIO pointer");
+    }
+    return scoped_io->setup(
+        input_names, input_tensor_sizes, input_tensors,
+        output_names, output_tensor_sizes, output_tensors,
+        nn_id, thread_pool, shm_buf_mgr_);
 }
 
 Status NeuronDevice::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {

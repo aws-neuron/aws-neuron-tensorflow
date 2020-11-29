@@ -18,12 +18,13 @@ limitations under the License.
 
 #include <queue>
 #include "tensorflow/core/platform/mutex.h"
-#include "./semaphore.h"
-#include "./timestamps.h"
-#include "./profiler.h"
-#include "./tensor_util.h"
-#include "./shared_memory.h"
-#include "./runtime_grpc.h"
+#include "semaphore.h"
+#include "timestamps.h"
+#include "profiler.h"
+#include "tensor_util.h"
+#include "shared_memory.h"
+#include "runtime_io.h"
+#include "runtime_grpc.h"
 
 
 namespace tensorflow {
@@ -40,6 +41,15 @@ public:
                       std::shared_ptr<RuntimeSession> session);
     Status load(uint32_t *nn_id, const StringPiece &executable,
                 const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
+    Status setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
+                                   AttrList &input_names,
+                                   const std::vector<size_t> &input_tensor_sizes,
+                                   const std::vector<const Tensor*> &input_tensors,
+                                   AttrList &output_names,
+                                   const std::vector<size_t> &output_tensor_sizes,
+                                   const std::vector<Tensor*> &output_tensors,
+                                   const uint32_t nn_id,
+                                   thread::ThreadPool *thread_pool);
     Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer_post(RuntimeIO *runtime_io);
     Status wait_infer_post(RuntimeIO *runtime_io);
@@ -63,7 +73,6 @@ public:
     Status start_ping(const uint32_t nn_id);
     size_t semaphore_factor() { return vec_eg_id_.size(); }
     std::shared_ptr<RuntimeSession> get_session() { return session_; }
-    std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
 private:
     bool is_busy();
     bool running(uint32_t nn_id);
@@ -76,6 +85,7 @@ private:
     uint64_t session_id_ = RuntimeSession::INVALID_ID;
     std::shared_ptr<RuntimeSession> session_ = nullptr;
     std::vector<uint32_t> vec_eg_id_;
+    std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
     uint32_t running_nn_id_;
     uint32_t num_cores_ = 0;
     uint64 last_infer_timestamp_ = 0;
