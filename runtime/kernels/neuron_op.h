@@ -38,14 +38,12 @@ private:
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
-    bool ready_ = false;
     std::vector<size_t> input_tensor_sizes_;
     std::vector<size_t> output_tensor_sizes_;
     uint32_t max_num_infers_ = 5;
     static const int64 INFER_SEM_MAX_CAPACITY = 2048;
     xla::Semaphore infer_sem_;
-    bool infer_sem_initialized_ = false;
-    std::shared_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_;
+    std::shared_ptr<xla::Semaphore::ScopedReservation> infer_sem_reserve_ptr_ = nullptr;
     ProfilerInterface profile_;
     uint64 last_infer_timestamp_ = 0;
     static const uint64 INFER_NEED_PING_MICROSEC_ = 1024 * 1024;

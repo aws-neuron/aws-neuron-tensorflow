@@ -185,7 +185,7 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
 
 Status NeuronOp::initialize(const std::string &session_handle) {
     tensorflow::mutex_lock lock(mutex_model_);
-    if (ready_) {
+    if (nullptr != neuron_device_) {
         VLOG(1) << "NeuronOp is already initialized";
         return Status::OK();
     }
@@ -246,14 +246,12 @@ Status NeuronOp::initialize(const std::string &session_handle) {
         init_acquire_amount = INFER_SEM_MAX_CAPACITY - 1;
     }
     std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
-    if (init_acquire_amount > 0 && !infer_sem_initialized_ && "yes" != unlimited_threads) {
+    if (init_acquire_amount > 0 && nullptr == infer_sem_reserve_ptr_ && "yes" != unlimited_threads) {
         infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
             infer_sem_.ScopedAcquire(init_acquire_amount));
-        infer_sem_initialized_ = true;
         int64 infer_sem_capacity = INFER_SEM_MAX_CAPACITY - init_acquire_amount;
         VLOG(1) << "infer semaphore capacity " << infer_sem_capacity;
     }
-    ready_ = true;
     return Status::OK();
 }
 
