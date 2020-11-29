@@ -49,7 +49,7 @@ public:
     Status infer(RuntimeIO *runtime_io, Timestamps *timestamps,
                  ProfilerInterface *profile, const uint32_t nn_id);
     Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                      xla::Semaphore *infer_sem, Timestamps *timestamps,
+                      std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
                       const uint32_t nn_id);
     Status infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps);
     void unload(const uint32_t nn_id);

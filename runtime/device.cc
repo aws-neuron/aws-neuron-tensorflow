@@ -424,10 +424,12 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
 }
 
 Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                                xla::Semaphore *infer_sem, Timestamps *timestamps,
+                                std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
                                 const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
-    sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    if (infer_sem) {
+        sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    }
     return infer_post_unsafe(runtime_io, timestamps, nn_id);
 }
 

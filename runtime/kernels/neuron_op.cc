@@ -44,6 +44,7 @@ public:
 namespace neuron {
 
 
+static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 extern NeuronDeviceManager global_neuron_device_manager;
 
@@ -167,8 +168,7 @@ private:
 };
 
 
-NeuronOp::NeuronOp(OpKernelConstruction *ctx)
-        : OpKernel(ctx), infer_sem_(INFER_SEM_MAX_CAPACITY) {
+NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
     VLOG(1) << "calling NeuronOp constructor";
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
                 errors::InvalidArgument(
@@ -280,18 +280,10 @@ Status NeuronOp::initialize(const std::string &session_handle) {
 
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
-    int64 init_acquire_amount = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
-    if (init_acquire_amount >= INFER_SEM_MAX_CAPACITY) {
-        LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
-                     << " forcing semaphore value to be 1";
-        init_acquire_amount = INFER_SEM_MAX_CAPACITY - 1;
-    }
     std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
-    if (init_acquire_amount > 0 && nullptr == infer_sem_reserve_ptr_ && "yes" != unlimited_threads) {
-        infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
-            infer_sem_.ScopedAcquire(init_acquire_amount));
-        int64 infer_sem_capacity = INFER_SEM_MAX_CAPACITY - init_acquire_amount;
-        VLOG(1) << "infer semaphore capacity " << infer_sem_capacity;
+    if (!infer_sem_ && "yes" != unlimited_threads) {
+        infer_sem_ = std::make_shared<xla::Semaphore>(max_num_infers_);
+        VLOG(1) << "infer semaphore capacity " << max_num_infers_;
     }
     return Status::OK();
 }
@@ -495,7 +487,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 neuron_device_->acquire_mutex(&mutex_lock_queue);
                 OK_IGNORE_ABORTED(ctx, neuron_device_->start_model_unsafe(nn_id_));
                 uint64 infer_timestamp = Env::Default()->NowMicros();
-                if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC_) {
+                if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
                     // need an extra grpc call to re-establish channel in case of seeing grpc 14
                     OK_IGNORE_ABORTED(ctx, neuron_device_->start_ping(nn_id_));
                 }
@@ -531,7 +523,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         input_names, input_tensor_sizes, sliced_inputs,
                         output_names, output_tensor_sizes, output_tensors,
                         nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
-                    sem_res_queue.push(infer_sem_.ScopedAcquire(1));
+                    if (infer_sem_) {
+                        sem_res_queue.push(infer_sem_->ScopedAcquire(1));
+                    }
 
                     // post
                     RuntimeIO *runtime_io = &scoped_io_queue.back().runtime_io_;
@@ -665,7 +659,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         {
             SemResQueue sem_res_queue;
             OK_IGNORE_ABORTED(ctx, neuron_device_->infer_post(
-                &scoped_io.runtime_io_, &sem_res_queue, &infer_sem_, &timestamps, nn_id_));
+                &scoped_io.runtime_io_, &sem_res_queue, infer_sem_, &timestamps, nn_id_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&scoped_io.runtime_io_, &timestamps));
         }
         OK_IGNORE_ABORTED(ctx, scoped_io.finish());
