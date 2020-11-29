@@ -19,7 +19,10 @@ tf_gen_op_libs(
 
 tf_kernel_library(
     name = "neuron_op_kernel",
-    srcs = ["kernels/neuron_op.cc"],
+    srcs = [
+        "kernels/neuron_op.cc",
+        "model_config.h",
+    ],
     hdrs = ["kernels/neuron_op.h"],
     deps = [
         ":device",
