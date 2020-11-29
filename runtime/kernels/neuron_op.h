@@ -34,12 +34,9 @@ public:
 
 private:
     Status initialize(const std::string &session_handle);
-    Status check_input_tensors(const std::vector<const Tensor*> &input_tensors);
     tensorflow::mutex mutex_model_;
     NeuronDevice *neuron_device_ = nullptr;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
-    std::vector<size_t> input_tensor_sizes_;
-    std::vector<size_t> output_tensor_sizes_;
     uint32_t max_num_infers_ = 5;
     static const int64 INFER_SEM_MAX_CAPACITY = 2048;
     xla::Semaphore infer_sem_;

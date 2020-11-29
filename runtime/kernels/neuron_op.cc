@@ -183,6 +183,74 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
     VLOG(1) << "NeuronOp constructor done";
 }
 
+static size_t get_tensor_size(const DataType dype, const TensorShapeProto &shape_proto) {
+    size_t dtype_size = (size_t)DataTypeSize(dype);
+    size_t num_elements = (size_t)TensorShape(shape_proto).num_elements();
+    return dtype_size * num_elements;
+}
+
+static Status get_io_tensor_sizes(std::vector<size_t> *input_tensor_sizes,
+                                  std::vector<size_t> *output_tensor_sizes,
+                                  const NodeDef &node_def) {
+    const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
+    AttrList &input_names = attr.at("input_names").list();
+    AttrList &input_dtypes = attr.at("input_dtypes").list();
+    AttrList &input_shapes = attr.at("input_shapes").list();
+    AttrList &output_names = attr.at("output_names").list();
+    AttrList &output_dtypes = attr.at("output_dtypes").list();
+    AttrList &output_shapes = attr.at("output_shapes").list();
+    if (input_names.s_size() != input_dtypes.type_size()
+            || input_names.s_size() != input_shapes.shape_size()) {
+        return errors::FailedPrecondition(
+            "incorrect number of inputs: input_names size ", input_names.s_size(),
+            ", input_dtypes size ", input_dtypes.type_size(),
+            ", input_shapes size ", input_shapes.shape_size());
+    }
+    if (output_names.s_size() != output_dtypes.type_size()
+            || output_names.s_size() != output_shapes.shape_size()) {
+        return errors::FailedPrecondition(
+            "incorrect number of outputs: output_names size ", output_names.s_size(),
+            ", output_dtypes size ", output_dtypes.type_size(),
+            ", output_shapes size ", output_shapes.shape_size());
+    }
+    if (input_tensor_sizes != nullptr) {
+        input_tensor_sizes->clear();
+        for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
+            size_t tensor_size = get_tensor_size(input_dtypes.type(idx), input_shapes.shape(idx));
+            input_tensor_sizes->push_back(tensor_size);
+        }
+    }
+    if (output_tensor_sizes != nullptr) {
+        output_tensor_sizes->clear();
+        for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+            size_t tensor_size = get_tensor_size(output_dtypes.type(idx), output_shapes.shape(idx));
+            output_tensor_sizes->push_back(tensor_size);
+        }
+    }
+    return Status::OK();
+}
+
+static Status check_input_tensors(const std::vector<const Tensor*> &input_tensors,
+                                  const NodeDef &node_def) {
+    AttrList &input_names = node_def.attr().at("input_names").list();
+    std::vector<size_t> input_tensor_sizes;
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&input_tensor_sizes, nullptr, node_def));
+    if ((int)input_tensors.size() != input_names.s_size()) {
+        return errors::Internal(
+            "incorrect number of input tensors, input_tensors size ",
+            input_tensors.size(), ", input_names size", input_names.s_size());
+    }
+    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+        size_t tensor_data_size = input_tensors[idx]->tensor_data().size();
+        if (tensor_data_size != input_tensor_sizes[idx]) {
+            return errors::Internal(
+                "incorrect input tensor size ", tensor_data_size, " found on ",
+                input_names.s(idx), " (", input_tensor_sizes[idx], ")");
+        }
+    }
+    return Status::OK();
+}
+
 Status NeuronOp::initialize(const std::string &session_handle) {
     tensorflow::mutex_lock lock(mutex_model_);
     if (nullptr != neuron_device_) {
@@ -208,34 +276,7 @@ Status NeuronOp::initialize(const std::string &session_handle) {
             << "; number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
-    AttrList &input_names = def().attr().at("input_names").list();
-    AttrList &input_dtypes = def().attr().at("input_dtypes").list();
-    AttrList &input_shapes = def().attr().at("input_shapes").list();
-    AttrList &output_names = def().attr().at("output_names").list();
-    AttrList &output_dtypes = def().attr().at("output_dtypes").list();
-    AttrList &output_shapes = def().attr().at("output_shapes").list();
-    if (input_names.s_size() != input_dtypes.type_size()
-            || input_names.s_size() != input_shapes.shape_size()) {
-        return errors::FailedPrecondition(
-            "incorrect number of inputs: input_names size ", input_names.s_size(),
-            ", input_dtypes size ", input_dtypes.type_size(),
-            ", input_shapes size ", input_shapes.shape_size());
-    }
-    if (output_names.s_size() != output_dtypes.type_size()
-            || output_names.s_size() != output_shapes.shape_size()) {
-        return errors::FailedPrecondition(
-            "incorrect number of outputs: output_names size ", output_names.s_size(),
-            ", output_dtypes size ", output_dtypes.type_size(),
-            ", output_shapes size ", output_shapes.shape_size());
-    }
-    for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
-        Tensor temp_tensor(input_dtypes.type(idx), input_shapes.shape(idx));
-        input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
-    }
-    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-        Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
-        output_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
-    }
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, nullptr, def()));
 
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
@@ -281,6 +322,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     }
     OP_REQUIRES(ctx, (int)input_tensors.size() == input_names.s_size(),
                 errors::InvalidArgument("incorrect number of input tensors"));
+    std::vector<size_t> input_tensor_sizes;
+    std::vector<size_t> output_tensor_sizes;
+    OP_REQUIRES_OK(ctx, get_io_tensor_sizes(&input_tensor_sizes, &output_tensor_sizes, def()));
 
     int64_t batch_size = UNINIT_BATCH_SIZE;
     int64_t k_batch_size = UNINIT_BATCH_SIZE;
@@ -419,7 +463,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 sliced_inputs[idx] = is_batch_input_tensors[idx] ?
                     &batches_neuron_input_tensors[0][idx] : input_tensors[idx];
             }
-            OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+            OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs, def()));
             std::vector<Tensor> temp_outputs(output_dtypes.type_size());
             for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
                 OP_REQUIRES_OK(ctx, ctx->allocate_temp(
@@ -432,8 +476,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
             ScopedRuntimeIO scoped_io;
             OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-                input_names, input_tensor_sizes_, sliced_inputs,
-                output_names, output_tensor_sizes_, output_tensors,
+                input_names, input_tensor_sizes, sliced_inputs,
+                output_names, output_tensor_sizes, output_tensors,
                 nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
                 &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
@@ -463,7 +507,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         sliced_inputs[idx] = is_batch_input_tensors[idx] ?
                             &batches_neuron_input_tensors[post_bidx][idx] : input_tensors[idx];
                     }
-                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs, def()));
 
                     // setup outputs
                     int64_t dim0_start = post_bidx * k_batch_size;
@@ -484,8 +528,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                     scoped_io_queue.emplace();
                     OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
-                        input_names, input_tensor_sizes_, sliced_inputs,
-                        output_names, output_tensor_sizes_, output_tensors,
+                        input_names, input_tensor_sizes, sliced_inputs,
+                        output_names, output_tensor_sizes, output_tensors,
                         nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
                     sem_res_queue.push(infer_sem_.ScopedAcquire(1));
 
@@ -515,7 +559,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         sliced_inputs[idx] = is_batch_input_tensors[idx] ?
                             &batches_neuron_input_tensors[post_bidx][idx] : input_tensors[idx];
                     }
-                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs, def()));
 
                     // setup outputs for next one
                     int64_t dim0_start = post_bidx * k_batch_size;
@@ -536,8 +580,8 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     }
                     scoped_io_queue.emplace();
                     OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
-                        input_names, input_tensor_sizes_, sliced_inputs,
-                        output_names, output_tensor_sizes_, output_tensors,
+                        input_names, input_tensor_sizes, sliced_inputs,
+                        output_names, output_tensor_sizes, output_tensors,
                         nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
                     if (post_bidx >= first_need_wait_infer_post_bidx) {
@@ -595,11 +639,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
         OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
+        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors, def()));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensor_sizes_, input_tensors,
-            output_names, output_tensor_sizes_, output_tensors,
+            input_names, input_tensor_sizes, input_tensors,
+            output_names, output_tensor_sizes, output_tensors,
             nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
         OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
             &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
@@ -612,11 +656,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
         OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
+        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors, def()));
         ScopedRuntimeIO scoped_io;
         OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensor_sizes_, input_tensors,
-            output_names, output_tensor_sizes_, output_tensors,
+            input_names, input_tensor_sizes, input_tensors,
+            output_names, output_tensor_sizes, output_tensors,
             nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
         {
             SemResQueue sem_res_queue;
@@ -628,24 +672,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     }
     timestamps.mark_exit();
     VLOG(1) << timestamps.timing_string();
-}
-
-Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_tensors) {
-    AttrList &input_names = def().attr().at("input_names").list();
-    if ((int)input_tensors.size() != input_names.s_size()) {
-        return errors::Internal(
-            "incorrect number of input tensors, input_tensors size ",
-            input_tensors.size(), ", input_names size", input_names.s_size());
-    }
-    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-        size_t tensor_data_size = input_tensors[idx]->tensor_data().size();
-        if (tensor_data_size != input_tensor_sizes_[idx]) {
-            return errors::Internal(
-                "incorrect input tensor size ", tensor_data_size, " found on ",
-                input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
-        }
-    }
-    return Status::OK();
 }
 
 // need to override kernel_builder as NeuronName to prevent multiple kernel registrations
