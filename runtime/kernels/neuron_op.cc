@@ -404,7 +404,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         output_names, output_tensor_sizes, output_tensors,
                         nn_id_, thread_pool));
                     if (infer_sem_) {
-                        sem_res_queue.push(infer_sem_->ScopedAcquire(1));
+                        OP_REQUIRES_OK(ctx, neuron_device_->acquire_sem(&sem_res_queue, infer_sem_));
                     }
 
                     // post
@@ -499,7 +499,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     &timestamps : nullptr;
                 RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
                 OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(runtime_io_front, wait_timestamps));
-                sem_res_queue.pop();
+                OP_REQUIRES_OK(ctx, neuron_device_->release_sem(&sem_res_queue));
                 OK_IGNORE_ABORTED(ctx, runtime_io_front->finish());
                 scoped_io_queue.pop();
             }

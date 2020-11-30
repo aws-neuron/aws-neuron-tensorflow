@@ -452,7 +452,7 @@ Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queu
                                 std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
                                 const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
-    if (infer_sem) {
+    if (TF_PREDICT_TRUE(infer_sem)) {
         sem_res_queue->push(infer_sem->ScopedAcquire(1));
     }
     return infer_post_unsafe(runtime_io, timestamps, nn_id);
@@ -460,6 +460,29 @@ Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queu
 
 void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
     mutex_lock_queue->emplace(mutex_eg_);
+}
+
+Status NeuronDevice::acquire_sem(SemResQueue *sem_res_queue,
+                                 std::shared_ptr<xla::Semaphore> infer_sem) {
+    if (TF_PREDICT_FALSE(nullptr == sem_res_queue)) {
+        return errors::Internal("Invalid SemResQueue in acquire_sem");
+    }
+    if (TF_PREDICT_FALSE(!infer_sem)) {
+        return errors::Internal("Invalid xla::Semaphore");
+    }
+    sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    return Status::OK();
+}
+
+Status NeuronDevice::release_sem(SemResQueue *sem_res_queue) {
+    if (TF_PREDICT_FALSE(nullptr == sem_res_queue)) {
+        return errors::Internal("Invalid SemResQueue in release_sem");
+    }
+    if (TF_PREDICT_FALSE(sem_res_queue->empty())) {
+        return errors::Internal("Empty SemResQueue in release_sem");
+    }
+    sem_res_queue->pop();
+    return Status::OK();
 }
 
 Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,

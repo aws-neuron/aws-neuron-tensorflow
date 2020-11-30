@@ -65,6 +65,8 @@ public:
     Status infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps);
     void unload(const uint32_t nn_id);
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
+    Status acquire_sem(SemResQueue *sem_res_queue, std::shared_ptr<xla::Semaphore> infer_sem);
+    Status release_sem(SemResQueue *sem_res_queue);
     Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
                              const uint32_t nn_id);
     void clear(bool from_global_state=false);
