@@ -36,6 +36,7 @@ typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
 class NeuronDevice {
 public:
+    NeuronDevice() {}
     Status initialize(const std::string &nrtd_address,
                       const int num_cores_req, const int num_dup,
                       std::shared_ptr<RuntimeSession> session);
@@ -93,17 +94,14 @@ private:
     std::string nrtd_address_ = "";
     std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;
     std::unordered_map<uint32_t, size_t> nn_id_to_active_idx_;
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDevice);
 };
 
 
 class NeuronDeviceManager {
 public:
-    NeuronDeviceManager() {};
+    NeuronDeviceManager() {}
     ~NeuronDeviceManager();
-    NeuronDeviceManager(const NeuronDeviceManager &) = delete;
-    NeuronDeviceManager &operator=(const NeuronDeviceManager &) = delete;
-    NeuronDeviceManager(NeuronDeviceManager &&) = delete;
-    NeuronDeviceManager &operator=(NeuronDeviceManager &&) = delete;
     Status apply_for_device(NeuronDevice **device,
                             const std::string &session_handle,
                             const int64_t opt_device_size,
@@ -129,6 +127,7 @@ private:
     size_t device_index_ = 0;
     size_t num_devices_ = 0;
     bool ready_ = false;
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceManager);
 };
 
 

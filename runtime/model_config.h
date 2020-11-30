@@ -23,6 +23,7 @@ namespace neuron {
 
 class NeuronModelConfig {
 public:
+    NeuronModelConfig() {}
     void parse_opt_device_size(AttrList &model_config) {
         if (model_config_valid(model_config)) {
             opt_device_size_ = model_config_global_opt_num_cores(model_config);
@@ -137,6 +138,8 @@ private:
     static const int64 NRTD_INSUFFICIENT_NUM_INFER = 1;
     static const int64 NRTD_NUM_CPU_THREADS = 3;
     static const int64 HARD_MAX_NUM_THREADS = 1024;
+
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronModelConfig);
 };
 
 }  // namespace neuron

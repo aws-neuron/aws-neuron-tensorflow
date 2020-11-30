@@ -17,8 +17,7 @@ limitations under the License.
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "tensorflow/core/platform/env.h"
-#include "./macros.h"
-#include "./shared_memory.h"
+#include "shared_memory.h"
 
 
 namespace tensorflow {
@@ -45,14 +44,11 @@ public:
             SYS_FAIL_LOG(shm_unlink(name_.c_str()) < 0, "shm_unlink");
         }
     }
-    ShmFile(const ShmFile &shm_file) = delete;
-    ShmFile &operator=(const ShmFile &shm_file) = delete;
-    ShmFile(ShmFile &&) = delete;
-    ShmFile &operator=(ShmFile &&) = delete;
     int shm_fd_ = -1;
 private:
     int shm_open_fd_ = -1;
     std::string name_;
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(ShmFile);
 };
 
 
@@ -104,24 +100,6 @@ SharedMemoryBuffer::~SharedMemoryBuffer() {
     if (nullptr != ptr_) {
         SYS_FAIL_LOG(munmap(ptr_, size_) < 0, "munmap");
     }
-}
-
-SharedMemoryBuffer::SharedMemoryBuffer(const SharedMemoryBuffer &buffer) : id_(buffer.id_) {
-    runtime_ = buffer.runtime_;
-    ptr_ = buffer.ptr_;
-    size_ = buffer.size_;
-    path_ = buffer.path_;
-}
-
-SharedMemoryBuffer::SharedMemoryBuffer(SharedMemoryBuffer &&buffer) : id_(buffer.id_) {
-    runtime_ = buffer.runtime_;
-    ptr_ = buffer.ptr_;
-    size_ = buffer.size_;
-    path_ = buffer.path_;
-    buffer.runtime_ = nullptr;
-    buffer.ptr_ = nullptr;
-    buffer.size_ = 0;
-    buffer.path_.clear();
 }
 
 

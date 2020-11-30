@@ -14,8 +14,8 @@ limitations under the License.
 ==============================================================================*/
 
 #include <grpcpp/grpcpp.h>
-#include "./nmgr.pb.h"
-#include "./runtime_grpc.h"
+#include "nmgr.pb.h"
+#include "runtime_grpc.h"
 
 
 namespace tensorflow {

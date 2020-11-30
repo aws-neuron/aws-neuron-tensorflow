@@ -17,9 +17,9 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_RUNTIME_IO_H_
 
 #include "tensorflow/core/lib/core/threadpool.h"
-#include "./tensor_util.h"
-#include "./shared_memory_io.h"
-#include "./shared_memory.h"
+#include "tensor_util.h"
+#include "shared_memory_io.h"
+#include "shared_memory.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -84,15 +84,12 @@ public:
             }
         }
     }
-    ScopedRuntimeIO(const ScopedRuntimeIO &) = delete;
-    ScopedRuntimeIO &operator=(const ScopedRuntimeIO &) = delete;
-    ScopedRuntimeIO(ScopedRuntimeIO &&) = delete;
-    ScopedRuntimeIO &operator=(ScopedRuntimeIO &&) = delete;
     RuntimeIO runtime_io_;
 private:
     std::shared_ptr<SharedMemoryBufferManager> shm_mgr_ = nullptr;
     std::vector<SharedMemoryPtr> input_shm_bufs_;
     std::vector<SharedMemoryPtr> output_shm_bufs_;
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(ScopedRuntimeIO);
 };
 
 }  // namespace neuron
