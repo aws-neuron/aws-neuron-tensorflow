@@ -100,26 +100,27 @@ private:
 
 class NeuronDeviceManager {
 public:
-    NeuronDeviceManager() {}
-    ~NeuronDeviceManager();
+    static NeuronDeviceManager &GetNeuronDeviceManager();
     Status apply_for_device(NeuronDevice **device,
                             const std::string &session_handle,
                             const int64_t opt_device_size,
                             const int64_t max_num_duplicates,
                             const int64_t device_index=-1);
     void clear_if_empty();
-    void clear();
     void clear_from_global_state();
-    std::string nrtd_address_;
     static const int64 MAX_NUM_CORES = 64;
     static const int64 MIN_NUM_CORES = 0;
 private:
+    NeuronDeviceManager() {}
+    ~NeuronDeviceManager();
     Status init_default_device(const int64_t opt_device_size, const int64_t max_num_duplicates);
     Status init_devices(const std::vector<int> &num_cores_req_vector,
                         const std::vector<int> &num_dup_vector);
     Status initialize(const int64_t opt_device_size, const int64_t max_num_duplicates);
+    void clear();
     tensorflow::mutex global_mutex_;
     static const int DEFAULT_NUM_CORES = -65536;  // any negative number < -MAX_NUM_CORES
+    std::string nrtd_address_;
     std::shared_ptr<RuntimeSession> session_ = nullptr;
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
     std::unordered_map<std::string, size_t> session_handle_to_device_index_;

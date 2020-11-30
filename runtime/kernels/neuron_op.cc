@@ -46,7 +46,6 @@ namespace neuron {
 
 
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
-extern NeuronDeviceManager global_neuron_device_manager;
 
 
 NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
@@ -143,7 +142,7 @@ Status NeuronOp::initialize(const std::string &session_handle) {
     model_config.parse_opt_device_size(model_config_attr);
     model_config.parse_device_index(model_config_attr);
     TF_RETURN_IF_ERROR(
-        global_neuron_device_manager.apply_for_device(
+        NeuronDeviceManager::GetNeuronDeviceManager().apply_for_device(
             &neuron_device_, session_handle,
             model_config.opt_device_size_, model_config.max_num_duplicates_,
             model_config.device_index_)
@@ -178,7 +177,7 @@ NeuronOp::~NeuronOp() {
     }
     neuron_device_->unload(nn_id_);
     VLOG(1) << "unload from NeuronOp::~NeuronOp";
-    global_neuron_device_manager.clear_if_empty();
+    NeuronDeviceManager::GetNeuronDeviceManager().clear_if_empty();
     VLOG(1) << "NeuronOp destructor done";
 }
 

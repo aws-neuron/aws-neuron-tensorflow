@@ -24,13 +24,12 @@ namespace tensorflow {
 namespace neuron {
 
 
-NeuronDeviceManager global_neuron_device_manager;
 static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 
 
 #ifdef NEURONTFSERV
 void sigint_handler(int sig) {
-    global_neuron_device_manager.clear_from_global_state();
+    NeuronDeviceManager::GetNeuronDeviceManager().clear_from_global_state();
     std::signal(SIGINT, SIG_DFL);
     std::signal(SIGTERM, SIG_DFL);
     std::raise(sig);
@@ -219,6 +218,11 @@ void NeuronDeviceManager::clear_from_global_state() {
     VLOG(1) << "NeuronDeviceManager is cleared from global state";
 }
 
+
+NeuronDeviceManager &NeuronDeviceManager::GetNeuronDeviceManager() {
+    static NeuronDeviceManager mgr;
+    return mgr;
+}
 
 Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
                                              const std::string &session_handle,
