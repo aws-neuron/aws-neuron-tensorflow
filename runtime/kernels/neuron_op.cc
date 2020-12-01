@@ -433,7 +433,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
             ScopedRuntimeIO scoped_io;
             OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-                input_names, input_tensor_sizes_, input_tensors,
+                input_names, input_tensor_sizes_, sliced_inputs,
                 output_names, output_tensor_sizes_, output_tensors,
                 nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
