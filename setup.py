@@ -59,6 +59,11 @@ def get_install_requires():
     return install_requires
 
 
+def get_package_data_tensorflow():
+    major, *_ = LooseVersion(get_version()).version
+    return ['neuron/tf2hlo/aws_neuron_tf2hlo'] if major >= 2 else []
+
+
 setup(
     name='tensorflow-neuron',
     version=get_version(),
@@ -93,6 +98,7 @@ setup(
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
         ],
+        'tensorflow': get_package_data_tensorflow(),
     },
     distclass=BinaryDistribution,
     cmdclass={

@@ -31,6 +31,9 @@ filegroup(
 sh_binary(
     name = "build_pip_package",
     srcs = ["build_pip_package.sh"],
-    data = [":neuron_py"],
-    deps = [":license"],
+    data = [
+        ":license",
+        ":neuron_py",
+        "//tensorflow/neuron/tf2hlo:aws_neuron_tf2hlo",
+    ],
 )
