@@ -81,9 +81,7 @@ py_library(
 
 py_library(
     name = "neuron_cc_py",
-    srcs = [
-        "neuron_cc.py",
-    ],
+    srcs = glob(["neuron_cc*.py"]),
     deps = [
         ":utils_py",
     ]

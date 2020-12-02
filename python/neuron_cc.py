@@ -40,9 +40,16 @@ def list_operators():
     return op_whitelist.difference(tf_reserved_ops)
 
 
-def compile_savetemps(graph_def, io_config, workdir=None, compiler_args=None):
+def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=None):
     """Returns raw neff bytes (empty bytes if neuron-cc crashed)
     """
+    # form io-config
+    io_config = {
+        'inputs': {ts.name: [[dim.size for dim in ts.shape.dim], ts.dtype.name] for ts in inputs},
+        'outputs': [ts.name for ts in outputs],
+    }
+
+    # find neuron-cc and setup workdir
     neuron_cc = find_neuron_cc()
     if neuron_cc is None:
         return b''

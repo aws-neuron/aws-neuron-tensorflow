@@ -15,8 +15,7 @@
 import os
 import math
 import reprlib
-import os
-import shutil
+from collections import namedtuple
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
@@ -174,23 +173,29 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
 
 
 def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
+    IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)
         if not is_compilable:
             logging.warning('Not fusing subgraph {} because {}'.format(node.name, reason))
             continue
 
-        # get graph_def and io_config
+        # get graph_def and io tensors
         subgraph_def = get_subgraph_def(node)
-        inputs = {}
-        for name, dtype, shape in zip(node.attr[knInputNames].list.s,
-                                      node.attr[knInputDtypes].list.type,
-                                      node.attr[knInputShapes].list.shape):
-            shape_list = [dim.size for dim in shape.dim]
-            dtype_name = dtypes._INTERN_TABLE[dtype].name
-            inputs[name.decode()] = [shape_list, dtype_name]
-        outputs = [name.decode() for name in node.attr[knOutputNames].list.s]
-        io_config = {'inputs': inputs, 'outputs': outputs}
+        inputs = []
+        outputs = []
+        zip_inputs = zip(node.attr[knInputNames].list.s,
+                         node.attr[knInputDtypes].list.type,
+                         node.attr[knInputShapes].list.shape)
+        zip_outputs = zip(node.attr[knOutputNames].list.s,
+                          node.attr[knOutputDtypes].list.type,
+                          node.attr[knOutputShapes].list.shape)
+        for container, tensors in zip([inputs, outputs], [zip_inputs, zip_outputs]):
+            for name, dtype_enum, shape in tensors:
+                name = name.decode()
+                dtype = dtypes.as_dtype(dtype_enum)
+                tensor = IOTensor(name, dtype, shape)
+                container.append(tensor)
 
         # remove attributes that are not recognized by neuron-cc
         for sg_node in subgraph_def.node:
@@ -199,7 +204,7 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
         # setup workdir and run neuron-cc
         subgraph_workdir = None if workdir is None else os.path.join(workdir, node.name)
         executable = compile_savetemps(
-            subgraph_def, io_config, workdir=subgraph_workdir, compiler_args=compiler_args)
+            subgraph_def, inputs, outputs, workdir=subgraph_workdir, compiler_args=compiler_args)
         node.attr[knExecutable].s = executable
     return graph_def
 
