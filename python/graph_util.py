@@ -614,7 +614,7 @@ def _io_tensor_info(node):
     tensor_format = "<tf.Tensor '{}' shape={} dtype={}>".format
     for name, dtype_enum, shape_proto in zip(input_names, input_dtypes, input_shapes):
         name = name.decode()
-        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        dtype = dtypes.as_dtype(dtype_enum)
         shape = TensorShape(shape_proto)
         shape = '<unknown>' if shape.rank is None else tuple(shape.as_list())
         input_tensors_info.append(tensor_format(name, shape, dtype.name))
@@ -624,7 +624,7 @@ def _io_tensor_info(node):
     output_tensors_info = []
     for name, dtype_enum, shape_proto in zip(output_names, output_dtypes, output_shapes):
         name = name.decode()
-        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        dtype = dtypes.as_dtype(dtype_enum)
         shape = TensorShape(shape_proto)
         shape = '<unknown>' if shape.rank is None else tuple(shape.as_list())
         output_tensors_info.append(tensor_format(name, shape, dtype.name))
@@ -698,7 +698,7 @@ def _io_config(node):
     input_shapes = node.attr['input_shapes'].list.shape
     for name, dtype_enum, shape_proto in zip(input_names, input_dtypes, input_shapes):
         name = name.decode()
-        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        dtype = dtypes.as_dtype(dtype_enum)
         shape = TensorShape(shape_proto)
         if not shape.is_fully_defined():
             logging.warning('subgraph {} input tensor {} has undetermined shape {}'.format(node.name, name, shape))
@@ -884,7 +884,7 @@ class DynamicBatchSizeHelper:
 
 def _get_int32_values(const_op):
     tensor_proto = const_op.node_def.attr['value'].tensor
-    dtype = dtypes._INTERN_TABLE[tensor_proto.dtype]
+    dtype = dtypes.as_dtype(tensor_proto.dtype)
     if dtype is not dtypes.int32:
         return []
     content = tensor_proto.tensor_content

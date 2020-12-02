@@ -247,9 +247,9 @@ def set_execution_plan(compiled_graph_def):
     for node in neuron_nodes:
         model_io_bytes = 0
         for enum, shape in zip(node.attr[knInputDtypes].list.type, node.attr[knInputShapes].list.shape):
-            model_io_bytes += dtypes._INTERN_TABLE[enum].size * _prod([dim.size for dim in shape.dim])
+            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
         for enum, shape in zip(node.attr[knOutputDtypes].list.type, node.attr[knOutputShapes].list.shape):
-            model_io_bytes += dtypes._INTERN_TABLE[enum].size * _prod([dim.size for dim in shape.dim])
+            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
         if node.name not in num_cores_tuple_map:
             total_io_bytes = 0
             break
@@ -336,10 +336,3 @@ def _graph_def_op_index(graph_def_tensor_name):
     else:
         op_name, value_index = comma_split[0], 0
     return op_name, value_index
-
-
-def _prod(num_list):
-    result = 1
-    for num in num_list:
-        result *= num
-    return result
