@@ -134,11 +134,6 @@ private:
 };
 
 
-std::string env_get(const char *env_var, const char *default_env_var="");
-#define STOI_INVALID_RESULT -65536
-int stoi_no_throw(const std::string &str);
-
-
 }  // namespace neuron
 }  // namespace tensorflow
 

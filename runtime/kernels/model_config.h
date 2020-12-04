@@ -13,10 +13,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_MOCEL_CONFIG_H_
-#define TENSORFLOW_NEURON_RUNTIME_MOCEL_CONFIG_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_KERNELS_MODEL_CONFIG_H_
+#define TENSORFLOW_NEURON_RUNTIME_KERNELS_MODEL_CONFIG_H_
 
-#include "device.h"
+#include "../macros.h"
+#include "../env.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -50,7 +51,8 @@ public:
         }
     }
 
-    void parse_ninfer(AttrList &model_config, NeuronDevice *neuron_device) {
+    void parse_ninfer(AttrList &model_config, const uint32_t num_cores,
+                      const uint32_t min_num_cores, const uint32_t max_num_cores) {
         int64 max_num_threads = DEFAULT_MAX_NUM_INFER;
         if (model_config_valid(model_config)) {
             int64 opt_num_infer = model_config_this_opt_num_cores(model_config);
@@ -84,12 +86,11 @@ public:
         if (model_config_valid(model_config)) {
             // enforce max_num_threads = 1 if ncg size is insufficient
             int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
-            if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
-                    || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
+            if (int64_opt_num_cores < min_num_cores || int64_opt_num_cores > max_num_cores) {
                 max_num_threads = NRTD_INSUFFICIENT_NUM_INFER;
             } else {
                 uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
-                if (neuron_device->num_cores() < opt_num_cores) {
+                if (num_cores < opt_num_cores) {
                     max_num_threads = NRTD_INSUFFICIENT_NUM_INFER;
                 }
             }
@@ -145,4 +146,4 @@ private:
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_RUNTIME_MOCEL_CONFIG_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_KERNELS_MODEL_CONFIG_H_

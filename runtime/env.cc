@@ -13,20 +13,28 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_TENSOR_UTIL_H_
-#define TENSORFLOW_NEURON_RUNTIME_TENSOR_UTIL_H_
-
-#include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/lib/core/threadpool.h"
+#include <stdexcept>
+#include "env.h"
 
 namespace tensorflow {
 namespace neuron {
 
-void fast_memcpy(thread::ThreadPool *thread_pool, char *char_dst, const char *char_src, int64 total_size);
-Status tensor_memcpy(thread::ThreadPool *thread_pool, Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
-Status tensor_memset(Tensor *tensor, int ch);
+#define STOI_INVALID_RESULT -65536
+
+std::string env_get(const char *env_var, const char *default_env_var) {
+    char *str = std::getenv(env_var);
+    return str ? str : default_env_var;
+}
+
+int stoi_no_throw(const std::string &str) {
+    try {
+        return std::stoi(str);
+    } catch (std::invalid_argument e) {
+        return STOI_INVALID_RESULT;
+    } catch (std::out_of_range e) {
+        return STOI_INVALID_RESULT;
+    }
+}
 
 }  // namespace neuron
 }  // namespace tensorflow
-
-#endif  // TENSORFLOW_NEURON_RUNTIME_TENSOR_UTIL_H_

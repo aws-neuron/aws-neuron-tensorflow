@@ -15,9 +15,12 @@ limitations under the License.
 
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/public/version.h"
+#include "tensorflow/core/framework/attr_value.pb.h"
 
 namespace tensorflow {
 namespace neuron {
+
+typedef const AttrValue_ListValue AttrList;
 
 #define NRT_INVALID_NN_ID 0
 #define NRT_INVALID_EG_ID 0

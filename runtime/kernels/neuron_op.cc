@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "../model_config.h"
+#include "model_config.h"
 #include "neuron_op.h"
 
 
@@ -147,7 +147,9 @@ Status NeuronOp::initialize(const std::string &session_handle) {
             model_config.device_index_)
     );
     model_config.parse_timeout(model_config_attr);
-    model_config.parse_ninfer(model_config_attr, neuron_device_);
+    model_config.parse_ninfer(
+        model_config_attr, neuron_device_->num_cores(),
+        NeuronDeviceManager::MIN_NUM_CORES, NeuronDeviceManager::MAX_NUM_CORES);
     StringPiece executable(def().attr().at("executable").s());
     TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
                                             model_config.ninfer_, profile_.enabled_));

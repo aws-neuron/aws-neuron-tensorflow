@@ -17,6 +17,7 @@ limitations under the License.
 #include <csignal>
 #endif  // NEURONTFSERV
 #include "macros.h"
+#include "env.h"
 #include "device.h"
 
 
@@ -606,22 +607,6 @@ Status NeuronDevice::get_active(uint32_t *active_nn_id, const uint32_t nn_id) {
     nn_id_to_active_idx_[nn_id] = (idx + 1) % nn_id_to_all_nn_ids_[nn_id].size();
     *active_nn_id = nn_id_to_all_nn_ids_[nn_id][idx];
     return Status::OK();
-}
-
-
-std::string env_get(const char *env_var, const char *default_env_var) {
-    char *str = std::getenv(env_var);
-    return str ? str : default_env_var;
-}
-
-int stoi_no_throw(const std::string &str) {
-    try {
-        return std::stoi(str);
-    } catch (std::invalid_argument e) {
-        return STOI_INVALID_RESULT;
-    } catch (std::out_of_range e) {
-        return STOI_INVALID_RESULT;
-    }
 }
 
 
