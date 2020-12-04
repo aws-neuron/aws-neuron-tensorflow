@@ -85,6 +85,8 @@ public:
     void set_nn_id(const uint32_t nn_id) { request_.mutable_h_nn()->set_id(nn_id); }
     uint32_t get_nn_id() { return request_.mutable_h_nn()->id(); }
     Status finish();
+private:
+    friend class RuntimeGRPC;
     uint64_t cookie = NRT_INVALID_COOKIE;
     thread::ThreadPool *thread_pool_;
     nrt::infer_request request_;
@@ -101,7 +103,6 @@ public:
     grpc::CompletionQueue cq_;
     std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_infer_post_ = nullptr;
     std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_response> > rpc_infer_ = nullptr;
-private:
     TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };
 

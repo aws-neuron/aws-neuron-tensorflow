@@ -13,7 +13,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "../runtime_io.h"
 #include "../model_config.h"
 #include "neuron_op.h"
 
