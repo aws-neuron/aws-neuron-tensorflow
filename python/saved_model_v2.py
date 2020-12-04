@@ -71,7 +71,11 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     if model_feed_dict is None:
         shape_feed_dict = None
     else:
-        shape_feed_dict = {sig_def.inputs[key].name: value.shape for key, value in model_feed_dict.items()}
+        shape_feed_dict = {}
+        for key, value in model_feed_dict.items():
+            input_name = sig_def.inputs[key].name
+            if input_name:
+                shape_feed_dict[input_name] = value.shape
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # produce GraphDef by running grappler passes
