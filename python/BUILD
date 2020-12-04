@@ -122,6 +122,7 @@ py_library(
         "performance_test.py",
         "op_register_test.py",
         "tfv1_keras_test.py",
+        "test_early_exit.py",
         "unittest_base.py",
         "saved_model_v2_test.py",
     ],
