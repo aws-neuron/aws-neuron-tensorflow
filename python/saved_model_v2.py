@@ -128,11 +128,12 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
         'loop',
         'constfold',
     ]
+    graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def, subgraph_passes)
     graph_def = gdu.run_compiler_on_subgraphs(graph_def, compiler_workdir, compiler_args)
     if compiler_recovery:
         graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
-    graph_def = gdu.erase_constants_from_compiled_subgraphs(graph_def)
+    graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)
 
     # re-wrap GraphDef as a WrappedFunction

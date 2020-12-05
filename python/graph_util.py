@@ -245,7 +245,7 @@ def inference_graph_from_session(
 
     if compiler_recovery:
         compiled_graph_def = gdu.restore_compiler_failures(compiled_graph_def, original_graph_def)
-        compiled_graph_def = gdu.erase_constants_from_compiled_subgraphs(compiled_graph_def)
+        compiled_graph_def = gdu.run_graph_def_pass_in_subgraphs(compiled_graph_def, gdu.erase_large_constants)
         compiled_graph_def = nchw_to_nhwc(compiled_graph_def)
 
     # try to enable dynamic batch size if possible
