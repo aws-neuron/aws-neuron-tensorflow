@@ -646,16 +646,6 @@ void PreProcessSegmentsForResources(
 // 2. Removing _class:loc attr from nodedef
 Status PreProcessingGraphDef(GraphDef& in_graph_def) {
   VLOG(1) << " Creating Identities for all outputs";
-
-  tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
-                                             in_graph_def.library());
-  tensorflow::Graph graph(flib);
-  TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-      tensorflow::GraphConstructorOptions(), in_graph_def, &graph));
-
-  std::unordered_map<string, tensorflow::Node*> node_map;
-  TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
-
   for (int idx = 0; idx < in_graph_def.node_size(); idx++) {
     NodeDef* node_def = in_graph_def.mutable_node(idx);
     auto node_name = node_def->name();
@@ -708,12 +698,8 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
     }
   }
 
-  tensorflow::Graph temp_graph(flib);
-  TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
-      tensorflow::GraphConstructorOptions(), graph_def, &temp_graph));
-
   GraphDef temp_graph_def;
-  temp_graph.ToGraphDef(&temp_graph_def);
+  temp_graph_def.CopyFrom(graph_def);
   TF_RETURN_IF_ERROR(PreProcessingGraphDef(temp_graph_def));
 
   tensorflow::Graph graph(flib);
