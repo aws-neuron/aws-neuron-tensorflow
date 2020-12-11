@@ -517,7 +517,9 @@ def compile_subgraphs(graph_def,
             continue
         subgraph_def = gdu.get_subgraph_def(node)
         for sgn in subgraph_def.node:
-            sgn.attr.pop(gdu.kNeuronInferredShapes, None)
+            inferred_shapes = sgn.attr.pop(gdu.kNeuronInferredShapes, None)
+            if gdu.kOutputShapes not in sgn.attr and inferred_shapes is not None:
+                sgn.attr[gdu.kOutputShapes].CopyFrom(inferred_shapes)
         workdir_path = os.path.join(workdir_base, node.name)
         os.makedirs(workdir_path, exist_ok=True)
         input_path = os.path.join(workdir_path, _neuron_cc_input_name)
