@@ -85,6 +85,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     opt_config = config_pb2.ConfigProto()
     rewriter_config = opt_config.graph_options.rewrite_options
     rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = -1
     graph_passes = [
         'debug_stripper',
         'pruning',

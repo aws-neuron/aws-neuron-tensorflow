@@ -66,6 +66,36 @@ class TestCompileV1SavedModel(TestV2Only):
             for name in result_ref.keys():
                 np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-2)
 
+    def test_single_conv(self):
+        np.random.seed(_RANDOM_SEED)
+        model_dir = './original_saved_model_v1_1conv'
+        new_model_dir = './neuron_saved_model_v1_to_v2_1conv'
+        tf_dtype = tf.float16
+        with tf.compat.v1.Session(graph=tf.compat.v1.Graph()) as sess:
+            input0 = tf.compat.v1.placeholder(tf_dtype, [1, 2, 2, 3], name='input0')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(tf_dtype.as_numpy_dtype),
+                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            inputs = {'x0': input0}
+            outputs = {'y0': conv2d0}
+            shutil.rmtree(model_dir, ignore_errors=True)
+            tf.compat.v1.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
+        feeds = {
+            'x0': tf.convert_to_tensor(np.random.uniform(-1, 1, size=input0.shape).astype(tf_dtype.as_numpy_dtype)),
+        }
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        result_compile = tfn.saved_model.compile(
+            model_dir, new_model_dir, model_feed_dict=feeds, minimum_segment_size=1,
+        )
+        assert result_compile['OnNeuronRatio'] > 0.05
+        model_ref = tf.saved_model.load(model_dir)
+        model_neuron = tf.saved_model.load(new_model_dir)
+        _assert_compiler_success_v2(model_neuron.signatures['serving_default'])
+        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
+            result_ref = model_ref.signatures['serving_default'](**feeds)
+            result_neuron = model_neuron.signatures['serving_default'](**feeds)
+            for name in result_ref.keys():
+                np.testing.assert_allclose(result_neuron[name], result_ref[name], rtol=1e-2, atol=1e-2)
+
     def test_3segments(self):
         np.random.seed(_RANDOM_SEED)
         model_dir = './original_saved_model_v1_0'
