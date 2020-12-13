@@ -87,3 +87,11 @@ def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=No
 def find_neuron_cc():
     path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
     return spawn.find_executable('neuron-cc', path)
+
+
+try:
+    import hlo2neuron
+except ImportError:
+    pass
+else:
+    from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
