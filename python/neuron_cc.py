@@ -43,16 +43,18 @@ def list_operators():
 def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=None):
     """Returns raw neff bytes (empty bytes if neuron-cc crashed)
     """
+    input_names = [ts.name for ts in inputs]
+    output_names = [ts.name for ts in outputs]
     # form io-config
     io_config = {
         'inputs': {ts.name: [[dim.size for dim in ts.shape.dim], ts.dtype.name] for ts in inputs},
-        'outputs': [ts.name for ts in outputs],
+        'outputs': output_names,
     }
 
     # find neuron-cc and setup workdir
     neuron_cc = find_neuron_cc()
     if neuron_cc is None:
-        return b''
+        return b'', None, None
     neuron_cc_input_name = 'graph_def.pb'
     neuron_executable_name = 'graph_def.neff'
     if workdir is None:
@@ -76,10 +78,10 @@ def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=No
         command.extend(compiler_args)
     proc = subprocess.run(command, cwd=workdir)
     if proc.returncode != 0:
-        return b''
+        return b'', None, None
     with open(output_path, 'rb') as f:
         executable = f.read()
-    return executable
+    return executable, input_names, output_names
 
 
 def find_neuron_cc():
