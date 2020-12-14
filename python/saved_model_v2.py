@@ -26,8 +26,10 @@ from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators
 
 
+DEFAULT_MINIMUM_SEGMENT_SIZE = 1
+
+
 def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
-            minimum_segment_size=2, op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
             compiler_args=None, compiler_workdir=None, compiler_recovery=True, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
@@ -98,14 +100,8 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     fuser_param_map = fuser_config.parameter_map
-    fuser_param_map['minimum_segment_size'].i = minimum_segment_size
-    if op_whitelist is None:
-        op_whitelist = list_operators()
-    fuser_param_map['op_whitelist'].list.s.extend(item.encode() for item in op_whitelist)
-    if no_fuse_ops is not None:
-        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
-    if force_fuse_ops is not None:
-        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
+    fuser_param_map['minimum_segment_size'].i = DEFAULT_MINIMUM_SEGMENT_SIZE
+    fuser_param_map['op_whitelist'].list.s.extend(item.encode() for item in list_operators())
 
     # call all grappler passes
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
