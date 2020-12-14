@@ -162,7 +162,10 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
     cfunc_input_names = {argdef.name for argdef in cfunc.function_def.signature.input_arg}
     if cfunc_input_names != set(sig_def.inputs.keys()):
-        cfunc._arg_keywords = wfunc._arg_keywords
+        try:
+            cfunc._arg_keywords = wfunc._arg_keywords
+        except AttributeError:
+            pass
 
     # save the new ConcreteFunction as a new SavedModel
     signatures = {signature_def_key: cfunc}
