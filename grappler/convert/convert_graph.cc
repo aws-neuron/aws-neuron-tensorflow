@@ -550,9 +550,10 @@ static tensorflow::Status ExcludeInputNodes(
 static tensorflow::Status ProcessSegments(
     tensorflow::Graph &graph, const std::vector<string> &output_names,
     std::unordered_map<string, tensorflow::Node*> &node_map,
-    tensorflow::tensorrt::segment::SegmentNodesVector &segments, int &neuron_op_index,
+    tensorflow::tensorrt::segment::SegmentNodesVector &segments,
     std::unordered_map<string, int> *neuron_op_index_to_name_map) {
   tensorflow::Status status = tensorflow::Status::OK();
+  int neuron_op_index = 0;
 
   for (const std::set<const Node*>& subgraph_node_names : segments) {
     std::set<int> subgraph_node_ids;
@@ -671,7 +672,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const std::vector<std::string> &input_op_names,
                             const std::vector<std::string> &output_op_names,
                             const int minimum_segment_size,
-                            const std::set<std::string> &op_whitelist,
+                            const std::set<std::string> &supported_op_types,
                             const std::set<std::string> &no_fuse_ops,
                             const std::set<std::string> &force_fuse_ops) {
   // Segment the graph into subgraphs that can be converted to Neuron op
@@ -714,16 +715,14 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   std::unordered_map<std::string, int> neuron_op_index_to_name_map;
 
-  int start_neuron_op_index = 0;
-
   // Setup exclude_node_list
   for (int i = 0; i < graph.num_node_ids(); ++i) {
     tensorflow::Node* node = graph.FindNodeId(i);
     bool is_source_or_sink = node->IsSink() || node->IsSource();
-    bool in_whitelist = op_whitelist.count(node->type_string());
+    bool is_supported = supported_op_types.count(node->type_string());
     bool no_fuse = no_fuse_ops.count(node->name());
     bool force_fuse = force_fuse_ops.count(node->name());
-    if (!((in_whitelist && !is_source_or_sink && !no_fuse) || force_fuse)) {
+    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse)) {
       segment_options.exclude_node_list.insert(node->name());
     }
   }
@@ -755,8 +754,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   if (normal_segments.size()) {
     PreProcessSegmentsForResources(graph, normal_segments, &neuron_op_index_to_name_map);
     TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map,
-                                       normal_segments, start_neuron_op_index,
-                                       &neuron_op_index_to_name_map));
+                                       normal_segments, &neuron_op_index_to_name_map));
   }
 
   graph.ToGraphDef(new_graph_def);

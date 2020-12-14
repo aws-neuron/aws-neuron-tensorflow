@@ -79,7 +79,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const std::vector<std::string> &input_op_names,
                             const std::vector<std::string> &output_op_names,
                             const int minimum_segment_size,
-                            const std::set<std::string> &op_whitelist,
+                            const std::set<std::string> &supported_op_types,
                             const std::set<std::string> &no_fuse_ops,
                             const std::set<std::string> &force_fuse_ops);
 
