@@ -101,6 +101,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     fuser_param_map = fuser_config.parameter_map
     fuser_param_map['minimum_segment_size'].i = DEFAULT_MINIMUM_SEGMENT_SIZE
+    fuser_param_map['fuse_foldable_nodes'].b = True
     fuser_param_map['op_whitelist'].list.s.extend(item.encode() for item in list_operators())
 
     # call all grappler passes

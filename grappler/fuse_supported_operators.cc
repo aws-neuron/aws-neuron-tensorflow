@@ -23,6 +23,7 @@ namespace grappler {
 namespace neuron {
 
 constexpr char key_minimum_segment_size[] = "minimum_segment_size";
+constexpr char key_fuse_foldable_nodes[] = "fuse_foldable_nodes";
 constexpr char key_op_whitelist[] = "op_whitelist";
 constexpr char key_no_fuse_ops[] = "no_fuse_ops";
 constexpr char key_force_fuse_ops[] = "force_fuse_ops";
@@ -40,6 +41,9 @@ Status FuseSupportedOperators::Init(const tensorflow::RewriterConfig_CustomGraph
     const auto &parameter_map = config->parameter_map();
     if (parameter_map.count(key_minimum_segment_size)) {
         minimum_segment_size_ = parameter_map.at(key_minimum_segment_size).i();
+    }
+    if (parameter_map.count(key_fuse_foldable_nodes)) {
+        fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
     }
     if (!parameter_map.count(key_op_whitelist)) {
         return errors::InvalidArgument(
@@ -73,7 +77,7 @@ Status FuseSupportedOperators::Optimize(Cluster *cluster, const GrapplerItem &it
     VLOG(2) << "input_op_names " << container_debug_string(input_op_names);
     VLOG(2) << "output_op_names " << container_debug_string(item.fetch);
     TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
-        output, item.graph, input_op_names, item.fetch,
+        output, item.graph, input_op_names, item.fetch, fuse_foldable_nodes_,
         minimum_segment_size_, op_whitelist_, no_fuse_ops_, force_fuse_ops_));
     return Status::OK();
 }

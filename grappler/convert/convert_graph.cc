@@ -664,6 +664,48 @@ Status PreProcessingGraphDef(GraphDef& in_graph_def) {
   return tensorflow::Status::OK();
 }
 
+static Status FindConstantFoldableNodes(std::unordered_set<std::string>* foldable_nodes,
+                                        const GraphDef& graph_def) {
+  // TODO: determine if we need grappler::TopologicalSort
+  std::unordered_map<std::string, const NodeDef*> name_to_node;
+  for (const auto& node: graph_def.node()) {
+    VLOG(1) << "adding node " << node.name();
+    name_to_node[node.name()] = &node;
+  }
+  for (const auto& node : graph_def.node()) {
+    bool foldable = false;
+    if (node.op() == "Shape") {
+      const NodeDef* in_node = name_to_node.at(node.input(0));
+      const auto& attr = in_node->attr();
+      const auto& shape_list = attr.at(kNeuronInferredShapes).list().shape();
+      auto predicate = [](const TensorShapeProto& sp){
+        return PartialTensorShape(sp).IsFullyDefined();
+      };
+      foldable = std::all_of(shape_list.begin(), shape_list.end(), predicate);
+    } else {
+      const auto& inputs = node.input();
+      auto predicate = [foldable_nodes, &name_to_node](const std::string& input_name) {
+        std::string node_name(input_name);
+        size_t control_start = node_name.find('^');
+        if (control_start != std::string::npos) {
+          node_name = node_name.substr(control_start + 1);
+        }
+        size_t index_start = node_name.find(':');
+        if (index_start != std::string::npos) {
+          node_name = node_name.substr(0, index_start);
+        }
+        return foldable_nodes->count(node_name) || name_to_node.at(node_name)->op() == "Const";
+      };
+      foldable = node.input_size() && std::all_of(inputs.begin(), inputs.end(), predicate);
+    }
+    if (foldable) {
+      VLOG(1) << "found constant-foldable node " << node.name();
+      foldable_nodes->insert(node.name());
+    }
+  }
+  return Status::OK();
+}
+
 // This function is the base function which does:
 // Step 1: Find Neuron Segments.
 // Step 2: Calls functions to create Neuron subgraphs.
@@ -671,6 +713,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const GraphDef &graph_def,
                             const std::vector<std::string> &input_op_names,
                             const std::vector<std::string> &output_op_names,
+                            const bool fuse_foldable_nodes,
                             const int minimum_segment_size,
                             const std::set<std::string> &supported_op_types,
                             const std::set<std::string> &no_fuse_ops,
@@ -708,6 +751,12 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
       tensorflow::GraphConstructorOptions(), temp_graph_def, &graph));
 
+  // Find "constant-foldable" nodes and claim them as supported
+  std::unordered_set<std::string> foldable_nodes;
+  if (fuse_foldable_nodes) {
+    TF_RETURN_IF_ERROR(FindConstantFoldableNodes(&foldable_nodes, graph_def));
+  }
+
   std::unordered_map<std::string, tensorflow::Node*> node_map;
   TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
 
@@ -722,7 +771,8 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
     bool is_supported = supported_op_types.count(node->type_string());
     bool no_fuse = no_fuse_ops.count(node->name());
     bool force_fuse = force_fuse_ops.count(node->name());
-    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse)) {
+    bool is_foldable = foldable_nodes.count(node->name());
+    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse || is_foldable)) {
       segment_options.exclude_node_list.insert(node->name());
     }
   }
