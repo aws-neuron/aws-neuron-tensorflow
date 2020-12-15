@@ -537,27 +537,51 @@ def compile_subgraphs(graph_def,
         if verbose is not None:
             command.extend(['--verbose', str(verbose)])
         subgraph_compilers[node.name] = Compiler(command, verbose, workdir_path, subgraph_info)
-    if max_num_compilers is None:
-        num_cpu = multiprocessing.cpu_count()
-        try:
-            with open('/proc/meminfo') as f:
-                for line in f:
-                    if 'MemAvailable' in line:
-                        available_mem_in_kb = int(line.split()[1])
-                        break
-            num_mem_gb = int(available_mem_in_kb / 4e6)  # 4 GB memory for each neuron-cc process
-            max_num_compilers = max(1, min(num_cpu, num_mem_gb))
-        except:
-            max_num_compilers = num_cpu
-    with ThreadPoolExecutor(max_workers=max_num_compilers) as executor:
-        compiler_returns = {
-            node_name: executor.submit(_fork_compiler, subgraph_compilers, node_name, timeout)
-            for node_name in subgraph_compilers.keys()
-        }
-        compiler_returns = {key: value.result() for key, value in compiler_returns.items()}
-    for node_name in subgraph_compilers.keys():
-        if not compiler_returns[node_name]:
-            subgraph_compilers[node_name] = None
+
+    # try progress bar mode first
+    try_progress_bar_mode = len(subgraph_compilers) == 1 and verbose is None and workdir is None
+    progress_bar_mode_done = False
+    if try_progress_bar_mode:
+        node_name = next(iter(subgraph_compilers))
+        command = subgraph_compilers[node_name].command.copy()
+        command.extend(['--verbose=35'])
+        _, _, _, subgraph_info = subgraph_compilers[node_name]
+        info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
+        with logging_show_info():
+            logging.info(info_string)
+        proc = subprocess.run(command, stderr=subprocess.PIPE)
+        if proc.returncode == 0:
+            progress_bar_mode_done = True
+        else:
+            decoded_stderr = proc.stderr.decode()
+            if not decoded_stderr.endswith('IndexError: list index out of range\n'):
+                # neuron-cc recognized progress bar mode but crashed for other reasons
+                logging.warning(decoded_stderr)
+                progress_bar_mode_done = True
+                subgraph_compilers[node_name] = None
+    if not progress_bar_mode_done:
+        if max_num_compilers is None:
+            num_cpu = multiprocessing.cpu_count()
+            try:
+                with open('/proc/meminfo') as f:
+                    for line in f:
+                        if 'MemAvailable' in line:
+                            available_mem_in_kb = int(line.split()[1])
+                            break
+                num_mem_gb = int(available_mem_in_kb / 4e6)  # 4 GB memory for each neuron-cc process
+                max_num_compilers = max(1, min(num_cpu, num_mem_gb))
+            except:
+                max_num_compilers = num_cpu
+        with ThreadPoolExecutor(max_workers=max_num_compilers) as executor:
+            compiler_returns = {
+                node_name: executor.submit(
+                    _fork_compiler, subgraph_compilers, node_name, timeout, try_progress_bar_mode)
+                for node_name in subgraph_compilers.keys()
+            }
+            compiler_returns = {key: value.result() for key, value in compiler_returns.items()}
+        for node_name in subgraph_compilers.keys():
+            if not compiler_returns[node_name]:
+                subgraph_compilers[node_name] = None
 
     # fill NeuronOp properties
     for node in gdu.get_neuron_nodes(graph_def):
@@ -597,7 +621,7 @@ def _io_tensor_info(node):
     return input_tensors_info, output_tensors_info
 
 
-def _fork_compiler(subgraph_compilers, node_name, timeout):
+def _fork_compiler(subgraph_compilers, node_name, timeout, try_progress_bar_mode):
     compiler = subgraph_compilers[node_name]
     if compiler is None:
         return None
@@ -606,8 +630,9 @@ def _fork_compiler(subgraph_compilers, node_name, timeout):
     info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
     if not verbose:
         info_string = '{}; you may check progress by inspecting file {}'.format(info_string, logfile)
-    with logging_show_info():
-        logging.info(info_string)
+    if not try_progress_bar_mode:
+        with logging_show_info():
+            logging.info(info_string)
     if verbose:
         proc = subprocess.Popen(command, cwd=workdir_path)
         returncode = _wait_compiler(proc, timeout)
