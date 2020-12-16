@@ -549,16 +549,22 @@ def compile_subgraphs(graph_def,
         info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
         with logging_show_info():
             logging.info(info_string)
-        proc = subprocess.run(command, stderr=subprocess.PIPE)
-        if proc.returncode == 0:
+        try:
+            proc = subprocess.run(command, stderr=subprocess.PIPE, timeout=timeout)
+        except subprocess.TimeoutExpired as e:
+            logging.warning(e)
             progress_bar_mode_done = True
+            subgraph_compilers[node_name] = None
         else:
-            decoded_stderr = proc.stderr.decode()
-            if not decoded_stderr.endswith('IndexError: list index out of range\n'):
-                # neuron-cc recognized progress bar mode but crashed for other reasons
-                logging.warning(decoded_stderr)
+            if proc.returncode == 0:
                 progress_bar_mode_done = True
-                subgraph_compilers[node_name] = None
+            else:
+                decoded_stderr = proc.stderr.decode()
+                if not decoded_stderr.endswith('IndexError: list index out of range\n'):
+                    # neuron-cc recognized progress bar mode but crashed for other reasons
+                    logging.warning(decoded_stderr)
+                    progress_bar_mode_done = True
+                    subgraph_compilers[node_name] = None
     if not progress_bar_mode_done:
         if max_num_compilers is None:
             num_cpu = multiprocessing.cpu_count()
