@@ -545,12 +545,15 @@ def compile_subgraphs(graph_def,
         node_name = next(iter(subgraph_compilers))
         command = subgraph_compilers[node_name].command.copy()
         command.extend(['--verbose=35'])
-        _, _, _, subgraph_info = subgraph_compilers[node_name]
+        _, _, workdir_path, subgraph_info = subgraph_compilers[node_name]
         info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
         with logging_show_info():
             logging.info(info_string)
+        neuron_cc_stderr_txt_path = os.path.join(workdir_path, 'neuron-cc-stderr.txt')
         try:
-            proc = subprocess.run(command, stderr=subprocess.PIPE, timeout=timeout)
+            # note: cannot use subprocess.PIPE due to https://bugs.python.org/issue30154
+            with open(neuron_cc_stderr_txt_path, 'w') as f:
+                proc = subprocess.run(command, cwd=workdir_path, timeout=timeout, stderr=f)
         except subprocess.TimeoutExpired as e:
             logging.warning(e)
             progress_bar_mode_done = True
@@ -559,10 +562,11 @@ def compile_subgraphs(graph_def,
             if proc.returncode == 0:
                 progress_bar_mode_done = True
             else:
-                decoded_stderr = proc.stderr.decode()
-                if not decoded_stderr.endswith('IndexError: list index out of range\n'):
+                with open(neuron_cc_stderr_txt_path, 'r') as f:
+                    neuron_cc_stderr = f.read()
+                if not neuron_cc_stderr.endswith('IndexError: list index out of range\n'):
                     # neuron-cc recognized progress bar mode but crashed for other reasons
-                    logging.warning(decoded_stderr)
+                    logging.warning(neuron_cc_stderr)
                     progress_bar_mode_done = True
                     subgraph_compilers[node_name] = None
     if not progress_bar_mode_done:
