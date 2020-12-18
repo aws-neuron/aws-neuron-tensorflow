@@ -20,6 +20,7 @@ from tensorflow.python.framework import convert_to_constants
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.saved_model import loader_impl
+from tensorflow.python.util import nest
 from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
@@ -148,13 +149,9 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_comp
 
     # outputs need to be a map from output argument name to symbolic tensor name
     # in order to let the WrappedFunction's return dictionary have the correct keys
-    outputs = {}
-    for name, tensor_info in sig_def.outputs.items():
-        output_tensor = wfunc.graph.get_tensor_by_name(tensor_info.name)
-        if output_tensor.op.type in {'PartitionedCall', 'StatefulPartitionedCall'}:
-            identity_op = output_tensor.consumers()[0]
-            output_tensor = identity_op.outputs[0]
-        outputs[name] = output_tensor.name
+    tss_name_map = {tss.name: name for name, tss in wfunc.structured_outputs.items()}
+    outputs_list = nest.flatten(wfunc.structured_outputs, expand_composites=True)
+    outputs = {tss_name_map[tss.name]: ts.name for ts, tss in zip(wfunc.outputs, outputs_list)}
 
     # wrap GraphDef as a WrappedFunction
     cfunc = wrap_function.function_from_graph_def(graph_def, inputs, outputs)
