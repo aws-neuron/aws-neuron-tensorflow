@@ -61,7 +61,6 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_comp
         logging.warning('Selecting default SignatureDef "{}" when loading SavedModel {}'.format(signature_def_key, model_dir))
     else:
         raise NotImplementedError('Not yet supporting SavedModel {} with multiple signatures')
-    model = saved_model.load(model_dir, tags=tags)
     sig_def = signature_def[signature_def_key]
     signature_def_key_prefix = '{}_'.format(signature_def_key)
     for key, value in sig_def.inputs.items():
@@ -145,20 +144,20 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_comp
     # inputs can be a list of symbolic tensors
     # Note: if using a dictionary (such as `{ts.name: ts.name for ts in original_inputs}`), then
     # the resulted WrappedFunction will occationally get feed tensors going to the wrong inputs
-    inputs = [ts.name for ts in original_inputs]
+    input_names = [ts.name for ts in original_inputs]
 
-    # outputs need to be a map from output argument name to symbolic tensor name
+    # outputs_map need to be a map from output argument name to symbolic tensor name
     # in order to let the WrappedFunction's return dictionary have the correct keys
-    tss_name_map = {tss.name: name for name, tss in wfunc.structured_outputs.items()}
-    outputs_list = nest.flatten(wfunc.structured_outputs, expand_composites=True)
-    outputs = {tss_name_map[tss.name]: ts.name for ts, tss in zip(wfunc.outputs, outputs_list)}
+    outputs_map = _get_name_map(wfunc.outputs, wfunc.structured_outputs)
 
     # wrap GraphDef as a WrappedFunction
-    cfunc = wrap_function.function_from_graph_def(graph_def, inputs, outputs)
+    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, outputs_map)
 
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
     cfunc_input_names = {argdef.name for argdef in cfunc.function_def.signature.input_arg}
-    if cfunc_input_names != set(sig_def.inputs.keys()):
+    _, structured_input_signature = wfunc.structured_input_signature
+    input_name_set = {tss.name for tss in structured_input_signature.values()}
+    if cfunc_input_names != input_name_set:
         try:
             cfunc._arg_keywords = wfunc._arg_keywords
         except AttributeError:
@@ -173,3 +172,9 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_comp
     on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0
     utils.model_conversion_report(model_dir, new_model_dir, on_neuron_ratio)
     return dict(OnNeuronRatio=on_neuron_ratio)
+
+
+def _get_name_map(tensors, structured_signature):
+    tensor_specs = nest.flatten(structured_signature, expand_composites=True)
+    tensor_spec_name_map = {spec.name: name for name, spec in structured_signature.items()}
+    return {tensor_spec_name_map[spec.name]: ts.name for ts, spec in zip(tensors, tensor_specs)}
