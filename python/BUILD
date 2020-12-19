@@ -68,14 +68,24 @@ py_library(
 )
 
 py_library(
-    name = "saved_model_v2_py",
+    name = "trace_py",
     srcs = [
-        "saved_model_v2.py",
+        "_trace.py",
     ],
     deps = [
         ":graph_def_util_py",
         ":meta_graph_util_py",
         ":neuron_cc_py",
+    ],
+)
+
+py_library(
+    name = "saved_model_v2_py",
+    srcs = [
+        "saved_model_v2.py",
+    ],
+    deps = [
+        ":trace_py",
     ],
 )
 

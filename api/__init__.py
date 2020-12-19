@@ -32,6 +32,8 @@ if _LooseVersion(__version__) < _LooseVersion('2.0.0'):
     from tensorflow_neuron.python import saved_model
 else:
     from tensorflow_neuron.python import saved_model_v2 as saved_model
+    from tensorflow_neuron.python import _trace
+    from tensorflow_neuron.python._trace import trace
 from tensorflow_neuron.python import predictor
 from tensorflow_neuron.python.fuse import fuse
 from tensorflow_neuron.python.performance import measure_performance
