@@ -26,9 +26,6 @@ from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators
 
 
-DEFAULT_MINIMUM_SEGMENT_SIZE = 1
-
-
 def trace(func, example_inputs, must_compile=False):
     """Convert a `ConcreteFunction` to a Neuron-optimized `ConcreteFunction`.
 
@@ -74,7 +71,8 @@ def trace(func, example_inputs, must_compile=False):
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     fuser_param_map = fuser_config.parameter_map
-    fuser_param_map['minimum_segment_size'].i = DEFAULT_MINIMUM_SEGMENT_SIZE
+    # dynamically determine minimum_segment_size from graph size
+    fuser_param_map['minimum_segment_size'].i = len(graph_def.node) // 10
     fuser_param_map['fuse_foldable_nodes'].b = True
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
 
