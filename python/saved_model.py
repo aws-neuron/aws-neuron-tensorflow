@@ -172,10 +172,10 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             signature_def=signature_def,
             protected_op_names=saved_model_main_op, **kwargs)
 
-        if compiler_workdir is None:
-            temp_dir = TemporaryDirectory()
-            compiler_workdir = temp_dir.name
         if convert_constants_to_variables:
+            if compiler_workdir is None:
+                temp_dir = TemporaryDirectory()
+                compiler_workdir = temp_dir.name
             infer_graph = convert_constant_to_variables(
                     model_dir, 
                     infer_graph,
@@ -184,7 +184,9 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                 )
     # load inference graph into a session and export as a SavedModel
     with tf_session.Session(graph=infer_graph, config=config_proto) as sess:
-        sess.run(global_variables_initializer())
+        # After adding variables in the graph, need to initialize the variables before saving them
+        if convert_constant_to_variables:
+            sess.run(global_variables_initializer())
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
         signature_def_map = {signature_def_key: signature_def}
         for tensor in signature_def.inputs.values():
