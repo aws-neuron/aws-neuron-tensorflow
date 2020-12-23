@@ -17,6 +17,7 @@ import sys
 import os
 import argparse
 import json
+from tempfile import TemporaryDirectory
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
@@ -36,6 +37,8 @@ from tensorflow.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.neuron.python.graph_util import logging_show_info
 from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
 from tensorflow.neuron.python.graph_def_util import tNeuronOp
+from tensorflow.neuron.python.graph_def_util import convert_constant_to_variables
+from tensorflow.python.ops.variables import global_variables_initializer 
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -97,7 +100,8 @@ def _infer_input_shapes(input_tensors, batch_size):
 def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                model_shape_feed_dict=None, model_feed_dict=None,
                                tags=None, signature_def_key=None, strip_default_attrs=False,
-                               config_proto=None, **kwargs):
+                               config_proto=None, constant_size_to_exclude=10, 
+                               convert_constants_to_variables=False, compiler_workdir=None, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -168,8 +172,19 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
             signature_def=signature_def,
             protected_op_names=saved_model_main_op, **kwargs)
 
+        if compiler_workdir is None:
+            temp_dir = TemporaryDirectory()
+            compiler_workdir = temp_dir.name
+        if convert_constants_to_variables:
+            infer_graph = convert_constant_to_variables(
+                    model_dir, 
+                    infer_graph,
+                    compiler_workdir=compiler_workdir,
+                    constant_size_to_exclude=constant_size_to_exclude,
+                )
     # load inference graph into a session and export as a SavedModel
     with tf_session.Session(graph=infer_graph, config=config_proto) as sess:
+        sess.run(global_variables_initializer())
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
         signature_def_map = {signature_def_key: signature_def}
         for tensor in signature_def.inputs.values():
