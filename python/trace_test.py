@@ -38,7 +38,7 @@ class TestTraceKerasModel(TestV2Only):
         input1_tensor = tf.random.uniform([1, 3])
         input2_tensor = tf.random.uniform([1, 3])
         model_neuron = tfn.trace(model, [input0_tensor, input1_tensor, input2_tensor])
-        _assert_compiler_success_func(model_neuron)
+        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
         result_model_ref = model([input0_tensor, input1_tensor, input2_tensor])
         result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
         assert len(result_model_ref) == len(result_model_neuron)

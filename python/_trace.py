@@ -20,6 +20,7 @@ from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import convert_to_constants
 from tensorflow.python.framework import ops
 from tensorflow.python.grappler import tf_optimizer
+from tensorflow.python.keras.engine.training import Model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import nest
 from tensorflow.neuron.python import meta_graph_util as mgu
@@ -134,7 +135,19 @@ def trace(func, example_inputs, must_compile=False):
         except AttributeError:
             pass
 
-    return cfunc
+    # wrap ConcreteFunction as a Function
+    func = def_function.function(input_signature=(flat_input_signature,))(cfunc)
+    return AwsNeuronModel(func)
+
+
+class AwsNeuronModel(Model):
+
+    def __init__(self, aws_neuron_function):
+        super().__init__(trainable=False)
+        self.aws_neuron_function = aws_neuron_function
+
+    def call(self, inputs):
+        return self.aws_neuron_function(inputs)
 
 
 def _get_output_names(tensors, structured_signature):
