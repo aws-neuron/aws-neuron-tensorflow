@@ -47,21 +47,6 @@ namespace neuron {
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
 
 
-NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
-    VLOG(1) << "calling NeuronOp constructor";
-    OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
-                errors::InvalidArgument(
-                    "Neuron executable (neff) is empty. Please ensure you compiled ",
-                    "the SavedModel with `tensorflow.neuron.saved_model.compile`.",
-                    "If you specified argument `compiler_recovery=False`, this ",
-                    "error message indicates that neuron-cc could not optimize ",
-                    "you model for running on Neuron runtime."));
-    profile_.initialize(env_get("NEURON_PROFILE"), def().name());
-    if (profile_.enabled_) profile_.dump_info(def().attr().at("graph_def").s(),
-                                              def().attr().at("executable").s());
-    VLOG(1) << "NeuronOp constructor done";
-}
-
 static size_t get_tensor_size(const DataType dype, const TensorShapeProto &shape_proto) {
     size_t dtype_size = (size_t)DataTypeSize(dype);
     size_t num_elements = (size_t)TensorShape(shape_proto).num_elements();
@@ -136,6 +121,12 @@ Status NeuronOp::initialize(const std::string &session_handle) {
         VLOG(1) << "NeuronOp is already initialized";
         return Status::OK();
     }
+    if (0 == def().attr().at("executable").s().size()) {
+        return errors::InvalidArgument("Neuron executable (neff) is empty.");
+    }
+    profile_.initialize(env_get("NEURON_PROFILE"), def().name());
+    if (profile_.enabled_) profile_.dump_info(def().attr().at("graph_def").s(),
+                                              def().attr().at("executable").s());
     AttrList &model_config_attr = def().attr().at("model_config").list();
     NeuronModelConfig model_config;
     model_config.parse_opt_device_size(model_config_attr);
@@ -505,25 +496,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 scoped_io_queue.pop();
             }
         }   // semaphore reservation queue goes out of scope
-    } else if (profile_.enabled_) {
-        VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
-        std::vector<Tensor*> output_tensors(ctx->num_outputs());
-        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-            OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
-                                                     &output_tensors[idx]));
-        }
-        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
-        session_alive = neuron_device_->get_session();
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors, def()));
-        ScopedRuntimeIO scoped_io;
-        OK_IGNORE_ABORTED(ctx, neuron_device_->setup_scoped_runtime_io(
-            &scoped_io,
-            input_names, input_tensor_sizes, input_tensors,
-            output_names, output_tensor_sizes, output_tensors,
-            nn_id_, thread_pool));
-        OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
-            &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
-        OP_REQUIRES_OK(ctx, scoped_io.finish());
     } else {
         std::vector<Tensor*> output_tensors(ctx->num_outputs());
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
@@ -539,7 +511,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             input_names, input_tensor_sizes, input_tensors,
             output_names, output_tensor_sizes, output_tensors,
             nn_id_, thread_pool));
-        {
+        if (profile_.enabled_) {
+            VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
+            OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
+                &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
+        } else {
             SemResQueue sem_res_queue;
             OK_IGNORE_ABORTED(ctx, neuron_device_->infer_post(
                 &scoped_io.runtime_io_, &sem_res_queue, infer_sem_, &timestamps, nn_id_));
