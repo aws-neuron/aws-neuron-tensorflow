@@ -59,16 +59,6 @@ typedef const AttrValue_ListValue AttrList;
     }                               \
 }
 
-// Note: this macro must be used after ctx->allocate_output
-#define OK_IGNORE_ABORTED(CTX, ...) {                               \
-    Status status(__VA_ARGS__);                                     \
-    if (status.code() == tensorflow::error::Code::ABORTED) {        \
-        VLOG(1) << "ignored error " << status.error_message();      \
-        return;                                                     \
-    }                                                               \
-    OP_REQUIRES_OK(CTX, status);                                    \
-}
-
 #define TFN_DISALLOW_COPY_MOVE_ASSIGN(TypeName) \
     TypeName(const TypeName &) = delete;        \
     void operator=(const TypeName &) = delete;  \

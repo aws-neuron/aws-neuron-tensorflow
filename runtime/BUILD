@@ -21,9 +21,21 @@ tf_kernel_library(
     name = "neuron_op_kernel",
     srcs = [
         "kernels/neuron_op.cc",
-        "kernels/model_config.h",
     ],
     hdrs = ["kernels/neuron_op.h"],
+    deps = [
+        ":model",
+    ],
+)
+
+cc_library(
+    name = "model",
+    srcs = [
+        "model.cc",
+        "model.h",
+        "model_config.h",
+    ],
+    hdrs = ["model.h"],
     deps = [
         ":device",
     ],
