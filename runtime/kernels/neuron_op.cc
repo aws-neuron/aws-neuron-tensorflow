@@ -183,7 +183,7 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
     VLOG(1) << "NeuronOp constructor done";
 }
 
-Status NeuronOp::initialize() {
+Status NeuronOp::initialize(const std::string &session_handle) {
     tensorflow::mutex_lock lock(mutex_model_);
     if (ready_) {
         VLOG(1) << "NeuronOp is already initialized";
@@ -195,7 +195,8 @@ Status NeuronOp::initialize() {
     model_config.parse_device_index(model_config_attr);
     TF_RETURN_IF_ERROR(
         global_neuron_device_manager.apply_for_device(
-            &neuron_device_, model_config.opt_device_size_, model_config.max_num_duplicates_,
+            &neuron_device_, session_handle,
+            model_config.opt_device_size_, model_config.max_num_duplicates_,
             model_config.device_index_)
     );
     model_config.parse_timeout(model_config_attr);
@@ -407,7 +408,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
         }
 
-        OK_IGNORE_ABORTED(ctx, initialize());
+        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
 
         int64_t window_size = max_num_infers_ > 1 ? max_num_infers_ : 1;
@@ -433,7 +434,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             }
             ScopedRuntimeIO scoped_io;
             OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-                input_names, input_tensor_sizes_, input_tensors,
+                input_names, input_tensor_sizes_, sliced_inputs,
                 output_names, output_tensor_sizes_, output_tensors,
                 nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
@@ -594,7 +595,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
-        OK_IGNORE_ABORTED(ctx, initialize());
+        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
@@ -611,7 +612,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
             OP_REQUIRES_OK(ctx, ctx->allocate_output(idx, output_shapes.shape(idx),
                                                      &output_tensors[idx]));
         }
-        OK_IGNORE_ABORTED(ctx, initialize());
+        OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
         OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
         ScopedRuntimeIO scoped_io;
@@ -649,13 +650,12 @@ Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_ten
     return Status::OK();
 }
 
-
-#ifdef NEURONTFSERV
-REGISTER_KERNEL_BUILDER(Name("NeuronOp").Device(DEVICE_CPU), NeuronOp);
-#else
 // need to override kernel_builder as NeuronName to prevent multiple kernel registrations
-REGISTER_KERNEL_BUILDER(NeuronName(), NeuronOp);
-#endif  // NEURONTFSERV
+#if TF_VERSION_LESS_THAN(2, 4)
+REGISTER_KERNEL_BUILDER(NeuronName(), neuron::NeuronOp);
+#else
+REGISTER_KERNEL_BUILDER_IMPL_2("NeuronOp", register_kernel::NeuronName(), false, NeuronOp);
+#endif
 
 }  // namespace neuron
 }  // namespace tensorflow

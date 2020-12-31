@@ -25,13 +25,13 @@ namespace convert {
 struct SubGraphParams {
   SubGraphParams(tensorflow::Graph &inp_graph,
                  const std::set<int> &subgraph_node_id_numbers,
-                 const std::vector<string> &output_node_names,
+                 const std::vector<string> &output_tensor_names,
                  const std::vector<std::pair<int, int> > &output_indices,
                  tensorflow::EdgeSet &incoming_edges,
                  tensorflow::Node *constructed_neuron_node, const int neuron_op_ind,
                  std::unordered_map<string, int> *neuron_op_index_to_name_map)
       : graph(&inp_graph),
-        output_names(&output_node_names),
+        output_names(&output_tensor_names),
         subgraph_node_ids(&subgraph_node_id_numbers),
         output_inds(&output_indices),
         neuron_node(constructed_neuron_node),
@@ -54,12 +54,12 @@ struct SubGraphParams {
 
 struct ConvertGraphParams {
   ConvertGraphParams(tensorflow::Graph &inp_graph,
-                     const std::vector<string> &output_node_names,
+                     const std::vector<string> &output_tensor_names,
                      const std::set<int> &subgraph_node_id_numbers,
                      int neuron_op_index,
                      std::unordered_map<string, int> *neuron_op_index_to_name_map)
       : graph(&inp_graph),
-        output_names(&output_node_names),
+        output_names(&output_tensor_names),
         subgraph_node_ids(&subgraph_node_id_numbers),
         neuron_op_index_to_name_map(neuron_op_index_to_name_map),
         neuron_op_count(neuron_op_index) {}
@@ -76,8 +76,8 @@ struct ConvertGraphParams {
 
 Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const GraphDef &graph_def,
-                            const std::vector<std::string> &inputs,
-                            const std::vector<std::string> &outputs,
+                            const std::vector<std::string> &input_op_names,
+                            const std::vector<std::string> &output_op_names,
                             const int minimum_segment_size,
                             const std::set<std::string> &op_whitelist,
                             const std::set<std::string> &no_fuse_ops,

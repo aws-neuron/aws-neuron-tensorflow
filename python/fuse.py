@@ -22,7 +22,6 @@ from concurrent.futures import ThreadPoolExecutor
 from functools import wraps, partial
 from contextlib import contextmanager
 import tensorflow
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import compat
@@ -32,10 +31,11 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops, constant_op
 from tensorflow.python.ops import array_ops, variables, variable_scope, init_ops
 from tensorflow.python.eager.context import executing_eagerly
+from tensorflow.neuron.python import neff_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
+from tensorflow.neuron.python.graph_def_util import normalize_operators, erase_constants
 from tensorflow.neuron.python.graph_util import (
-    normalize_operators, most_popular_namescope, logging_show_info,
-    get_model_config, find_neuron_cc, erase_large_constants)
+    most_popular_namescope, logging_show_info, find_neuron_cc)
 
 
 _neuron_sess_run_decorated = False
@@ -47,7 +47,6 @@ _neuron_grad_func_set = set()
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.fuse')
 def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout=None,
          verbose=0, workdir=None, input_shapes=None, output_shapes=None,
          batch_size=None, dynamic_batch_size=False, executable=b'', grad_func=None):
@@ -144,7 +143,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             neuron_cc_job()
             with open(neff_path, 'rb') as f:
                 executable_content = f.read()
-        model_config = get_model_config(executable_content)
+        model_config = neff_util.get_model_config(executable_content)
         if eager:
             # hack to allow enable_eager_execution; see tensorflow/python/framework/ops.py
             global_default_graph = ops._default_graph_stack._global_default_graph
@@ -152,7 +151,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             ops.enable_eager_execution()
             ops._default_graph_stack._global_default_graph = global_default_graph
         fuse_graph_def = fuse_graph.as_graph_def()
-        erase_large_constants(fuse_graph_def)
+        erase_constants(fuse_graph_def)
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
                 input_tensors=input_tensors, graph_def=fuse_graph_def.SerializeToString(),
@@ -228,7 +227,7 @@ def neuron_decorate_run(func):
         for op, neff_path in neuron_op_neff_path_list:
             with open(neff_path, 'rb') as f:
                 executable = f.read()
-            model_config = get_model_config(executable)
+            model_config = neff_util.get_model_config(executable)
             op._set_attr('executable', attr_value_pb2.AttrValue(s=compat.as_bytes(executable)))
             model_config = attr_value_pb2.AttrValue.ListValue(i=model_config)
             op._set_attr('model_config', attr_value_pb2.AttrValue(list=model_config))

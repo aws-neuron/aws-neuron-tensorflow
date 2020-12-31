@@ -12,16 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import sys
 import os
 import argparse
 import json
-import numpy
-from tensorflow.python.util.tf_export import tf_export
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
@@ -40,11 +35,10 @@ from tensorflow.python.client import timeline
 from tensorflow.neuron.python.graph_util import inference_graph_from_session
 from tensorflow.neuron.python.graph_util import logging_show_info
 from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
-from tensorflow.neuron.python.graph_util import _NEURON_OP
+from tensorflow.neuron.python.graph_def_util import tNeuronOp
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
-@tf_export('neuron.saved_model.simple_save')
 def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch_size=1, **kwargs):
     """Convenience function to build a `SavedModel` suitable for serving.
     Args:
@@ -100,7 +94,6 @@ def _infer_input_shapes(input_tensors, batch_size):
     return shape_feed_dict
 
 
-@tf_export('neuron.saved_model.compile')
 def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                model_shape_feed_dict=None, model_feed_dict=None,
                                tags=None, signature_def_key=None, strip_default_attrs=False,
@@ -147,6 +140,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     tags = _normalize_tags(tags, model_dir)
     with tf_session.Session(graph=ops.Graph(), config=config_proto) as sess:
         meta_graph = tf_saved_model.loader.load.__wrapped__(sess, tags, model_dir)
+        _check_for_compatible_tf_version(model_dir, sess)
         signature_def_key, signature_def = _get_signature_def(meta_graph, signature_def_key)
         input_tensors = {sess.graph.get_tensor_by_name(ts.name)
                          for ts in signature_def.inputs.values()}
@@ -171,6 +165,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         # get inference graph
         infer_graph = inference_graph_from_session.__wrapped__(
             sess, input_tensors=input_tensors, output_tensors=output_tensors,
+            signature_def=signature_def,
             protected_op_names=saved_model_main_op, **kwargs)
 
     # load inference graph into a session and export as a SavedModel
@@ -250,7 +245,6 @@ def _get_signature_def(meta_graph, signature_def_key):
     return signature_def_key, signature_def_map[signature_def_key]
 
 
-@tf_export('neuron.saved_model.set_core_binding')
 def set_core_binding(model_dir, index_list):
     saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
     default_model_config = [-1, -1, -1, 10, -1]
@@ -266,7 +260,6 @@ def set_core_binding(model_dir, index_list):
         f.write(saved_model_pb.SerializeToString())
 
 
-@tf_export('neuron.saved_model.inspect_core_binding')
 def inspect_core_binding(model_dir):
     saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
     with logging_show_info():
@@ -289,87 +282,13 @@ def _saved_model_pb_neuron_nodes(model_dir):
     neuron_node_list = []
     for meta_graph in saved_model_pb.meta_graphs:
         for node in meta_graph.graph_def.node:
-            if node.op == _NEURON_OP:
+            if node.op == tNeuronOp:
                 neuron_node_list.append(node)
     return saved_model_pb, neuron_node_list
 
 
-def convert_to_inference_model_cli(args):
-    if args.inputs or args.input_exprs or args.input_examples:
-        from tensorflow.python.tools.saved_model_cli import load_inputs_from_input_arg_string
-        model_feed_dict = load_inputs_from_input_arg_string(
-            args.inputs, args.input_exprs, args.input_examples)
-        kwargs = dict(model_feed_dict=model_feed_dict)
-    elif args.input_shape_dict:
-        kwargs = dict(model_shape_feed_dict=json.loads(args.input_shape_dict))
-    else:
-        kwargs = dict(batch_size=args.batch_size)
-    convert_to_inference_model(
-        args.dir, args.output_dir, tags=args.tag_set.split(','),
-        signature_def_key=args.signature_def,
-        compiler_workdir=args.compiler_workdir,
-        minimum_segment_size=args.minimum_segment_size, **kwargs)
-
-
-def register_convert_parser(convert_subparsers):
-    parser = convert_subparsers.add_parser(
-        'neuron',
-        description='Convert the SavedModel with Tensorflow-Neuron integration',
-        formatter_class=argparse.RawTextHelpFormatter)
-    parser.add_argument(
-        '--signature_def',
-        type=str,
-        default=None,
-        metavar='SIGNATURE_DEF_KEY',
-        help='key of SignatureDef to run')
-    parser.add_argument(
-        '--batch_size',
-        type=int,
-        default=1,
-        help='optimal size for the input batch')
-    parser.add_argument(
-        '--minimum_segment_size',
-        type=int,
-        default=2,
-        help=('the minimum number of nodes required for a subgraph to be replaced'
-              'in a NeuronOp node'))
-    parser.add_argument(
-        '--input_shape_dict',
-        default=None,
-        help='Serialized dictionary for inputs names and shapes (JSON).')
-    parser.add_argument('--compiler_workdir', help='path to compiler workdir')
-    msg = ('Loading inputs from files, in the format of \'<input_key>=<filename>,'
-           ' or \'<input_key>=<filename>[<variable_name>]\', separated by \';\'.'
-           ' The file format can only be from .npy, .npz or pickle.')
-    parser.add_argument('--inputs', type=str, default='', help=msg)
-    msg = ('Specifying inputs by python expressions, in the format of'
-           ' "<input_key>=\'<python expression>\'", separated by \';\'. '
-           'numpy module is available as \'np\'. '
-           'Will override duplicate input keys from --inputs option.')
-    parser.add_argument('--input_exprs', type=str, default='', help=msg)
-    msg = (
-        'Specifying tf.Example inputs as list of dictionaries. For example: '
-        '<input_key>=[{feature0:value_list,feature1:value_list}]. Use ";" to '
-        'separate input keys. Will override duplicate input keys from --inputs '
-        'and --input_exprs option.')
-    parser.add_argument('--input_examples', type=str, default='', help=msg)
-    parser.set_defaults(func=convert_to_inference_model_cli)
-
-
-if sys.argv[0].endswith('saved_model_cli'):
-    def convert_add_subparsers(*args, **kwargs):
-        parser = add_subparsers(*args, **kwargs)
-        if kwargs.get('title', None) == 'conversion methods':
-            register_convert_parser(parser)
-        return parser
-    if argparse.ArgumentParser.add_subparsers is not convert_add_subparsers:
-        add_subparsers = argparse.ArgumentParser.add_subparsers
-        argparse.ArgumentParser.add_subparsers = convert_add_subparsers
-
-
-@tf_export('neuron.saved_model.profile')
-def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=None,
-            model_feed_dict=None, tags=None, signature_def_key=None, config=None,
+def profile(model_dir, model_feed_dict=None, timeline_json=None,
+            tags=None, signature_def_key=None, config=None,
             num_warmup_runs=1, op_log=None, cmd='scope', options=None):
     """Run tensorflow profiler on a `SavedModel`.
 
@@ -377,11 +296,6 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
         model_dir: The path of the `SavedModel`.
         timeline_json: The path to which a 'timeline' json tracing will be saved.
             This json can be visualized using chrome://tracing.
-        batch_size: Positive integer representing batch size used in inference.
-            Defaults to 1.
-        model_shape_feed_dict: Dictionary {str: list} used for creating input data
-            from tensor shapes. Keys should match model input names and values are lists
-            of positive integers representing model input tensor shapes.
         model_feed_dict: Dictionary {str: numpy.array} used for inference.
             Useful for inferring tensor shapes. Keys should match model input names
             and values are numpy arrays that can be fed as inputs to the `SavedModel`.
@@ -416,15 +330,6 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
                   for name, ts in signature_def.inputs.items()}
         outputs = {name: sess.graph.get_tensor_by_name(ts.name)
                    for name, ts in signature_def.outputs.items()}
-        if model_feed_dict is None:
-            model_feed_dict = {}
-            for name, tensor in inputs.items():
-                if model_shape_feed_dict is None:
-                    shape = tensor.shape.as_list()
-                    shape[0] = batch_size
-                else:
-                    shape = json.loads(model_shape_feed_dict)[name]
-                model_feed_dict[name] = numpy.zeros(shape, dtype=tensor.dtype.as_numpy_dtype)
         feed_dict = {tensor: model_feed_dict[name] for name, tensor in inputs.items()}
 
         # warm up run
@@ -447,3 +352,17 @@ def profile(model_dir, timeline_json=None, batch_size=1, model_shape_feed_dict=N
         if options is None:
             options = option_builder.ProfileOptionBuilder.time_and_memory()
         return model_analyzer.profile(sess.graph, run_metadata, op_log=op_log, cmd=cmd, options=options)
+
+def _check_for_compatible_tf_version(model_dir, sess):
+    #this function checks for a StatefulPartitionedCall
+    #operator, which is not supported in TF1.15.x
+    #Therefore if we find this operator we know that
+    #the model is using TF2.x which is unsupported
+    for op in sess.graph.get_operations():
+        if op.type == 'StatefulPartitionedCall':
+            raise NotImplementedError('Model {} is of type tensorflow2.x. '
+                                        'As of now, tensorflow-neuron only supports '
+                                        'models saved in tensorflow1.15.x. Please '
+                                        'save your model with tensorflow1.15.x '
+                                        'and try again.'.format(model_dir))
+                                        

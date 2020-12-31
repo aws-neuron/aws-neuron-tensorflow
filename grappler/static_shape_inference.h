@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_GRAPPLER_FUSE_SUPPORTED_OPERATORS_H_
-#define TENSORFLOW_NEURON_GRAPPLER_FUSE_SUPPORTED_OPERATORS_H_
+#ifndef TENSORFLOW_NEURON_GRAPPLER_STATIC_SHAPE_INFERENCE_H_
+#define TENSORFLOW_NEURON_GRAPPLER_STATIC_SHAPE_INFERENCE_H_
 
 #include "tensorflow/core/grappler/optimizers/custom_graph_optimizer.h"
 #include "tensorflow/core/protobuf/rewriter_config.pb.h"
@@ -23,26 +23,21 @@ namespace tensorflow {
 namespace grappler {
 namespace neuron {
 
-constexpr char name_optimizer[] = "aws_neuron_fuse_supported_operators";
+constexpr char name_static_shape_inference[] = "aws_neuron_static_shape_inference";
 
-class FuseSupportedOperators : public CustomGraphOptimizer {
+class StaticShapeInference : public CustomGraphOptimizer {
 public:
     Status Init(const tensorflow::RewriterConfig_CustomGraphOptimizer *config=nullptr) override;
-    ~FuseSupportedOperators() override {}
-    std::string name() const override { return name_optimizer; }
+    ~StaticShapeInference() override {}
+    std::string name() const override { return name_static_shape_inference; }
     bool UsesFunctionLibrary() const { return true; }
     Status Optimize(Cluster *cluster, const GrapplerItem &item, GraphDef *output) override;
     void Feedback(Cluster *cluster, const GrapplerItem &item,
                   const GraphDef &optimize_output, double result) override;
-private:
-    int minimum_segment_size_ = 2;
-    std::set<std::string> op_whitelist_;
-    std::set<std::string> no_fuse_ops_;
-    std::set<std::string> force_fuse_ops_;
 };
 
 }  // end namespace neuron
 }  // end namespace grappler
 }  // end namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_GRAPPLER_FUSE_SUPPORTED_OPERATORS_H_
+#endif  // TENSORFLOW_NEURON_GRAPPLER_STATIC_SHAPE_INFERENCE_H_

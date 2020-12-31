@@ -15,11 +15,10 @@
 import os
 import sys
 import subprocess
-import unittest
-import pkg_resources
 import numpy as np
 import tensorflow as tf
 from tensorflow.neuron import fuse
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213
@@ -40,7 +39,7 @@ def network_neuron(input0, input1, kernel0, kernel1):
     return network_body(input0, input1, kernel0, kernel1)
 
 
-class TestFuse(unittest.TestCase):
+class TestFuse(TestV1Only):
 
     def test_simple(self):
         relu0, sigmoid0 = self._body_fuse(1)
@@ -177,8 +176,6 @@ class TestFuse(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_ref_unpacked, result_neuron_unpacked):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2)
 
-    @unittest.skipIf('--runxfail' not in sys.argv,
-                     'Running this test together with others requires 2 neuron cores')
     def test_fuse_eager_execution(self):
         assert subprocess.run([
             sys.executable, '-c', 'from tensorflow.neuron.python import fuse_test;'
@@ -246,8 +243,6 @@ class TestFuse(unittest.TestCase):
                 loss0_np1 = sess.run(loss0, feed_dict)
                 assert loss0_np1.sum() < loss0_np0.sum()
 
-    @unittest.skipIf('tensorflow-neuron' in {item.key for item in pkg_resources.working_set},
-                     'tensorflow-neuron-monolithic does not allow tf.Variable to be hacked')
     def test_fuse_variable(self):
 
         def func_with_variables(input0):

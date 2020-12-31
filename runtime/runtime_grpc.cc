@@ -354,6 +354,13 @@ Status RuntimeGRPC::wait_infer(RuntimeIO *runtime_io) {
     void *got_tag;
     bool ok = false;
     TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &runtime_io->cq_, runtime_io->post_tag_));
+    nrt::infer_response *response = &runtime_io->response_;
+    if (runtime_io->post_status_.ok()) {
+        // ignore inf/nan errors
+        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
+            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
+        }
+    }
     NRT_CHECK_RETURN("infer", runtime_io->post_status_, runtime_io->response_);
     return Status::OK();
 }

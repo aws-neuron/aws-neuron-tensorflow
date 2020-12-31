@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/core/grappler/grappler_item.h"
-#include "tensorflow/neuron/convert/convert_graph.h"
+#include "tensorflow/neuron/grappler/convert/convert_graph.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 #include "tensorflow/neuron/grappler/fuse_supported_operators.h"
 
@@ -22,8 +22,6 @@ namespace tensorflow {
 namespace grappler {
 namespace neuron {
 
-constexpr char key_inputs[] = "inputs";
-constexpr char key_outputs[] = "outputs";
 constexpr char key_minimum_segment_size[] = "minimum_segment_size";
 constexpr char key_op_whitelist[] = "op_whitelist";
 constexpr char key_no_fuse_ops[] = "no_fuse_ops";
@@ -40,18 +38,6 @@ template<class T> static std::string container_debug_string(const T &container) 
 
 Status FuseSupportedOperators::Init(const tensorflow::RewriterConfig_CustomGraphOptimizer *config) {
     const auto &parameter_map = config->parameter_map();
-    if (!parameter_map.count(key_inputs)) {
-        return errors::InvalidArgument(name_optimizer, " requires providing input tensor names");
-    }
-    const auto &param_inputs = parameter_map.at(key_inputs).list().s();
-    inputs_ = {param_inputs.begin(), param_inputs.end()};
-    VLOG(2) << "inputs_ " << container_debug_string(inputs_);
-    if (!parameter_map.count(key_outputs)) {
-        return errors::InvalidArgument(name_optimizer, " requires providing output tensor names");
-    }
-    const auto &param_outputs = parameter_map.at(key_outputs).list().s();
-    outputs_ = {param_outputs.begin(), param_outputs.end()};
-    VLOG(2) << "outputs_ " << container_debug_string(outputs_);
     if (parameter_map.count(key_minimum_segment_size)) {
         minimum_segment_size_ = parameter_map.at(key_minimum_segment_size).i();
     }
@@ -75,22 +61,26 @@ Status FuseSupportedOperators::Init(const tensorflow::RewriterConfig_CustomGraph
     return Status::OK();
 }
 
-Status FuseSupportedOperators::Optimize(Cluster* cluster, const GrapplerItem& item,
-                                        GraphDef* output) {
+Status FuseSupportedOperators::Optimize(Cluster *cluster, const GrapplerItem &item,
+                                        GraphDef *output) {
     if (cluster == nullptr) {
         return errors::InvalidArgument("cluster == nullptr");
     }
-    GrapplerItem optimized_item(item);
+    std::vector<std::string> input_op_names;
+    for (const auto &feed : item.feed) {
+        input_op_names.push_back(feed.first);
+    }
+    VLOG(2) << "input_op_names " << container_debug_string(input_op_names);
+    VLOG(2) << "output_op_names " << container_debug_string(item.fetch);
     TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
-        &optimized_item.graph, item.graph, inputs_, outputs_,
+        output, item.graph, input_op_names, item.fetch,
         minimum_segment_size_, op_whitelist_, no_fuse_ops_, force_fuse_ops_));
-    output->Swap(&optimized_item.graph);
     return Status::OK();
 }
 
-void FuseSupportedOperators::Feedback(Cluster* cluster, const GrapplerItem& item,
-                                      const GraphDef& optimize_output, double result) {
-  // Nothing to do for FuseSupportedOperators.
+void FuseSupportedOperators::Feedback(Cluster *cluster, const GrapplerItem &item,
+                                      const GraphDef &optimize_output, double result) {
+    // Nothing to do for FuseSupportedOperators.
 }
 
 REGISTER_NEURON_GRAPH_OPTIMIZER_AS(FuseSupportedOperators, name_optimizer);

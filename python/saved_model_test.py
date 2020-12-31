@@ -12,27 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from __future__ import absolute_import
-from __future__ import division
-from __future__ import print_function
 
 import os
 import glob
 import shutil
-import subprocess
-import json
 import unittest
 import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
 from tensorflow.python.saved_model.saved_model import signature_constants
+from tensorflow.neuron.python.unittest_base import TestV1Only
 from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
 
 
 _RANDOM_SEED = 15213
 
 
-class TestSimpleSave(unittest.TestCase):
+class TestSimpleSave(TestV1Only):
 
     def test_simple(self):
         export_dir_ref = './simple_save_ref'
@@ -77,7 +73,7 @@ class TestSimpleSave(unittest.TestCase):
                 np.testing.assert_allclose(result_test[name], result_ref[name], rtol=1e-2, atol=1e-3)
 
 
-class TestConvertToInferenceModel(unittest.TestCase):
+class TestConvertToInferenceModel(TestV1Only):
 
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
@@ -462,106 +458,10 @@ class TestConvertToInferenceModel(unittest.TestCase):
             np.testing.assert_allclose(result_neuron['scores'], result_ref['scores'], rtol=1e-2, atol=1e-3)
 
 
-class TestSavedModelCLIConvert(unittest.TestCase):
-
-    @unittest.skipIf(not hasattr(tfn, 'ops'), 'tensorflow-neuron plugin does not support saved_model_cli')
-    def test_saved_model_cli_convert_neuron(self):
-        np.random.seed(_RANDOM_SEED)
-        model_dir = './original_saved_model2'
-        new_model_dir_b1 = './saved_model_cli_convert_neuron_b1'
-        new_model_dir_b2 = './saved_model_cli_convert_neuron_b2'
-        new_model_dir_b3 = './saved_model_cli_convert_neuron_b3'
-        new_model_dir_b4 = './saved_model_cli_convert_neuron_b4'
-        shutil.rmtree(model_dir, ignore_errors=True)
-        shutil.rmtree(new_model_dir_b1, ignore_errors=True)
-        shutil.rmtree(new_model_dir_b2, ignore_errors=True)
-        shutil.rmtree(new_model_dir_b3, ignore_errors=True)
-        shutil.rmtree(new_model_dir_b4, ignore_errors=True)
-        with tf.Session(graph=tf.Graph()) as sess:
-            input0 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
-            input1 = tf.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
-            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
-                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
-            conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
-                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
-            add0 = tf.add(conv2d0, conv2d1, name='add0')
-            relu0 = tf.nn.relu(add0, name='relu0')
-            sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
-            conv2d2 = tf.nn.conv2d(sigmoid0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float16),
-                                   strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
-            relu1 = tf.nn.relu(conv2d2, name='relu1')
-            inputs = {'x0': input0, 'x1': input1}
-            outputs = {'y0': relu0, 'y1': relu1}
-            tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
-        model_feed_dict_b1 = {
-            'x0': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
-            'x1': np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16),
-        }
-        proc = subprocess.run([
-            'saved_model_cli', 'convert', '--tag_set', 'serve',
-            '--dir', model_dir, '--output_dir', new_model_dir_b1, 'neuron'])
-        assert proc.returncode == 0
-        model_feed_dict_b2 = {
-            'x0': np.random.uniform(-1, 1, size=[2, 2, 2, 3]).astype(np.float16),
-            'x1': np.random.uniform(-1, 1, size=[2, 2, 2, 3]).astype(np.float16),
-        }
-        proc = subprocess.run([
-            'saved_model_cli', 'convert', '--tag_set', 'serve',
-            '--dir', model_dir, '--output_dir', new_model_dir_b2, 'neuron',
-            '--batch_size', str(2)])
-        assert proc.returncode == 0
-        model_feed_dict_b3 = {
-            'x0': np.random.uniform(-1, 1, size=[3, 2, 2, 3]).astype(np.float16),
-            'x1': np.random.uniform(-1, 1, size=[3, 2, 2, 3]).astype(np.float16),
-        }
-        proc = subprocess.run([
-            'saved_model_cli', 'convert', '--tag_set', 'serve',
-            '--dir', model_dir, '--output_dir', new_model_dir_b3, 'neuron',
-            '--input_shape_dict', json.dumps({'x0': [3, 2, 2, 3], 'x1': [3, 2, 2, 3]})])
-        assert proc.returncode == 0
-        model_feed_dict_b4 = {
-            'x0': np.random.uniform(-1, 1, size=[4, 2, 2, 3]).astype(np.float16),
-            'x1': np.random.uniform(-1, 1, size=[4, 2, 2, 3]).astype(np.float16),
-        }
-        model_feed_dict_npz = 'saved_model_cli_convert_neuron_b4_model_feed_dict.npz'
-        np.savez(model_feed_dict_npz, **model_feed_dict_b4)
-        proc = subprocess.run([
-            'saved_model_cli', 'convert', '--tag_set', 'serve',
-            '--dir', model_dir, '--output_dir', new_model_dir_b4, 'neuron',
-            '--inputs', 'x0={0}[x0];x1={0}[x1]'.format(model_feed_dict_npz)])
-        assert proc.returncode == 0
-        pred_ref = tf.contrib.predictor.from_saved_model(model_dir)
-        pred_neuron_b1 = tf.contrib.predictor.from_saved_model(new_model_dir_b1)
-        pred_neuron_b2 = tf.contrib.predictor.from_saved_model(new_model_dir_b2)
-        pred_neuron_b3 = tf.contrib.predictor.from_saved_model(new_model_dir_b3)
-        pred_neuron_b4 = tf.contrib.predictor.from_saved_model(new_model_dir_b4)
-        assert len(pred_neuron_b1.graph.get_operations()) == 5
-        assert pred_neuron_b1.graph.get_operations()[2].type == 'NeuronOp'
-        assert len(pred_neuron_b2.graph.get_operations()) == 5
-        assert pred_neuron_b2.graph.get_operations()[2].type == 'NeuronOp'
-        assert len(pred_neuron_b3.graph.get_operations()) == 5
-        assert pred_neuron_b3.graph.get_operations()[2].type == 'NeuronOp'
-        assert len(pred_neuron_b4.graph.get_operations()) == 5
-        assert pred_neuron_b4.graph.get_operations()[2].type == 'NeuronOp'
-        if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-            result_ref_b1 = pred_ref(model_feed_dict_b1)
-            result_ref_b2 = pred_ref(model_feed_dict_b2)
-            result_ref_b3 = pred_ref(model_feed_dict_b3)
-            result_ref_b4 = pred_ref(model_feed_dict_b4)
-            result_neuron_b1 = pred_neuron_b1(model_feed_dict_b1)
-            result_neuron_b2 = pred_neuron_b2(model_feed_dict_b2)
-            result_neuron_b3 = pred_neuron_b3(model_feed_dict_b3)
-            result_neuron_b4 = pred_neuron_b4(model_feed_dict_b4)
-            for name in result_neuron_b1.keys():
-                np.testing.assert_allclose(result_neuron_b1[name], result_ref_b1[name], rtol=1e-2, atol=1e-3)
-                np.testing.assert_allclose(result_neuron_b2[name], result_ref_b2[name], rtol=1e-2, atol=1e-3)
-                np.testing.assert_allclose(result_neuron_b3[name], result_ref_b3[name], rtol=1e-2, atol=1e-3)
-                np.testing.assert_allclose(result_neuron_b4[name], result_ref_b4[name], rtol=1e-2, atol=1e-3)
-
-
-class TestProfile(unittest.TestCase):
+class TestProfile(TestV1Only):
 
     def test_simple(self):
+        np.random.seed(_RANDOM_SEED)
         export_dir = './simple_save_profile'
         tags = [tf.saved_model.tag_constants.SERVING]
         with tf.Session(graph=tf.Graph()) as sess:
@@ -583,10 +483,11 @@ class TestProfile(unittest.TestCase):
             # Save the current session using tensorflow's simple_save() method
             shutil.rmtree(export_dir, ignore_errors=True)
             tf.saved_model.simple_save(sess, export_dir=export_dir, inputs=inputs, outputs=outputs)
-        tfn.saved_model.profile(export_dir)
+        model_feed_dict = {'x0': np.random.rand(1, 2, 2, 3), 'x1': np.random.rand(1, 2, 2, 3)}
+        tfn.saved_model.profile(export_dir, model_feed_dict=model_feed_dict)
 
 
-class TestCoreBinding(unittest.TestCase):
+class TestCoreBinding(TestV1Only):
 
     def test_set(self):
         model_dir = self._gen_saved_model()

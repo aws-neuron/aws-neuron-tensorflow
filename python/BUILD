@@ -12,7 +12,15 @@ py_library(
     ],
     deps = [
         ":graph_def_util_py",
+        ":meta_graph_util_py",
         ":neuron_op_py",
+    ],
+)
+
+py_library(
+    name = "neff_util_py",
+    srcs = [
+        "neff_util.py",
     ],
 )
 
@@ -20,6 +28,16 @@ py_library(
     name = "graph_def_util_py",
     srcs = [
         "graph_def_util.py",
+    ],
+    deps = [
+        ":neff_util_py",
+    ],
+)
+
+py_library(
+    name = "meta_graph_util_py",
+    srcs = [
+        "meta_graph_util.py",
     ],
 )
 
@@ -40,13 +58,24 @@ py_library(
     deps = [":graph_util_py"],
 )
 
+py_library(
+    name = "saved_model_v2_py",
+    srcs = [
+        "saved_model_v2.py",
+    ],
+    deps = [
+        ":graph_def_util_py",
+        ":meta_graph_util_py",
+    ],
+)
+
 tf_custom_op_library(
     name = "aws_neuron_plugin",
     per_os_targets = True,
     deps = [
         "//tensorflow/neuron/runtime:neuron_op_op_lib",
         "//tensorflow/neuron/runtime:neuron_op_kernel",
-        "//tensorflow/neuron/grappler:fuse_supported_operators",
+        "//tensorflow/neuron/grappler:passes",
     ],
 )
 
@@ -67,7 +96,10 @@ py_library(
     srcs = [
         "fuse.py",
     ],
-    deps = [":neuron_op_py"],
+    deps = [
+        ":neff_util_py",
+        ":neuron_op_py",
+    ],
 )
 
 py_library(
@@ -82,16 +114,21 @@ py_library(
     name = "unittest_py",
     srcs = [
         "graph_util_test.py",
+        "tfv1_while_loop_test.py",
         "saved_model_test.py",
         "keras_test.py",
         "fuse_test.py",
         "performance_test.py",
         "op_register_test.py",
         "tfv1_keras_test.py",
+        "test_early_exit.py",
+        "unittest_base.py",
+        "saved_model_v2_test.py",
     ],
     deps = [
         ":graph_util_py",
         ":saved_model_py",
-        ":fuse_py"
+        ":fuse_py",
+        ":saved_model_v2_py",
     ],
 )

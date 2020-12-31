@@ -93,9 +93,11 @@ public:
     NeuronDeviceManager &operator=(const NeuronDeviceManager &) = delete;
     NeuronDeviceManager(NeuronDeviceManager &&) = delete;
     NeuronDeviceManager &operator=(NeuronDeviceManager &&) = delete;
-    Status apply_for_device(
-        NeuronDevice **device, const int64_t opt_device_size, const int64_t max_num_duplicates,
-        const int64_t device_index=-1);
+    Status apply_for_device(NeuronDevice **device,
+                            const std::string &session_handle,
+                            const int64_t opt_device_size,
+                            const int64_t max_num_duplicates,
+                            const int64_t device_index=-1);
     void clear_if_empty();
     void clear();
     void clear_from_global_state();
@@ -111,6 +113,7 @@ private:
     static const int DEFAULT_NUM_CORES = -65536;  // any negative number < -MAX_NUM_CORES
     std::shared_ptr<RuntimeSession> session_ = nullptr;
     std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
+    std::unordered_map<std::string, size_t> session_handle_to_device_index_;
     bool path_set_ = false;
     size_t device_index_ = 0;
     size_t num_devices_ = 0;

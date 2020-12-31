@@ -15,17 +15,20 @@ limitations under the License.
 
 #include "tensorflow/core/framework/graph_def_util.h"
 #include "tensorflow/core/graph/graph.h"
-#include "tensorflow/core/graph/graph_constructor.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/hash/hash.h"
 #include "tensorflow/neuron/runtime/macros.h"
-#include "tensorflow/neuron/convert/segment.h"
-#include "tensorflow/neuron/convert/convert_graph.h"
+#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
+#include "tensorflow/neuron/grappler/convert/segment.h"
+#include "tensorflow/neuron/grappler/convert/convert_graph.h"
 
 
 namespace tensorflow {
 namespace neuron {
 namespace convert {
+
+
+const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
 
 
 // Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
@@ -45,24 +48,6 @@ class OutputEdgeValidator {
     return true;
   }
 };
-
-
-// Helper function to split tensor and tensor spec (i.e conv:2 -> conv, 2)
-std::vector<string> split(string str, string token) {
-  std::vector<string> result;
-  while (str.size()) {
-    size_t index = str.find(token);
-    if (index != string::npos) {
-      result.push_back(str.substr(0, index));
-      str = str.substr(index + token.size());
-      if (str.size() == 0) result.push_back(str);
-    } else {
-      result.push_back(str);
-      str = "";
-    }
-  }
-  return result;
-}
 
 // Helper function
 void GetSubGraphIncomingEdges(const tensorflow::Graph& graph,
@@ -233,45 +218,34 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     } else {
       placeholder_name = sg_params.graph->NewName(outside_node_port);
       outside_name_port_to_placeholder_name[outside_node_port] = placeholder_name;
-      std::vector<PartialTensorShape> v_partial_shape;
-      PartialTensorShape partial_shape;
-      input_dtypes.push_back(outside_node->output_type(outside_node_index));
-      if (GetNodeAttr(outside_node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
-        input_shapes.push_back(v_partial_shape[outside_node_index]);
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("shape", v_partial_shape[outside_node_index])
-                .Attr("_aws_neuron_inferred_shapes", v_partial_shape[outside_node_index])
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
-      } else if (GetNodeAttr(outside_node->attrs(), "_aws_neuron_inferred_shapes", &v_partial_shape).ok()) {
-        input_shapes.push_back(v_partial_shape[outside_node_index]);
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("shape", v_partial_shape[outside_node_index])
-                .Attr("_aws_neuron_inferred_shapes", v_partial_shape[outside_node_index])
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
-      } else if (IsPlaceholder(outside_node->def()) &&
-                 GetNodeAttr(outside_node->attrs(), "shape", &partial_shape).ok()) {
-        input_shapes.push_back(partial_shape);
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("shape", partial_shape)
-                .Attr("_aws_neuron_inferred_shapes", partial_shape)
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
-      } else {
-        input_shapes.emplace_back();
-        TF_RETURN_IF_ERROR(
-            NodeDefBuilder(placeholder_name, "Placeholder")
-                .Attr("dtype", outside_node->output_type(outside_node_index))
-                .Finalize(&placeholder_def));
+      PartialTensorShape out_shape;
+      std::vector<PartialTensorShape> v_output_shape;
+      std::vector<PartialTensorShape> v_inferred_shape;
+      PartialTensorShape inferred_shape;
+      AttrSlice attrs = outside_node->attrs();
+      DataType out_dtype = outside_node->output_type(outside_node_index);
+      if (IsPlaceholder(outside_node->def()) && GetNodeAttr(attrs, "shape", &out_shape).ok()) {
+      } else if (GetNodeAttr(attrs, "_output_shapes", &v_output_shape).ok()) {
+        out_shape = v_output_shape[outside_node_index];
       }
+      if (GetNodeAttr(attrs, kNeuronInferredShapes, &v_inferred_shape).ok()) {
+        inferred_shape = v_inferred_shape[outside_node_index];
+      } else {
+        inferred_shape = out_shape;
+      }
+      TF_RETURN_IF_ERROR(NodeDefBuilder(placeholder_name, "Placeholder")
+                            .Attr("dtype", out_dtype)
+                            .Attr("shape", out_shape)
+                            .Attr(kNeuronInferredShapes, {inferred_shape})
+                            .Finalize(&placeholder_def));
 
       // for creating Neuron op node, storing:
       // input_names -> Attr(input_names) -> name of input nodes inside subgraph
+      // input_dtypes -> Attr(input_dtypes) -> dtype of input nodes inside subgraph
+      // input_shapes -> Attr(input_shapes) -> shape of input nodes inside subgraph
       input_names.push_back(placeholder_name + ":0");
+      input_dtypes.push_back(out_dtype);
+      input_shapes.push_back(inferred_shape);
 
       // input_nodes -> Input(input_nodes) ->. list of nodes with index (outside
       // the subgraph) feeding into the subgraph.
@@ -311,21 +285,19 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     // filling map of (tensor_name , vector(dtype)) i.e A ->DT_FLOAT,->INT8
     // dtype order will match the the index.
     if (map_out_names_to_index.count(node->name())) {
+      int num_outputs = map_out_names_to_index[node->name()];
       std::vector<PartialTensorShape> v_partial_shape;
-      if (!GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
-        v_partial_shape.clear();
-        for (auto tensor_index = 0;
-           tensor_index <= map_out_names_to_index[node->name()];
-           ++tensor_index) {
-          v_partial_shape.push_back(PartialTensorShape());
-        }
+      Status status = GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape);
+      if (!status.ok()) {
+        status = GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape);
       }
-      for (auto tensor_index = 0;
-           tensor_index <= map_out_names_to_index[node->name()];
-           ++tensor_index) {
-        DataType tensor_dtype = node->output_type(tensor_index);
+      if (!status.ok()) {
+        v_partial_shape.resize(num_outputs);
+      }
+      for (auto port = 0; port <= num_outputs; ++port) {
+        DataType tensor_dtype = node->output_type(port);
         main_graph_output_nodes[node->name()].push_back(
-            std::make_pair(tensor_dtype, v_partial_shape[tensor_index]));
+            std::make_pair(tensor_dtype, v_partial_shape[port]));
         VLOG(1) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
                 << node->name() << " , " << tensor_dtype << " )";
       }
@@ -372,7 +344,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
       std::vector<PartialTensorShape> v_partial_shape;
       if (GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
         neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
-      } else if (GetNodeAttr(node->attrs(), "_aws_neuron_inferred_shapes", &v_partial_shape).ok()) {
+      } else if (GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape).ok()) {
         neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
       } else {
         neuron_node_output_shapes.emplace_back();
@@ -430,7 +402,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
                   .Attr("output_names", neuron_node_output_names)
                   .Attr("output_dtypes", neuron_node_output_dtypes)
                   .Attr("output_shapes", neuron_node_output_shapes)
-                  .Attr("_aws_neuron_inferred_shapes", neuron_node_output_shapes)
+                  .Attr(kNeuronInferredShapes, neuron_node_output_shapes)
                   .Finalize(sg_params.graph, &neuron_node));
 
   sg_params.neuron_node = neuron_node;
@@ -672,8 +644,7 @@ void PreProcessSegmentsForResources(
 // Performing :
 // 1. Clearing device info from all nodes
 // 2. Removing _class:loc attr from nodedef
-Status PreProcessingGraphDef(const std::vector<string>& output_names,
-                             GraphDef& in_graph_def) {
+Status PreProcessingGraphDef(GraphDef& in_graph_def) {
   VLOG(1) << " Creating Identities for all outputs";
 
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
@@ -707,19 +678,12 @@ Status PreProcessingGraphDef(const std::vector<string>& output_names,
 // Step 2: Calls functions to create Neuron subgraphs.
 Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const GraphDef &graph_def,
-                            const std::vector<std::string> &inputs,
-                            const std::vector<std::string> &outputs,
+                            const std::vector<std::string> &input_op_names,
+                            const std::vector<std::string> &output_op_names,
                             const int minimum_segment_size,
                             const std::set<std::string> &op_whitelist,
                             const std::set<std::string> &no_fuse_ops,
                             const std::set<std::string> &force_fuse_ops) {
-
-  // For storing just names without tensor
-  std::vector<string> output_names;
-  for (auto name : outputs) {
-    output_names.push_back(split(name, ":")[0]);
-  }
-
   // Segment the graph into subgraphs that can be converted to Neuron op
   tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
@@ -727,13 +691,30 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
                                              graph_def.library());
+
+  // Build output tensor names
+  std::unordered_map<std::string, std::string> op_name_to_type;
+  for (const auto &node : graph_def.node()) {
+    op_name_to_type[node.name()] = node.op();
+  }
+  std::vector<std::string> outputs;
+  for (const auto &op_name : output_op_names) {
+    const tensorflow::OpRegistrationData *op_reg_data;
+    TF_RETURN_IF_ERROR(flib.LookUp(op_name_to_type[op_name], &op_reg_data));
+    int64 num_outputs = op_reg_data->op_def.output_arg_size();
+    VLOG(1) << "Output " << op_name << " contains " << num_outputs << " outputs";
+    for (int64 idx = 0; idx < num_outputs; ++idx) {
+      outputs.push_back(op_name + ":" + std::to_string(idx));
+    }
+  }
+
   tensorflow::Graph temp_graph(flib);
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
       tensorflow::GraphConstructorOptions(), graph_def, &temp_graph));
 
   GraphDef temp_graph_def;
   temp_graph.ToGraphDef(&temp_graph_def);
-  TF_RETURN_IF_ERROR(PreProcessingGraphDef(outputs, temp_graph_def));
+  TF_RETURN_IF_ERROR(PreProcessingGraphDef(temp_graph_def));
 
   tensorflow::Graph graph(flib);
 
@@ -762,8 +743,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   }
 
   // All inout nodes to exclude list
-  for (auto omit_node_name : inputs) {
-    auto node_name = split(omit_node_name, ":")[0];
+  for (auto node_name : input_op_names) {
     segment_options.exclude_node_list.insert(node_name);
 
     // Adding all the nodes before the input node to exclude list.

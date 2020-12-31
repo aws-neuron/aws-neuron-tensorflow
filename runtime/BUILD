@@ -50,7 +50,6 @@ cc_library(
         "@org_tensorflow//tensorflow/core:lib",
         ":nmgr_service.grpc.o",
         ":macros",
-        "@grpc//:grpc++_codegen_base",
     ],
 )
 

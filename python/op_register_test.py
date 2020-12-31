@@ -19,9 +19,10 @@ import unittest
 import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
-class TestOpRegister(unittest.TestCase):
+class TestOpRegister(TestV1Only):
 
     export_dir_test = './simple_save_op_register'
 

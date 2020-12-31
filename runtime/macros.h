@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/core/lib/core/errors.h"
+#include "tensorflow/core/public/version.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -64,6 +65,9 @@ namespace neuron {
     }                                                               \
     OP_REQUIRES_OK(CTX, status);                                    \
 }
+
+#define TF_VERSION_LESS_THAN(MAJOR, MINOR) \
+    (TF_MAJOR_VERSION < (MAJOR) || (TF_MAJOR_VERSION == (MAJOR) && TF_MINOR_VERSION < (MINOR)))
 
 }  // neuron
 }  // tensorflow
