@@ -440,11 +440,11 @@ def convert_constant_to_variables(
         init_vars = {}
         for var, value in _variables.items():
             _variables[var] = ops.convert_to_tensor(get_variable(
-                name=f"{var}-imported",
+                name="{}-imported".format(var),
                 shape=value.shape,
                 initializer=zeros_initializer(),
             ))
-            init_vars[var] = f"{var}-imported"
+            init_vars[var] = "{}-imported".format(var)
         checkpoint_utils.init_from_checkpoint(checkpoint_dir, init_vars)
 
         session.run(global_variables_initializer())
