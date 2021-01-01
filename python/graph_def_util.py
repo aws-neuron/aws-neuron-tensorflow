@@ -21,15 +21,8 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.neuron.python import neff_util
-from tensorflow.python.client import session as tf_session
-from tensorflow.python.framework import ops, importer
-from tensorflow.python.saved_model import tag_constants
-from tensorflow.python.training.saver import Saver
-from tensorflow.python.training import checkpoint_utils
-from tensorflow.python.saved_model import saved_model as tf_saved_model
-from tensorflow.python.ops.variables import global_variables_initializer
-from tensorflow.python.ops.variable_scope import get_variable
-from tensorflow.python.ops.init_ops import Zeros as zeros_initializer
+
+
 
 
 tNeuronOp = 'NeuronOp'
@@ -347,75 +340,3 @@ def _graph_def_op_index(graph_def_tensor_name):
     else:
         op_name, value_index = comma_split[0], 0
     return op_name, value_index
-
-
-def _prod(num_list):
-    result = 1
-    for num in num_list:
-        result *= num
-    return result
-
-
-def convert_constant_to_variables(
-    model_dir,
-    compiled_graph,
-    compiler_workdir,
-    constant_size_to_exclude=10,
-):
-
-    checkpoint_dir = os.path.join(compiler_workdir, "checkpoint_dir")
-    if not os.path.exists(checkpoint_dir):
-        os.mkdir(checkpoint_dir)
-    checkpoint_dir = os.path.join(checkpoint_dir, "og.ckpt")
-
-
-    with tf_session.Session(graph=ops.Graph()) as sess:
-        tf_saved_model.loader.load(
-            sess, [tag_constants.SERVING], model_dir
-        )
-        _saver = Saver()
-        _saver.save(sess, checkpoint_dir)
-
-    with tf_session.Session(graph=compiled_graph) as session:
-        _variables = {}
-        # Getting all the Const nodes and their values. These const nodes will be removed from the graph
-        for op in session.graph.get_operations():
-            if "Const" in op.type:
-                for tensor in op.values():
-                    value = session.run(tensor)
-                    total_elements = 1
-                    for x in value.shape:
-                        total_elements *= x
-                    if total_elements > constant_size_to_exclude:
-                        _variables[op.name] = value
-
-        new_nodes = []
-        old_nodes_names = []
-        # Creating the graph def by removing all the Const nodes
-        for node in session.graph.as_graph_def().node:
-            if node.name in _variables:
-                old_nodes_names.append(node.name)
-                continue
-            else:
-                new_nodes.append(node)
-
-        mod_graph_def = graph_pb2.GraphDef()
-        mod_graph_def.node.extend(new_nodes)
-
-    # Creating a graph from the modified graph def. This graph def has all the nodes from the frozen graph, except the const nodes
-    graph = ops.Graph()
-    with tf_session.Session(graph=graph) as session:
-        init_vars = {}
-        for var, value in _variables.items():
-            _variables[var] = ops.convert_to_tensor(get_variable(
-                name=f"{var}-imported",
-                shape=value.shape,
-                initializer=zeros_initializer(),
-            ))
-            init_vars[var] = f"{var}-imported"
-        checkpoint_utils.init_from_checkpoint(checkpoint_dir, init_vars)
-
-        session.run(global_variables_initializer())
-        importer.import_graph_def(mod_graph_def, name="", input_map=_variables)
-
-    return graph
