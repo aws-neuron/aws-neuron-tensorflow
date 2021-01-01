@@ -185,8 +185,10 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
     # load inference graph into a session and export as a SavedModel
     with tf_session.Session(graph=infer_graph, config=config_proto) as sess:
         # After adding variables in the graph, need to initialize the variables before saving them
-        if convert_constants_to_variables:
-            sess.run(global_variables_initializer())
+        for op in infer_graph.get_operations():
+            if "init" in op.name and op.type == "NoOp":
+                sess.run(op)
+
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
         signature_def_map = {signature_def_key: signature_def}
         for tensor in signature_def.inputs.values():
