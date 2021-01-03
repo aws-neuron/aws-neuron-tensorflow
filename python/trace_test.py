@@ -46,5 +46,23 @@ class TestTraceKerasModel(TestV2Only):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
 
+class TestTraceFunction(TestV2Only):
+
+    def test_func_1conv(self):
+        kernel = tf.random.uniform([3, 3, 3, 32])
+
+        def func(tensor):
+            return tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 1, 1])
+
+        input_tensor = tf.random.uniform([1, 28, 28, 3])
+        func_neuron = tfn.trace(func, input_tensor)
+        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        result_func_ref = func(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        assert len(result_func_ref) == len(result_func_neuron)
+        for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
+            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+
+
 def _assert_compiler_success_func(wfunc):
     assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())

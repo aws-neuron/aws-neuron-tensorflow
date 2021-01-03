@@ -39,10 +39,15 @@ def trace(func, example_inputs, must_compile=False):
     Returns:
         A Neuron-optimized `ConcreteFunction`
     """
+    original_func = func
+    if isinstance(func, def_function.Function):
+        func = func.get_concrete_function(example_inputs)
+    elif isinstance(func, function.ConcreteFunction):
+        pass
+    else:
+        func = def_function.function(func).get_concrete_function(example_inputs)
     if isinstance(example_inputs, ops.Tensor):
         example_inputs = example_inputs,
-    if not isinstance(func, function.ConcreteFunction):
-        func = def_function.function(func).get_concrete_function(example_inputs)
     if must_compile:
         logging.warning('Enabling must_compile; neuron-cc failures will be thrown as exceptions')
     tfn_args, compiler_args = utils.parse_neuron_cc_flags()
@@ -136,7 +141,9 @@ def trace(func, example_inputs, must_compile=False):
             pass
 
     # wrap ConcreteFunction as a Function
-    func = def_function.function(input_signature=(flat_input_signature,))(cfunc)
+    if isinstance(original_func, Model):
+        flat_input_signature = flat_input_signature,
+    func = def_function.function(input_signature=flat_input_signature)(cfunc)
     return AwsNeuronModel(func)
 
 
@@ -158,5 +165,8 @@ def _get_output_names(tensors, structured_signature):
         tensor_spec_name_map = {spec.name: name for name, spec in structured_signature.items()}
         tensor_spec_names = [tensor_spec_name_map[spec.name] for spec in tensor_specs]
         return {name: ts.name for ts, name in zip(tensors, tensor_spec_names)}
+    elif len(tensors) == 1 and isinstance(structured_signature, ops.Tensor):
+        tensor, = tensors
+        return tensor.name
     else:
         return [ts.name for ts in tensors]
