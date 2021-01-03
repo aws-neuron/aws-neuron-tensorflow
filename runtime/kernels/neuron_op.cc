@@ -13,6 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "tensorflow/core/framework/register_types.h"
 #include "neuron_op.h"
 
 namespace tensorflow {
@@ -44,10 +45,60 @@ public:
 
 namespace neuron {
 
+template <typename T>
+static Status tensor_shuffle_impl(Tensor *dst, const Tensor &src, const TensorProto &shuffle) {
+    const T *src_ptr = reinterpret_cast<const T*>(src.tensor_data().data());
+    T *dst_ptr = reinterpret_cast<T*>(const_cast<char*>((dst->tensor_data().data())));
+    for (auto ii = 0; ii < src.NumElements(); ++ii) {
+        int iii = shuffle.int64_val(ii);
+        if (!TF_PREDICT_TRUE(0 <= iii && iii < src.NumElements())) {
+            return errors::InvalidArgument("invalid shuffle index ", iii);
+        }
+        dst_ptr[ii] = src_ptr[iii];
+    }
+    return Status::OK();
+}
+
+static Status tensor_shuffle(Tensor *dst, const Tensor &src, const TensorProto &shuffle) {
+    switch (src.dtype()) {
+#define CASE(type)                                              \
+    case DataTypeToEnum<type>::value: {                         \
+        return tensor_shuffle_impl<type>(dst, src, shuffle);    \
+        break;                                                  \
+    }
+        TF_CALL_REAL_NUMBER_TYPES(CASE);
+        TF_CALL_bool(CASE);
+#undef CASE
+        default:
+            return errors::InvalidArgument("invalid data type ", src.dtype());
+    }
+    return Status::OK();
+}
+
 void NeuronOp::Compute(OpKernelContext *ctx) {
     std::vector<const Tensor*> input_tensors(ctx->num_inputs());
     for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
         input_tensors[idx] = &ctx->input(idx);
+    }
+    std::vector<Tensor> temp_tensors(ctx->num_inputs());
+    if (def().attr().count("_input_shuffles")) {
+        const auto &input_shuffles = def().attr().at("_input_shuffles").list();
+        VLOG(1) << input_shuffles.tensor_size() << " input shuffle indices";
+        for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
+            uint64 start_timestamp = Env::Default()->NowMicros();
+            const Tensor &src = ctx->input(idx);
+            Tensor *dst = &temp_tensors[idx];
+            OP_REQUIRES_OK(ctx, ctx->allocate_temp(src.dtype(), src.shape(), dst));
+            const TensorProto &shuffle = input_shuffles.tensor(idx);
+            if (shuffle.int64_val_size() != src.NumElements()) {
+                VLOG(1) << "skipping shuffle at input " << idx;
+                continue;
+            }
+            OP_REQUIRES_OK(ctx, tensor_shuffle(dst, src, shuffle));
+            input_tensors[idx] = dst;
+            uint64 elapsed = Env::Default()->NowMicros() - start_timestamp;
+            VLOG(1) << "input shuffle at " << idx << " took " << elapsed << " us";
+        }
     }
     OP_REQUIRES_OK(ctx, model_.compute(ctx, def(), input_tensors));
 }

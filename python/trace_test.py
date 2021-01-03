@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 import tensorflow as tf
+from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
 from tensorflow.neuron.python.unittest_base import TestV2Only
 
@@ -59,6 +60,44 @@ class TestTraceFunction(TestV2Only):
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
+        assert len(result_func_ref) == len(result_func_neuron)
+        for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
+            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+
+    def test_func_1conv_with_shuffle(self):
+        kernel = tf.random.uniform([3, 3, 3, 6])
+
+        def conv2d_nchw(tensor):
+            tensor = tf.transpose(tensor, [0, 2, 3, 1])
+            tensor = tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 1, 1])
+            return tf.transpose(tensor, [0, 3, 1, 2])
+
+        def func_ref(tensor):
+            tensor = tf.transpose(tensor, [0, 3, 1, 2])
+            return conv2d_nchw(tensor)
+
+        def func(tensor):
+            return conv2d_nchw(tensor)
+
+        input_tensor = tf.random.uniform([1, 4, 4, 3])
+        input_tensor_tracing = tf.transpose(input_tensor, [0, 3, 1, 2])
+        func_neuron = tfn.trace(func, input_tensor_tracing)
+        cfunc = func_neuron.aws_neuron_function.python_function
+        graph_def = cfunc.graph.as_graph_def()
+        for node in graph_def.node:
+            if node.op == 'NeuronOp':
+                idx_ts = node.attr['_input_shuffles'].list.tensor.add()
+                indices = tf.range(input_tensor.shape.num_elements())
+                indices = tf.reshape(indices, input_tensor.shape)
+                indices_t = tf.transpose(indices, [0, 3, 1, 2])
+                indices_t = tf.reshape(indices_t, [-1])
+                idx_ts.int64_val.extend(indices_t)
+        input_names = [ts.name for ts in cfunc.inputs]
+        output_names = cfunc.outputs[0].name
+        cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
+        _assert_compiler_success_func(cfunc)
+        result_func_ref = func_ref(input_tensor)
+        result_func_neuron = cfunc(input_tensor)
         assert len(result_func_ref) == len(result_func_neuron)
         for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
