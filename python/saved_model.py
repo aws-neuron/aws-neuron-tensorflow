@@ -174,7 +174,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         infer_graph = inference_graph_from_session.__wrapped__(
             sess, input_tensors=input_tensors, output_tensors=output_tensors,
             signature_def=signature_def,
-            protected_op_names=saved_model_main_op, **kwargs)
+            protected_op_names=saved_model_main_op, compiler_workdir=compiler_workdir, **kwargs)
 
         if convert_constants_to_variables:
             if compiler_workdir is None:
