@@ -46,7 +46,7 @@ class TestTraceKerasModel(TestV2Only):
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
-    def test_keras_model_1in_1out(self):
+    def test_keras_model_1in_1out_save(self):
         input0 = tf.keras.layers.Input(3)
         dense0 = tf.keras.layers.Dense(3)(input0)
         inputs = [input0]
@@ -57,6 +57,7 @@ class TestTraceKerasModel(TestV2Only):
         _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
         result_model_ref = model(input0_tensor)
         result_model_neuron = model_neuron(input0_tensor)
+        model_neuron.save('neuron_keras_model_1in_1out_save')
         assert len(result_model_ref) == len(result_model_neuron)
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
@@ -64,7 +65,7 @@ class TestTraceKerasModel(TestV2Only):
 
 class TestTraceFunction(TestV2Only):
 
-    def test_func_1conv(self):
+    def test_func_1conv_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
 
         def func(tensor):
@@ -75,6 +76,7 @@ class TestTraceFunction(TestV2Only):
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
+        func_neuron.save('neuron_keras_model_func_1conv_save')
         assert len(result_func_ref) == len(result_func_neuron)
         for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
