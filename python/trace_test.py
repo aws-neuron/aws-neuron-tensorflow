@@ -46,6 +46,21 @@ class TestTraceKerasModel(TestV2Only):
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
+    def test_keras_model_1in_1out(self):
+        input0 = tf.keras.layers.Input(3)
+        dense0 = tf.keras.layers.Dense(3)(input0)
+        inputs = [input0]
+        outputs = [dense0]
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        input0_tensor = tf.random.uniform([1, 3])
+        model_neuron = tfn.trace(model, input0_tensor)
+        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
+        result_model_ref = model(input0_tensor)
+        result_model_neuron = model_neuron(input0_tensor)
+        assert len(result_model_ref) == len(result_model_neuron)
+        for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
+            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+
 
 class TestTraceFunction(TestV2Only):
 

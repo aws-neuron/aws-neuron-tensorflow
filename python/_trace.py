@@ -141,7 +141,7 @@ def trace(func, example_inputs, must_compile=False):
             pass
 
     # wrap ConcreteFunction as a Function
-    if isinstance(original_func, Model):
+    if isinstance(original_func, Model) and len(flat_input_signature) > 1:
         flat_input_signature = flat_input_signature,
     func = def_function.function(input_signature=flat_input_signature)(cfunc)
     return AwsNeuronModel(func)
