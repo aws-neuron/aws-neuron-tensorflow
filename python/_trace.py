@@ -90,7 +90,12 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
     if subgraph_builder_function is None:
         fuser_param_map['fuse_foldable_nodes'].b = True
-        no_fuse_ops = []
+        try:
+            import hlo2neuron
+        except ImportError:
+            no_fuse_ops = []
+        else:
+            no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
     else:
         force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
         fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
@@ -160,6 +165,19 @@ class AwsNeuronModel(Model):
 
     def call(self, inputs):
         return self.aws_neuron_function(inputs)
+
+
+def _find_pad_ops_preceding_conv2d(graph):
+    # exclude Pad that precedes Conv2D for HLO frontend
+    no_fuse_ops = []
+    supported_op_types = list_operators()
+    for op in graph.get_operations():
+        if op.type == 'Pad' and op.inputs[0].op.type not in supported_op_types:
+            consumers = op.outputs[0].consumers()
+            if len(consumers) == 1 and consumers[0].type == 'Conv2D':
+                no_fuse_ops.append(op.name)
+                no_fuse_ops.append(op.inputs[1].op.name)
+    return no_fuse_ops
 
 
 def _get_output_names(tensors, structured_signature):

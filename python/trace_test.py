@@ -119,6 +119,29 @@ class TestTraceFunction(TestV2Only):
         for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
+    def test_func_pad_conv(self):
+        kernel = tf.random.uniform([7, 7, 3, 64])
+
+        def func_ref(tensor):
+            tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
+            tensor = tf.transpose(tensor, [0, 2, 3, 1])
+            tensor = tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 2, 2, 1])
+            return tf.transpose(tensor, [0, 3, 1, 2])
+
+        def func(tensor):
+            tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
+            return tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 2, 2], data_format='NCHW')
+
+        input_tensor = tf.random.uniform([1, 3, 224, 224])
+        func_neuron = tfn.trace(func, input_tensor)
+        compiled_func = func_neuron.aws_neuron_function.python_function
+        _assert_compiler_success_func(compiled_func)
+        result_func_ref = func_ref(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        assert len(result_func_ref) == len(result_func_neuron)
+        for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
+            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+
 
 def _assert_compiler_success_func(wfunc):
     assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())
