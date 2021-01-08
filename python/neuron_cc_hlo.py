@@ -100,6 +100,4 @@ def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=No
         hlo_snapshot.ParseFromString(f.read())
     hlo_module = hlo_snapshot.hlo.hlo_module
     executable, new_inputs, new_outputs = hlo2neff(hlo_module)
-    input_names = [ts.name for ts in new_inputs]
-    output_names = [ts.name for ts in new_outputs]
-    return executable, input_names, output_names
+    return executable, new_inputs, new_outputs
