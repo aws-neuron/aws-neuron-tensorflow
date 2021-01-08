@@ -248,6 +248,15 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
             node.attr[knExecutable].s = executable
             node.attr[knInputNames].list.s[:] = [ts.name.encode() for ts in inputs]
             node.attr[knOutputNames].list.s[:] = [ts.name.encode() for ts in outputs]
+            try:
+                input_shuffles = [inp.shuffle for inp in inputs]
+            except AttributeError:
+                pass
+            else:
+                if any(shuffle is not None for shuffle in input_shuffles):
+                    for shuffle in input_shuffles:
+                        idx_ts = node.attr['_input_shuffles'].list.tensor.add()
+                        idx_ts.int64_val.extend(shuffle)
     return graph_def
 
 
