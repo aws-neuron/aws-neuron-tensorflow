@@ -108,7 +108,7 @@ class TestTraceFunction(TestV2Only):
                 indices = tf.reshape(indices, input_tensor.shape)
                 indices_t = tf.transpose(indices, [0, 3, 1, 2])
                 indices_t = tf.reshape(indices_t, [-1])
-                idx_ts.int64_val.extend(indices_t)
+                idx_ts.int64_val.extend(indices_t.numpy())
         input_names = [ts.name for ts in cfunc.inputs]
         output_names = cfunc.outputs[0].name
         cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
@@ -121,6 +121,7 @@ class TestTraceFunction(TestV2Only):
 
     def test_func_pad_conv(self):
         kernel = tf.random.uniform([7, 7, 3, 64])
+        kernel = tf.cast(kernel, tf.float16)
 
         def func_ref(tensor):
             tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
@@ -133,14 +134,16 @@ class TestTraceFunction(TestV2Only):
             return tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 2, 2], data_format='NCHW')
 
         input_tensor = tf.random.uniform([1, 3, 224, 224])
+        input_tensor = tf.cast(input_tensor, tf.float16)
         func_neuron = tfn.trace(func, input_tensor)
         compiled_func = func_neuron.aws_neuron_function.python_function
         _assert_compiler_success_func(compiled_func)
+        neuron_op = [op for op in compiled_func.graph.get_operations() if op.type == 'NeuronOp'][0]
+        neff_size = len(neuron_op.get_attr('executable'))
+        assert neff_size < 1e6, 'neff too large -- replication is probably not working'
         result_func_ref = func_ref(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
-        assert len(result_func_ref) == len(result_func_neuron)
-        for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
-            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
 
 def _assert_compiler_success_func(wfunc):
