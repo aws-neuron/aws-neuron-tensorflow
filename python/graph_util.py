@@ -511,8 +511,11 @@ def compile_subgraphs(graph_def,
 
     # try progress bar mode first
     try_progress_bar_mode = len(subgraph_compilers) == 1 and verbose is None and workdir is None
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', type=int, default=None)
+    verbose_args, _ = parser.parse_known_args(command)
     progress_bar_mode_done = False
-    if try_progress_bar_mode:
+    if try_progress_bar_mode and (verbose_args.verbose is None or verbose_args.verbose == 35):
         node_name = next(iter(subgraph_compilers))
         command = subgraph_compilers[node_name].command.copy()
         command.extend(['--verbose=35'])
