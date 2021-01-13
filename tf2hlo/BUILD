@@ -1,4 +1,3 @@
-load("//tensorflow/compiler/aot:tfcompile.bzl", "tf_library")
 load("//tensorflow:tensorflow.bzl", "tf_cc_binary")
 
 package(default_visibility = ["//visibility:private"])
