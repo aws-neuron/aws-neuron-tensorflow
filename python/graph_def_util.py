@@ -211,7 +211,7 @@ def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
     return graph_def
 
 
-def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None, must_compile=False):
+def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
     IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)

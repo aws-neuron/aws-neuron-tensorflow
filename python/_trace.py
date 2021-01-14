@@ -29,7 +29,7 @@ from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators
 
 
-def trace(func, example_inputs, must_compile=False):
+def trace(func, example_inputs, subgraph_builder_function=None):
     """Convert a `ConcreteFunction` to a Neuron-optimized `ConcreteFunction`.
 
     Args:
@@ -48,8 +48,6 @@ def trace(func, example_inputs, must_compile=False):
         func = def_function.function(func).get_concrete_function(example_inputs)
     if isinstance(example_inputs, ops.Tensor):
         example_inputs = example_inputs,
-    if must_compile:
-        logging.warning('Enabling must_compile; neuron-cc failures will be thrown as exceptions')
     tfn_args, compiler_args = utils.parse_neuron_cc_flags()
 
     # Note: input_names is also used for constructing the output ConcreteFunction,
@@ -89,8 +87,16 @@ def trace(func, example_inputs, must_compile=False):
     fuser_param_map = fuser_config.parameter_map
     # dynamically determine minimum_segment_size from graph size
     fuser_param_map['minimum_segment_size'].i = len(graph_def.node) // 10
-    fuser_param_map['fuse_foldable_nodes'].b = True
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
+    if subgraph_builder_function is None:
+        fuser_param_map['fuse_foldable_nodes'].b = True
+        no_fuse_ops = []
+    else:
+        force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
+        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
+        no_fuse_ops = [node.name for node in graph_def.node]
+    if no_fuse_ops:
+        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
 
     # call all grappler passes
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
@@ -116,8 +122,7 @@ def trace(func, example_inputs, must_compile=False):
     ]
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def, subgraph_passes)
-    graph_def = gdu.run_compiler_on_subgraphs(
-        graph_def, tfn_args.dump_prefix, compiler_args, must_compile)
+    graph_def = gdu.run_compiler_on_subgraphs(graph_def, tfn_args.dump_prefix, compiler_args)
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)
