@@ -248,8 +248,6 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
             node.attr[knExecutable].s = executable
             node.attr[knInputNames].list.s[:] = [name.encode() for name in input_names]
             node.attr[knOutputNames].list.s[:] = [name.encode() for name in output_names]
-        elif must_compile:
-            raise ValueError('Compilation failure on operator {}'.format(node.name))
     return graph_def
 
 

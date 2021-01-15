@@ -30,14 +30,14 @@ from tensorflow.neuron.python.neuron_cc import list_operators
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):
-    """Convert a `ConcreteFunction` to a Neuron-optimized `ConcreteFunction`.
+    """Convert a function to a Neuron-optimized `keras.Model`.
 
     Args:
-        func: A `ConcreteFunction`.
+        func: The function to be converted.
         example_inputs: A `tf.Tensor` or a tuple/list of `tf.Tensor`s for tracing the function.
 
     Returns:
-        A Neuron-optimized `ConcreteFunction`
+        A Neuron-optimized `keras.Model`.
     """
     original_func = func
     if isinstance(func, def_function.Function):
@@ -155,7 +155,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 class AwsNeuronModel(Model):
 
     def __init__(self, aws_neuron_function):
-        super().__init__(trainable=False)
+        super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = aws_neuron_function
 
     def call(self, inputs):
