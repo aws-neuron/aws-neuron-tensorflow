@@ -15,6 +15,7 @@
 import unittest
 import numpy as np
 import tensorflow as tf  # supposed to be tf2
+import tensorflow.neuron as tfn
 import random
 from itertools import product
 import shutil
@@ -85,24 +86,11 @@ class TestSequentialKeras(unittest.TestCase):
                     ]
                 )
 
-                # Export SavedModel
                 model_dir = './keras_flatten_dense_dropout'
-                shutil.rmtree(model_dir, ignore_errors=True)
-                tf.keras.models.save_model(model, model_dir)
 
-                # we would then complie using TF Neuron with 2.0
-                # support but this is just a prototype so we
-                # skip that step for now
-
-                reloaded_model = tf.keras.models.load_model(model_dir)
-
-                # in real test this would actually be a compiled model
-                compiled_model = tf.keras.models.load_model(model_dir)
-
+                compiled_model = tf2_compile(model, model_dir)
                 test_input = np.random.random((1, 28, 28))
-                # actual test would test compiler model on inf1
-                # versus tf2 model on cpu
-                np.testing.assert_allclose(reloaded_model(test_input, training=False), compiled_model(test_input, training=False))
+                run_inference(model, model_dir, test_input)
 
     def test_conv2d_conv2d_flatten_dense(self):
 
@@ -128,22 +116,12 @@ class TestSequentialKeras(unittest.TestCase):
                 # Export SavedModel
                 model_dir = './keras_conv2d_conv2d_flatten_dense'
                 shutil.rmtree(model_dir, ignore_errors=True)
-                tf.keras.models.save_model(model, model_dir)
-
-                # we would then complie using TF Neuron with 2.0
-                # support but this is just a prototype so we
-                # skip that step for now
-
-                reloaded_model = tf.keras.models.load_model(model_dir)
-
-                # in real test this would actually be a compiled model
-                compiled_model = tf.keras.models.load_model(model_dir)
 
                 test_input = np.random.random((1, 28, 28, 1))
+                compiled_model = tf2_compile(model, model_dir)
+                run_inference(model, model_dir, test_input)
 
-                # actual test would test compiler model on inf1
-                # versus tf2 model on cpu
-                np.testing.assert_allclose(reloaded_model(test_input, training=False), compiled_model(test_input, training=False))
+
 
     def test_lstm_lstm_dense_dense(self):
 
@@ -163,22 +141,11 @@ class TestSequentialKeras(unittest.TestCase):
                 # Export SavedModel
                 model_dir = './keras_lstm_lstm_dense_dense'
                 shutil.rmtree(model_dir, ignore_errors=True)
-                tf.keras.models.save_model(model, model_dir)
-
-                # we would then complie using TF Neuron with 2.0
-                # support but this is just a prototype so we
-                # skip that step for now
-
-                reloaded_model = tf.keras.models.load_model(model_dir)
-
-                # in real test this would actually be a compiled model
-                compiled_model = tf.keras.models.load_model(model_dir)
 
                 test_input = np.random.random((1, 28, 28))
+                compiled_model = tf2_compile(model, model_dir)
+                run_inference(model, model_dir, test_input)
 
-                # actual test would test compiler model on inf1
-                # versus tf2 model on cpu
-                np.testing.assert_allclose(reloaded_model(test_input, training=False), compiled_model(test_input, training=False))
 
     def test_maxpool2d(self):
         # A simple test that is only parameterized by inputNumUnits
@@ -401,4 +368,20 @@ class TestGraphUtil(unittest.TestCase):
         add1 = tf.keras.layers.Add(name='add1')([identity1, relu3])
         exp1 = tf.keras.layers.Activation('exponential', name='exp1')(add1)
         sig1 = tf.keras.layers.Activation('sigmoid', name='sig1')(add1)
+
+def tf2_compile(model, model_dir):
+    shutil.rmtree(model_dir, ignore_errors=True)
+    tf.keras.models.save_model(model, model_dir)
+    tfn.saved_model.compile(model_dir, model_dir + '_neuron')
+
+def run_inference(model, neuron_model_dir, test_input):
+    #actually make it the neuron_model_dir
+    neuron_model_dir = neuron_model_dir + '_neuron'
+
+    neuron_model = tf.keras.models.load_model(neuron_model_dir)
+    inf_func = neuron_model.signatures['serving_default']
+    neuron_output = inf_func(tf.constant(test_input, dtype=tf.float32))[model.output_names[0]]
+    normal_output = model(test_input)
+    np.testing.assert_allclose(normal_output, neuron_output)
+
 
