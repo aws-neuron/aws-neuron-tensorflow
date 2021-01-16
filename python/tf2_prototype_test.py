@@ -19,6 +19,7 @@ import tensorflow.neuron as tfn
 import random
 from itertools import product
 import shutil
+from tensorflow.neuron.python.unittest_base import TestV2Only
 
 # each number represents the number of random
 # parameters from that catergory
@@ -58,7 +59,7 @@ activations = activations[0:NUM_ACTIVATIONS]
 powersOfTwo = powersOfTwo[0:NUM_POWERS]
 
 
-class TestSequentialKeras(unittest.TestCase):
+class TestSequentialKeras(TestV2Only):
     # This function tests a basic NN with two dense layers.
     # It has 3 paramaters which vary.
     # 1. Number of input units
@@ -187,7 +188,7 @@ class TestSequentialKeras(unittest.TestCase):
                 # versus tf2 model on cpu
                 np.testing.assert_allclose(reloaded_model(test_input, training=False), compiled_model(test_input, training=False))
 
-class TestFunctionalKeras(unittest.TestCase):
+class TestFunctionalKeras(TestV2Only):
     def test_toy_resnet(self):
         inputs = tf.keras.Input(shape=(32, 32, 3), name="img")
         x = tf.keras.layers.Conv2D(32, 3, activation="relu")(inputs)
@@ -287,7 +288,7 @@ class TestFunctionalKeras(unittest.TestCase):
         np.testing.assert_allclose(result_ref[0], result_neuron[0])
         np.testing.assert_allclose(result_ref[1], result_neuron[1])
 
-class TestGraphUtil(unittest.TestCase):
+class TestGraphUtil(TestV2Only):
     def test_multiple_io(self):
         input1 = tf.keras.Input(shape=[1, 2, 2, 3], name='input1')
         input2 = tf.keras.Input(shape=[1, 2, 2, 3], name='input2')
