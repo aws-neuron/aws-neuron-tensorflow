@@ -187,6 +187,11 @@ def inference_graph_from_session(
     with replace_extract_sub_graph():
         graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
             sess, graph_def, list(protected_op_names))
+    for node in graph_def.node:
+        if node.op == 'RefEnter':
+            node.op = 'Enter'
+        elif node.op == 'RefExit':
+            node.op = 'Exit'
     original_graph_def = graph_def
 
     # setup op exclusions
