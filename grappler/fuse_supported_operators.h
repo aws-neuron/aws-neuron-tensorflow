@@ -37,7 +37,7 @@ public:
 private:
     int minimum_segment_size_ = 2;
     bool fuse_foldable_nodes_ = false;
-    std::set<std::string> op_whitelist_;
+    std::set<std::string> supported_op_types_;
     std::set<std::string> no_fuse_ops_;
     std::set<std::string> force_fuse_ops_;
 };

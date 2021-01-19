@@ -211,7 +211,7 @@ def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
     return graph_def
 
 
-def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
+def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None, must_compile=False):
     IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)
@@ -244,9 +244,12 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
         subgraph_workdir = None if workdir is None else os.path.join(workdir, node.name)
         executable, input_names, output_names = compile_savetemps(
             subgraph_def, inputs, outputs, workdir=subgraph_workdir, compiler_args=compiler_args)
-        node.attr[knExecutable].s = executable
-        node.attr[knInputNames].list.s[:] = [name.encode() for name in input_names]
-        node.attr[knOutputNames].list.s[:] = [name.encode() for name in output_names]
+        if executable:
+            node.attr[knExecutable].s = executable
+            node.attr[knInputNames].list.s[:] = [name.encode() for name in input_names]
+            node.attr[knOutputNames].list.s[:] = [name.encode() for name in output_names]
+        elif must_compile:
+            raise ValueError('Compilation failure on operator {}'.format(node.name))
     return graph_def
 
 

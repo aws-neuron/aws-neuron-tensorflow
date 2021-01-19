@@ -24,7 +24,7 @@ namespace neuron {
 
 constexpr char key_minimum_segment_size[] = "minimum_segment_size";
 constexpr char key_fuse_foldable_nodes[] = "fuse_foldable_nodes";
-constexpr char key_op_whitelist[] = "op_whitelist";
+constexpr char key_supported_op_types[] = "supported_op_types";
 constexpr char key_no_fuse_ops[] = "no_fuse_ops";
 constexpr char key_force_fuse_ops[] = "force_fuse_ops";
 
@@ -45,13 +45,13 @@ Status FuseSupportedOperators::Init(const tensorflow::RewriterConfig_CustomGraph
     if (parameter_map.count(key_fuse_foldable_nodes)) {
         fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
     }
-    if (!parameter_map.count(key_op_whitelist)) {
+    if (!parameter_map.count(key_supported_op_types)) {
         return errors::InvalidArgument(
             name_optimizer, " requires providing a list of supported operator names");
     }
-    const auto &param_op_whitelist = parameter_map.at(key_op_whitelist).list().s();
-    op_whitelist_ = {param_op_whitelist.begin(), param_op_whitelist.end()};
-    VLOG(2) << "op_whitelist_ " << container_debug_string(op_whitelist_);
+    const auto &param_supported_op_types = parameter_map.at(key_supported_op_types).list().s();
+    supported_op_types_ = {param_supported_op_types.begin(), param_supported_op_types.end()};
+    VLOG(2) << "supported_op_types_ " << container_debug_string(supported_op_types_);
     if (parameter_map.count(key_no_fuse_ops)) {
         const auto &param_no_fuse_ops = parameter_map.at(key_no_fuse_ops).list().s();
         no_fuse_ops_ = {param_no_fuse_ops.begin(), param_no_fuse_ops.end()};
@@ -78,7 +78,7 @@ Status FuseSupportedOperators::Optimize(Cluster *cluster, const GrapplerItem &it
     VLOG(2) << "output_op_names " << container_debug_string(item.fetch);
     TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
         output, item.graph, input_op_names, item.fetch, fuse_foldable_nodes_,
-        minimum_segment_size_, op_whitelist_, no_fuse_ops_, force_fuse_ops_));
+        minimum_segment_size_, supported_op_types_, no_fuse_ops_, force_fuse_ops_));
     return Status::OK();
 }
 

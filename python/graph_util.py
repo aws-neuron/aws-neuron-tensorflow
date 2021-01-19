@@ -54,7 +54,7 @@ def inference_graph_from_session(
         sess=None, input_tensors=None, output_tensors=None, signature_def=None,
         shape_feed_dict=None, feed_dict=None, dynamic_batch_size=False,
         protected_op_names=None,
-        op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
+        supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
         grappler=False, max_num_compilers=None,
         compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True,
         compiler_verbose=None):
@@ -63,7 +63,7 @@ def inference_graph_from_session(
     Generally decomposes into 5 passes:
         1. Convert all variables to constants, `Assign`s to `Identity`s.
         2. Whitelist-based graph partitioning, each subgraph (wrapped in an `NeuronOp`)
-            will contain only operations whose types match the types listed in `op_whitelist`.
+            will contain only operations whose types match the types listed in `supported_op_types`.
         3. Shape inference to find shapes for input/output tensors of `NeuronOp` subgraphs.
         4. Call neuron-cc compiler on each `NeuronOp`.
         5. Restore `NeuronOp`s that are failed to compile into their original form.
@@ -84,7 +84,7 @@ def inference_graph_from_session(
             `shape_inference` first and then `shape_inference_with_inputs`.
         dynamic_batch_size: Bool that represents whether the inference graph will support
             dynamic batch sizes during inference.
-        op_whitelist: Iterable of strings (unordered) representing compilable op names.
+        supported_op_types: Iterable of strings (unordered) representing compilable op names.
         no_fuse_ops: None or iterable of strings (unordered) representing names of ops
             that are forcibly placed on CPU.
         force_fuse_ops: None or iterable of strings (unordered) representing names of ops
@@ -227,7 +227,7 @@ def inference_graph_from_session(
 
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
-        graph_def, signature_def, op_whitelist=op_whitelist,
+        graph_def, signature_def, supported_op_types=supported_op_types,
         no_fuse_ops=no_fuse_ops, force_fuse_ops=force_fuse_ops,
         minimum_segment_size=minimum_segment_size)
 
@@ -366,7 +366,7 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
 
 
 def whitelist_partition(graph_def, signature_def,
-                        op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
+                        supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None,
                         minimum_segment_size=None):
     """Partitions a `GraphDef` proto according to a TensorFlow op whitelist and
     fuses each whitelisted subgraph into an `NeuronOp`.
@@ -374,7 +374,7 @@ def whitelist_partition(graph_def, signature_def,
     Args:
         graph_def: input `GraphDef` proto.
         signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
-        op_whitelist: None or iterable of strings (unordered) representing
+        supported_op_types: None or iterable of strings (unordered) representing
             whitelisted op type names.
         no_fuse_ops: None or iterable of strings (unordered) representing
             names of ops that will stay unfused.
@@ -386,21 +386,21 @@ def whitelist_partition(graph_def, signature_def,
         A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
     original_graph_def = graph_def
-    if op_whitelist is None:
+    if supported_op_types is None:
         neuron_cc = ncc.find_neuron_cc()
         if neuron_cc is None:
             return graph_def
         else:
             command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
             try:
-                op_whitelist = {op_type.strip() for op_type in subprocess.check_output(command).decode()[:-1].split('\n')}
+                supported_op_types = {op_type.strip() for op_type in subprocess.check_output(command).decode()[:-1].split('\n')}
             except subprocess.CalledProcessError:
                 logging.warning('neuron-cc is not behaving correctly. Please check neuron-cc '
                                 'installation, or reinstall by "pip install --force neuron-cc".')
                 return graph_def
-            op_whitelist.discard('Placeholder')
-            op_whitelist.discard('IdentityN')
-            op_whitelist.add('SquaredDifference')
+            supported_op_types.discard('Placeholder')
+            supported_op_types.discard('IdentityN')
+            supported_op_types.add('SquaredDifference')
     if no_fuse_ops is None:
         no_fuse_ops = []
     if force_fuse_ops is None:
@@ -419,7 +419,7 @@ def whitelist_partition(graph_def, signature_def,
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     param_map = fuser_config.parameter_map
     param_map['minimum_segment_size'].i = minimum_segment_size
-    param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
+    param_map['supported_op_types'].list.s.extend(compat.as_bytes(item) for item in supported_op_types)
     param_map['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
     param_map['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
 

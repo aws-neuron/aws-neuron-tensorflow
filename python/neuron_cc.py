@@ -32,12 +32,12 @@ def list_operators():
         logging.warning('neuron-cc is not behaving correctly. Please check neuron-cc '
                         'installation, or reinstall by "pip install --force neuron-cc".')
         return set()
-    op_whitelist = {op_type.strip() for op_type in list_operators_output.decode()[:-1].split('\n')}
+    supported_op_types = {op_type.strip() for op_type in list_operators_output.decode()[:-1].split('\n')}
     tf_reserved_ops = [
         'Placeholder',
         'IdentityN',
     ]
-    return op_whitelist.difference(tf_reserved_ops)
+    return supported_op_types.difference(tf_reserved_ops)
 
 
 def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=None):

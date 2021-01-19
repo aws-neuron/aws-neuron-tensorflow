@@ -13,6 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 import collections
+import os
+import argparse
+import shlex
 from contextlib import contextmanager
 from tensorflow.python.platform import tf_logging as logging
 
@@ -63,3 +66,11 @@ def model_conversion_report(model_dir, new_model_dir, on_neuron_ratio):
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
     else:
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
+
+
+def parse_neuron_cc_flags():
+    neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dump-prefix', default=None)
+    tfn_args, compiler_args = parser.parse_known_args(shlex.split(neuron_cc_flags))
+    return tfn_args, compiler_args

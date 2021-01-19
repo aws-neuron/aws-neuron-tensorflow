@@ -29,8 +29,7 @@ from tensorflow.neuron.python.neuron_cc import list_operators
 DEFAULT_MINIMUM_SEGMENT_SIZE = 1
 
 
-def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
-            compiler_args=None, compiler_workdir=None, compiler_recovery=True, **kwargs):
+def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_compile=False):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -43,6 +42,10 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     Returns:
         Dictionary with operator counts before/after optimization, etc.
     """
+    if must_compile:
+        logging.warning('Enabling must_compile; neuron-cc failures will be thrown as exceptions')
+    tfn_args, compiler_args = utils.parse_neuron_cc_flags()
+
     # load SavedModel
     model = saved_model.load(model_dir, tags=tags)
 
@@ -102,7 +105,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     fuser_param_map = fuser_config.parameter_map
     fuser_param_map['minimum_segment_size'].i = DEFAULT_MINIMUM_SEGMENT_SIZE
     fuser_param_map['fuse_foldable_nodes'].b = True
-    fuser_param_map['op_whitelist'].list.s.extend(item.encode() for item in list_operators())
+    fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
 
     # call all grappler passes
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
@@ -128,9 +131,9 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None,
     ]
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def, subgraph_passes)
-    graph_def = gdu.run_compiler_on_subgraphs(graph_def, compiler_workdir, compiler_args)
-    if compiler_recovery:
-        graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
+    graph_def = gdu.run_compiler_on_subgraphs(
+        graph_def, tfn_args.dump_prefix, compiler_args, must_compile)
+    graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)
 
