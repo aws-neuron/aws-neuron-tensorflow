@@ -66,7 +66,7 @@ class TestSequentialKeras(TestV2Only):
     # 2. Number of output units
     # 3. The type of activation function that the input layer uses
     # @parameterized.expand()
-    @unittest.skip("skipping for debugging")
+
     def test_flatten_dense_dropout(self):
 
         param_list = list(product(inputNumUnits, activations, outputNumUnits))
@@ -90,8 +90,8 @@ class TestSequentialKeras(TestV2Only):
 
                 model_dir = './keras_flatten_dense_dropout'
 
-                compiled_model = tf2_compile(model, model_dir)
-                test_input = np.random.random((1, 28, 28))
+                test_input = tf.random.uniform((1, 28, 28))
+                compiled_model = tf2_compile(model, model_dir, example_inputs=[test_input])
                 run_inference(model, model_dir, test_input)
 
     @unittest.skip("skipping for debugging")
@@ -368,10 +368,16 @@ class TestGraphUtil(TestV2Only):
         exp1 = tf.keras.layers.Activation('exponential', name='exp1')(add1)
         sig1 = tf.keras.layers.Activation('sigmoid', name='sig1')(add1)
 
-def tf2_compile(model, model_dir, feed_dict=None):
+def tf2_compile(model, model_dir, example_inputs=None):
     shutil.rmtree(model_dir, ignore_errors=True)
     tf.keras.models.save_model(model, model_dir)
-    return tfn.saved_model.compile(model_dir, model_dir + '_neuron', model_feed_dict=feed_dict)
+    if example_inputs is not None:
+        loaded_model = tf.saved_model.load(model_dir)
+        func = loaded_model.signatures['serving_default']
+        captured_inputs = {ts.ref() for _, ts in func.graph.captures}
+        func_inputs = [ts for ts in func.inputs if ts.ref() not in captured_inputs]
+        model_feed_dict = {ts.op.name: inp for ts, inp in zip(func_inputs, example_inputs)}
+    return tfn.saved_model.compile(model_dir, model_dir + '_neuron', model_feed_dict=model_feed_dict)
 
 def run_inference(model, neuron_model_dir, test_input):
     #actually make it the neuron_model_dir
