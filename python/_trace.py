@@ -14,6 +14,8 @@
 # ==============================================================================
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
+from tensorflow.python.eager import function
+from tensorflow.python.eager import def_function
 from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import convert_to_constants
 from tensorflow.python.framework import ops
@@ -38,6 +40,8 @@ def trace(func, example_inputs, must_compile=False):
     """
     if isinstance(example_inputs, ops.Tensor):
         example_inputs = example_inputs,
+    if not isinstance(func, function.ConcreteFunction):
+        func = def_function.function(func).get_concrete_function(*example_inputs)
     if must_compile:
         logging.warning('Enabling must_compile; neuron-cc failures will be thrown as exceptions')
     tfn_args, compiler_args = utils.parse_neuron_cc_flags()
