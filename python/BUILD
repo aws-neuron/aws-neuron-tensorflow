@@ -153,6 +153,7 @@ py_library(
         "test_early_exit.py",
         "unittest_base.py",
         "saved_model_v2_test.py",
+        "tf2_prototype_test.py",
     ],
     deps = [
         ":graph_util_py",
