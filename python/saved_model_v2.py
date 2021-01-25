@@ -17,7 +17,7 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.saved_model import loader_impl
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
-from tensorflow.neuron.python._trace import trace, _get_name_map
+from tensorflow.neuron.python._trace import trace
 
 
 def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_compile=False):

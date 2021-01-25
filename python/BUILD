@@ -152,6 +152,7 @@ py_library(
         "tfv1_keras_test.py",
         "test_early_exit.py",
         "unittest_base.py",
+        "trace_test.py",
         "saved_model_v2_test.py",
         "tf2_prototype_test.py",
     ],
@@ -159,6 +160,7 @@ py_library(
         ":graph_util_py",
         ":saved_model_py",
         ":fuse_py",
+        ":trace_py",
         ":saved_model_v2_py",
     ],
 )
