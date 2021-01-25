@@ -41,10 +41,16 @@ def trace(func, example_inputs, must_compile=False):
     if isinstance(example_inputs, ops.Tensor):
         example_inputs = example_inputs,
     if not isinstance(func, function.ConcreteFunction):
-        func = def_function.function(func).get_concrete_function(*example_inputs)
+        func = def_function.function(func).get_concrete_function(example_inputs)
     if must_compile:
         logging.warning('Enabling must_compile; neuron-cc failures will be thrown as exceptions')
     tfn_args, compiler_args = utils.parse_neuron_cc_flags()
+
+    # Note: input_names is also used for constructing the output ConcreteFunction,
+    # where using a dictionary (such as `{ts.name: ts.name for ts in func_inputs}`) can cause
+    # the resulted ConcreteFunction to get feed tensors going to the wrong inputs occationally
+    captured_inputs = {ts.ref() for _, ts in func.graph.captures}
+    input_names = [ts.name for ts in func.inputs if ts.ref() not in captured_inputs]
 
     # convert all variables to constants
     cfunc = convert_to_constants.convert_variables_to_constants_v2(func)
@@ -52,7 +58,7 @@ def trace(func, example_inputs, must_compile=False):
     original_graph_def = graph_def
 
     # encode known shapes
-    shape_feed_dict = {sym_ts.name: ts.shape for sym_ts, ts in zip(func.inputs, example_inputs)}
+    shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, example_inputs)}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # produce GraphDef by running grappler passes
@@ -110,26 +116,18 @@ def trace(func, example_inputs, must_compile=False):
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)
 
-    # re-wrap GraphDef as a WrappedFunction
-    captured_inputs = {ts.ref() for _, ts in func.graph.captures}
-    original_inputs = [ts for ts in func.inputs if ts.ref() not in captured_inputs]
-
-    # inputs can be a list of symbolic tensors
-    # Note: if using a dictionary (such as `{ts.name: ts.name for ts in original_inputs}`), then
-    # the resulted WrappedFunction will occationally get feed tensors going to the wrong inputs
-    input_names = [ts.name for ts in original_inputs]
-
-    # outputs_map need to be a map from output argument name to symbolic tensor name
-    # in order to let the WrappedFunction's return dictionary have the correct keys
-    outputs_map = _get_name_map(func.outputs, func.structured_outputs)
-
     # wrap GraphDef as a WrappedFunction
-    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, outputs_map)
+    output_names = _get_output_names(func.outputs, func.structured_outputs)
+    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
+
+    # some hacks to ensure the new ConcreteFunction will have the same calling signature
+    cfunc.graph.structured_input_signature = func.graph.structured_input_signature
+    cfunc._set_function_spec(func._function_spec)
 
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
     cfunc_input_names = {argdef.name for argdef in cfunc.function_def.signature.input_arg}
-    _, structured_input_signature = func.structured_input_signature
-    input_name_set = {tss.name for tss in structured_input_signature.values()}
+    flat_input_signature = nest.flatten(func.structured_input_signature, expand_composites=True)
+    input_name_set = {tss.name for tss in flat_input_signature}
     if cfunc_input_names != input_name_set:
         try:
             cfunc._arg_keywords = func._arg_keywords
@@ -139,7 +137,13 @@ def trace(func, example_inputs, must_compile=False):
     return cfunc
 
 
-def _get_name_map(tensors, structured_signature):
-    tensor_specs = nest.flatten(structured_signature, expand_composites=True)
-    tensor_spec_name_map = {spec.name: name for name, spec in structured_signature.items()}
-    return {tensor_spec_name_map[spec.name]: ts.name for ts, spec in zip(tensors, tensor_specs)}
+def _get_output_names(tensors, structured_signature):
+    if isinstance(structured_signature, dict):
+        # return a map from output argument name to symbolic tensor name
+        # in order to let the WrappedFunction's return dictionary have the correct keys
+        tensor_specs = nest.flatten(structured_signature, expand_composites=True)
+        tensor_spec_name_map = {spec.name: name for name, spec in structured_signature.items()}
+        tensor_spec_names = [tensor_spec_name_map[spec.name] for spec in tensor_specs]
+        return {name: ts.name for ts, name in zip(tensors, tensor_spec_names)}
+    else:
+        return [ts.name for ts in tensors]

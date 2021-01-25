@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+import os
 import unittest
 from distutils.version import LooseVersion
 import tensorflow as tf
+from tensorflow.python.eager import function
 
 
 class TestV1Only(unittest.TestCase):
@@ -26,9 +27,20 @@ class TestV1Only(unittest.TestCase):
             raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
 
 
-class TestV2Only(unittest.TestCase):
+class TestV2Only(tf.test.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        super().setUpClass()
         if LooseVersion(tf.__version__) < LooseVersion('2.0.0'):
             raise unittest.SkipTest('tf v2 only tests is not supported under tf 1.x')
+
+    def setUp(self):
+        super().setUp()
+        tf.random.set_seed(15213)
+
+        def fake_call(*args, **kwargs):
+            raise unittest.SkipTest('skipping inference in compile-only mode')
+
+        if 'NEURON_TF_COMPILE_ONLY' in os.environ:
+            function.ConcreteFunction.__call__ = fake_call
