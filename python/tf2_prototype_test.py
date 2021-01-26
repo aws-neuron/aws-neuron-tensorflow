@@ -254,8 +254,7 @@ class TestFunctionalKeras(TestV2Only):
         run_inference(model_dir, [title_data, body_data, tags_data], feed_dict)
 
 class TestGraphUtil(TestV2Only):
-    #TypeError: 'NoneType' object is not iterable
-    @unittest.expectedFailure
+
     def test_multiple_io(self):
         input1 = tf.keras.Input(shape=[1, 2, 2, 3], name='input1')
         input2 = tf.keras.Input(shape=[1, 2, 2, 3], name='input2')
