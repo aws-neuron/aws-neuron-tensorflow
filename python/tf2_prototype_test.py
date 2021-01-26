@@ -92,14 +92,9 @@ class TestSequentialKeras(TestV2Only):
                 model_dir = './keras_flatten_dense_dropout'
 
                 test_input = tf.random.uniform((1, 28, 28))
-                compiled_model = tf2_compile(model, model_dir, example_inputs=[test_input])
-                run_inference(model, model_dir, test_input)
+                feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
+                run_inference(model_dir, [test_input], feed_dict)
 
-    @unittest.expectedFailure
-    #failing due to two exceptions (one caused during the handling of the TypeError
-    #TypeError: signature_wrapper(*, conv2d_7_input) missing required arguments: conv2d_7_input
-    #tensorflow.python.framework.errors_impl.DataLossError:  neuron-rtd load failure - broken stream
-	 #[[{{node StatefulPartitionedCall/neuron_op_1ddbab6cd5f7ef8e}}]] [Op:__inference_signature_wrapper_9873]
     def test_conv2d_conv2d_flatten_dense(self):
 
         param_list = list(product(inputNumUnits, activations, outputNumUnits, kernelSizes))
@@ -125,12 +120,13 @@ class TestSequentialKeras(TestV2Only):
                 model_dir = './keras_conv2d_conv2d_flatten_dense'
 
                 test_input = tf.random.uniform((1, 28, 28, 1))
-                compiled_model = tf2_compile(model, model_dir, example_inputs=[test_input])
-                run_inference(model, model_dir, test_input)
 
+                feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
+                run_inference(model_dir, [test_input], feed_dict)
 
-    @unittest.expectedFailure
     #tensorflow.python.framework.errors_impl.InvalidArgumentError: The graph couldn't be sorted in topological order.
+    #internal compiler error
+    @unittest.expectedFailure
     def test_lstm_lstm_dense_dense(self):
         param_list = list(product(inputNumUnits, activations, outputNumUnits))
         for inu, a, onu in param_list:
@@ -149,13 +145,10 @@ class TestSequentialKeras(TestV2Only):
                 model_dir = './keras_lstm_lstm_dense_dense'
 
                 test_input = tf.random.uniform((1, 28, 28))
-                compiled_model = tf2_compile(model, model_dir, example_inputs=[test_input])
-                run_inference(model, model_dir, test_input)
 
+                feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
+                run_inference(model_dir, [test_input], feed_dict)
 
-    @unittest.expectedFailure
-    #TypeError: 'NoneType' object is not iterable
-    #Note: Only fails on some inputs such as inputNumUnits=690 but succeeds on others
     def test_maxpool2d(self):
         # A simple test that is only parameterized by inputNumUnits
         # which in this case describes the size of the square input
@@ -180,8 +173,9 @@ class TestSequentialKeras(TestV2Only):
                 model_dir = './keras_maxpool2d'
 
                 test_input = tf.random.uniform((1, inu, inu, 1))
-                compiled_model = tf2_compile(model, model_dir, example_inputs=[test_input])
-                run_inference(model, model_dir, test_input)
+
+                feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
+                run_inference(model_dir, [test_input], feed_dict)
 
 class TestFunctionalKeras(TestV2Only):
     def test_toy_resnet(self):
@@ -207,12 +201,13 @@ class TestFunctionalKeras(TestV2Only):
         model = tf.keras.Model(inputs, outputs, name="toy_resnet")
         model_dir = './keras_toy_resnet'
 
-        test_input = np.random.random((1, 32, 32, 3))
+        test_input = tf.random.uniform((1, 32, 32, 3))
 
-        compiled_model = tf2_compile(model, model_dir, example_inputs=[test_input])
-        run_inference(model, model_dir, test_input)
+        feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
+        run_inference(model_dir, [test_input], feed_dict)
 
-    @unittest.skip("skipping since not implemented yet")
+    #TypeError: 'NoneType' object is not iterable
+    @unittest.expectedFailure
     def test_multiple_io(self):
         num_tags = 12  # Number of unique issue tags
         num_words = 10000  # Size of vocabulary obtained when preprocessing text data
@@ -248,8 +243,6 @@ class TestFunctionalKeras(TestV2Only):
 
         model_dir = './keras_multiple_io'
         shutil.rmtree(model_dir, ignore_errors=True)
-        tf.keras.models.save_model(model, model_dir)
-        model_ref = tf.saved_model.load(model_dir)
 
 
         # Dummy input data
@@ -257,24 +250,12 @@ class TestFunctionalKeras(TestV2Only):
         body_data = tf.random.uniform(shape=(1280,10) ,maxval=num_words, dtype=tf.int64)
         tags_data = tf.random.uniform(shape=(1280, num_tags) ,maxval=2)
 
-        inf_func_ref = model_ref.signatures['serving_default']
-
-        feed_dict = {
-            inf_func_ref.function_def.signature.input_arg[0].name: title_data,
-            inf_func_ref.function_def.signature.input_arg[1].name: body_data,
-            inf_func_ref.function_def.signature.input_arg[2].name: tags_data,
-        }
-
-        compile_out = tfn.saved_model.compile(model_dir, model_dir + '_neuron', model_feed_dict=feed_dict)
-        neuron_model = tf.keras.models.load_model(model_dir + '_neuron')
-        inf_func_neuron = neuron_model.signatures['serving_default']
-
-        normal_output = model([title_data, body_data, tags_data])
-        neuron_output = neuron_model([title_data, body_data, tags_data])
+        feed_dict = tf2_compile(model, model_dir, example_inputs=[title_data, body_data, tags_data])
+        run_inference(model_dir, [title_data, body_data, tags_data], feed_dict)
 
 class TestGraphUtil(TestV2Only):
-    @unittest.expectedFailure
     #TypeError: 'NoneType' object is not iterable
+    @unittest.expectedFailure
     def test_multiple_io(self):
         input1 = tf.keras.Input(shape=[1, 2, 2, 3], name='input1')
         input2 = tf.keras.Input(shape=[1, 2, 2, 3], name='input2')
@@ -293,12 +274,11 @@ class TestGraphUtil(TestV2Only):
 
         model_dir = './multiple_io'
 
-        compiled_model = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
-        run_inference(model1, model_dir, test_input)
+        feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
+        run_inference(model_dir, [test_input1, test_input2], feed_dict)
 
         model2 = tf.keras.models.Model(inputs=[input1, input2], outputs=[relu1, sigmoid1, relu2, added])
 
-    @unittest.skip("skipping since not implemented yet")
     def test_branch_merge(self):
         input1 = tf.keras.Input(shape=[1, 2, 2, 3], name='input1')
         conv2d1 = tf.keras.layers.Conv2D(filters=3, kernel_size=(1, 1), strides=1, padding='VALID', name='conv2d1')(input1)
@@ -307,7 +287,13 @@ class TestGraphUtil(TestV2Only):
         relu1 = tf.keras.layers.Activation('relu', name='relu1')(added)
         model1 = tf.keras.models.Model(inputs=input1, outputs=[relu1, added], name='model1')
 
-    @unittest.skip("skipping since not implemented yet")
+        test_input = tf.random.uniform([1, 2, 2, 3])
+        model_dir = './branch_merge'
+
+
+        feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input])
+        run_inference(model_dir, [test_input], feed_dict)
+
     def test_no_fuse(self):
         input1 = tf.keras.Input(shape=[1, 2, 2, 3], name='input1')
         conv2d1 = tf.keras.layers.Conv2D(filters=3, kernel_size=(1, 1), strides=1, padding='VALID', name='conv2d1')(input1)
@@ -324,8 +310,13 @@ class TestGraphUtil(TestV2Only):
         relu3 = tf.keras.layers.Activation('relu', name='relu3')(add6)
 
         model1 = tf.keras.models.Model(inputs=input1, outputs=[relu1, relu2, relu3], name='model1')
+        test_input = tf.random.uniform([1, 2, 2, 3])
+        model_dir = './no_fuse'
 
-    @unittest.skip("skipping since not implemented yet")
+        feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input])
+        run_inference(model_dir, [test_input], feed_dict)
+
+    @unittest.expectedFailure
     def test_no_inputs_simple(self):
         matrix1 = np.random.rand(16, 24)
         matrix2 = np.random.rand(8, 24)
@@ -343,7 +334,14 @@ class TestGraphUtil(TestV2Only):
 
         model1 = tf.keras.Model(inputs=[input1, input2], outputs=[relu1, exp1])
 
-    @unittest.skip("skipping since not implemented yet")
+        test_input1 = tf.random.uniform([16, 16])
+        test_input2 = tf.random.uniform([8, 8])
+
+        model_dir = './no_inputs_simple'
+
+        feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
+        run_inference(model_dir, [test_input1, test_input2], feed_dict)
+
     def test_inputs_short_long(self):
         input1 = tf.keras.Input(shape=[None, 3, 5], name='input1')
         input2 = tf.keras.Input(shape=[None, 3, 5], name='input2')
@@ -354,7 +352,15 @@ class TestGraphUtil(TestV2Only):
         exp1 = tf.keras.layers.Activation('exponential', name='exp1')(add1)
         sig1 = tf.keras.layers.Activation('sigmoid', name='sig1')(add1)
 
-    @unittest.skip("skipping since not implemented yet")
+        model1 = tf.keras.Model(inputs=[input1, input2], outputs=[sig1, relu3])
+        model_dir = './inputs_short_long'
+
+        test_input1 = tf.random.uniform([1,3,5])
+        test_input2 = tf.random.uniform([1,3,5])
+
+        feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
+        run_inference(model_dir, [test_input1, test_input2], feed_dict)
+
     def test_short_long_mid(self):
         input1 = tf.keras.Input(shape=[None, 3, 5], name='input1')
         input2 = tf.keras.Input(shape=[1, 3, 5], name='input2')
@@ -369,25 +375,55 @@ class TestGraphUtil(TestV2Only):
         exp1 = tf.keras.layers.Activation('exponential', name='exp1')(add1)
         sig1 = tf.keras.layers.Activation('sigmoid', name='sig1')(add1)
 
+        model1 = tf.keras.Model(inputs=[input1, input2, input3, input4], outputs=[sig1, relu3, identity4])
+        model_dir = './inputs_short_long_mid'
+
+        test_input1 = tf.random.uniform([2,3,5])
+        test_input2 = tf.random.uniform([1,3,5])
+        test_input3 = tf.random.uniform([2,3,5])
+        test_input4 = tf.random.uniform([2,3,5])
+
+        feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2, test_input3, test_input4])
+        run_inference(model_dir, [test_input1, test_input2, test_input3, test_input4], feed_dict)
+
 def tf2_compile(model, model_dir, example_inputs=None):
     shutil.rmtree(model_dir, ignore_errors=True)
     tf.keras.models.save_model(model, model_dir)
+    model_feed_dict={} 
     if example_inputs is not None:
         loaded_model = tf.saved_model.load(model_dir)
         func = loaded_model.signatures['serving_default']
-        captured_inputs = {ts.ref() for _, ts in func.graph.captures}
-        func_inputs = [ts for ts in func.inputs if ts.ref() not in captured_inputs]
-        model_feed_dict = {ts.op.name: inp for ts, inp in zip(func_inputs, example_inputs)}
-    return tfn.saved_model.compile(model_dir, model_dir + '_neuron', model_feed_dict=model_feed_dict)
+        for i in range(len(example_inputs)):
+            model_feed_dict[func.function_def.signature.input_arg[i].name] = example_inputs[i]
+        
 
-def run_inference(model, neuron_model_dir, test_input):
+    result_compile = tfn.saved_model.compile(model_dir, model_dir + '_neuron', model_feed_dict=model_feed_dict)
+    assert result_compile['OnNeuronRatio'] > 0.05
+    return model_feed_dict
+
+def run_inference(model_dir, test_input, model_feed_dict):
     #actually make it the neuron_model_dir
-    neuron_model_dir = neuron_model_dir + '_neuron'
+    neuron_model_dir = model_dir + '_neuron'
 
     neuron_model = tf.keras.models.load_model(neuron_model_dir)
-    inf_func = neuron_model.signatures['serving_default']
-    neuron_output = inf_func(tf.constant(test_input, dtype=tf.float32))[model.output_names[0]]
-    normal_output = model(test_input)
-    np.testing.assert_allclose(normal_output, neuron_output,rtol=.01, atol=1e-2)
+    model = tf.keras.models.load_model(model_dir)
+
+    inf_func_neuron = neuron_model.signatures['serving_default']
+    inf_func_cpu = model.signatures['serving_default']
+
+    try:
+        normal_output = model(test_input)
+        neuron_output = neuron_model(test_input)
+        np.testing.assert_allclose(normal_output, neuron_output,rtol=.01, atol=1e-2)
+        print("normal compare success", model_dir)
+    except ValueError:
+        print("normal compare fail", model_dir)
+    
+    result_keyword_ref = inf_func_neuron(**model_feed_dict)
+    result_keyword_neuron = inf_func_cpu(**model_feed_dict)
+
+    for output_key in result_keyword_ref:
+        np.testing.assert_allclose(result_keyword_neuron[output_key], result_keyword_ref[output_key], rtol=1e-2, atol=1e-2)
+    print("model.signature['serving_default'] compare success", model_dir)
 
 
