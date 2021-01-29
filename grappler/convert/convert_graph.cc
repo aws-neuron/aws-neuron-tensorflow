@@ -485,7 +485,6 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
 
   TF_RETURN_IF_ERROR(ConvertSubGraphToNeuronNodeDef(sg_params));
 
-  tensorflow::Status status;
   neuron_node_def = sg_params.neuron_node->def();
   neuron_node = sg_params.neuron_node;
 
@@ -503,20 +502,24 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
     VLOG(2) << edge->src()->name() << " port: " << edge->src_output();
   }
 
-  TF_RETURN_IF_ERROR(status);
-
   // Re-map outgoing edges to use the new Neuron node instead of the orig subgraph
-  std::map<std::pair<int, int>, int> subgraph_edge_to_output_map;
-  for (size_t i = 0; i < params->subgraph_outputs.size(); ++i) {
-    subgraph_edge_to_output_map.insert({params->subgraph_outputs.at(i), i});
-  }
-  TF_RETURN_IF_ERROR(status);
   for (const tensorflow::Edge *edge : params->subgraph_outgoing_edges) {
     if (edge->IsControlEdge()) {
       params->graph->AddControlEdge(neuron_node, edge->dst());
     } else {
-      std::pair<int, int> old_src = {edge->src()->id(), edge->src_output()};
-      int new_src_output = subgraph_edge_to_output_map.at(old_src);
+      std::string old_src_name = edge->src()->name() + ":" + std::to_string(edge->src_output());
+      VLOG(1) << "Old src: " << old_src_name;
+      auto &output_names = neuron_node_def.attr().at("output_names").list().s();
+      auto iter = std::find(output_names.begin(), output_names.end(), old_src_name);
+      int new_src_output = 0;
+      if (iter == output_names.end()) {
+        return errors::Internal(
+          "Old src name ", old_src_name, " not found among outputs of ", neuron_node->name());
+      } else {
+        new_src_output = std::distance(output_names.begin(), iter);
+      }
+      VLOG(1) << "Updating " << neuron_node->name() << ":" << new_src_output
+              << " --> " << edge->dst()->name();
       TF_RETURN_IF_ERROR(params->graph->UpdateEdge(
           neuron_node, new_src_output, edge->dst(), edge->dst_input()));
     }
