@@ -390,7 +390,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
           << hasher(hash_string) << "Hex Rep" << hex_string;
 
   neuron_op_name = "neuron_op_" + hex_string;
-  sg_params.neuron_op_index_to_name_map->insert({hex_string, sg_params.neuron_op_index});
+  VLOG(1) << "Hashed neuron_op_name: " << neuron_op_name;
 
   Node *neuron_node;
   TF_CHECK_OK(NodeBuilder(neuron_op_name, "NeuronOp")
@@ -481,8 +481,7 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
   SubGraphParams sg_params(*params->graph, *params->subgraph_node_ids,
                            *params->output_names, params->subgraph_outputs,
                            params->subgraph_incoming_edges, neuron_node,
-                           params->neuron_op_count,
-                           params->neuron_op_index_to_name_map);
+                           params->neuron_op_count);
 
   TF_RETURN_IF_ERROR(ConvertSubGraphToNeuronNodeDef(sg_params));
 
@@ -550,8 +549,7 @@ static tensorflow::Status ExcludeInputNodes(
 static tensorflow::Status ProcessSegments(
     tensorflow::Graph &graph, const std::vector<string> &output_names,
     std::unordered_map<string, tensorflow::Node*> &node_map,
-    tensorflow::tensorrt::segment::SegmentNodesVector &segments,
-    std::unordered_map<string, int> *neuron_op_index_to_name_map) {
+    tensorflow::tensorrt::segment::SegmentNodesVector &segments) {
   tensorflow::Status status = tensorflow::Status::OK();
   int neuron_op_index = 0;
 
@@ -572,8 +570,7 @@ static tensorflow::Status ProcessSegments(
     VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
     VLOG(2) << "Subgraph nodes" << oss.str();
 
-    ConvertGraphParams params(graph, output_names, subgraph_node_ids,
-                              neuron_op_index++, neuron_op_index_to_name_map);
+    ConvertGraphParams params(graph, output_names, subgraph_node_ids, neuron_op_index++);
     tensorflow::Status status = ConvertSubGraphToNeuron(&params);
     if (status != tensorflow::Status::OK()) {
       LOG(WARNING) << "subgraph conversion error for subgraph_index:"
@@ -588,8 +585,7 @@ static tensorflow::Status ProcessSegments(
 
 void PreProcessSegmentsForResources(
     tensorflow::Graph &graph,
-    tensorflow::tensorrt::segment::SegmentNodesVector &normal_segments,
-    std::unordered_map<string, int> *neuron_op_index_to_name_map) {
+    tensorflow::tensorrt::segment::SegmentNodesVector &normal_segments) {
   /*
   For each segment:
     1. If a resouce is input or output of segment, add segment to remove list.
@@ -762,8 +758,6 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   segment_options.minimum_segment_size = minimum_segment_size;
 
-  std::unordered_map<std::string, int> neuron_op_index_to_name_map;
-
   // Setup exclude_node_list
   for (int i = 0; i < graph.num_node_ids(); ++i) {
     tensorflow::Node* node = graph.FindNodeId(i);
@@ -802,9 +796,8 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
   }
 
   if (normal_segments.size()) {
-    PreProcessSegmentsForResources(graph, normal_segments, &neuron_op_index_to_name_map);
-    TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map,
-                                       normal_segments, &neuron_op_index_to_name_map));
+    PreProcessSegmentsForResources(graph, normal_segments);
+    TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map, normal_segments));
   }
 
   graph.ToGraphDef(new_graph_def);
