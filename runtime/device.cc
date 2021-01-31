@@ -442,8 +442,10 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
     tensorflow::mutex_lock lock(mutex_eg_);
     TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (profile->enabled_) profile->start_session(nrtd_address_, nn_id);
+    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
     Status status_post = runtime_.infer_post(runtime_io);
     Status status_wait = runtime_.infer_wait(runtime_io);
+    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
     if (profile->enabled_) profile->stop_session();
     TF_RETURN_IF_ERROR(status_post);
     return status_wait;
