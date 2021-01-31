@@ -85,11 +85,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     fuser_param_map = fuser_config.parameter_map
-    # dynamically determine minimum_segment_size from graph size
-    fuser_param_map['minimum_segment_size'].i = len(graph_def.node) // 10
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
     if subgraph_builder_function is None:
         fuser_param_map['fuse_foldable_nodes'].b = True
+        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.9
         try:
             import hlo2neuron
         except ImportError:

@@ -24,6 +24,7 @@ namespace neuron {
 
 constexpr char key_minimum_segment_size[] = "minimum_segment_size";
 constexpr char key_fuse_foldable_nodes[] = "fuse_foldable_nodes";
+constexpr char key_prune_small_subgraphs_ratio[] = "prune_small_subgraphs_ratio";
 constexpr char key_supported_op_types[] = "supported_op_types";
 constexpr char key_no_fuse_ops[] = "no_fuse_ops";
 constexpr char key_force_fuse_ops[] = "force_fuse_ops";
@@ -44,6 +45,9 @@ Status FuseSupportedOperators::Init(const tensorflow::RewriterConfig_CustomGraph
     }
     if (parameter_map.count(key_fuse_foldable_nodes)) {
         fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
+    }
+    if (parameter_map.count(key_prune_small_subgraphs_ratio)) {
+        prune_small_subgraphs_ratio_ = parameter_map.at(key_prune_small_subgraphs_ratio).f();
     }
     if (!parameter_map.count(key_supported_op_types)) {
         return errors::InvalidArgument(
@@ -78,7 +82,8 @@ Status FuseSupportedOperators::Optimize(Cluster *cluster, const GrapplerItem &it
     VLOG(2) << "output_op_names " << container_debug_string(item.fetch);
     TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
         output, item.graph, input_op_names, item.fetch, fuse_foldable_nodes_,
-        minimum_segment_size_, supported_op_types_, no_fuse_ops_, force_fuse_ops_));
+        minimum_segment_size_, prune_small_subgraphs_ratio_,
+        supported_op_types_, no_fuse_ops_, force_fuse_ops_));
     return Status::OK();
 }
 

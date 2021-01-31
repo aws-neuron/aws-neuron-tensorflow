@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from unittest.mock import patch
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
@@ -144,6 +145,27 @@ class TestTraceFunction(TestV2Only):
         result_func_ref = func_ref(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
+
+    def test_prune_subgraphs(self):
+
+        def func(tensor):
+            for _ in range(100):
+                tensor = tf.nn.relu(tensor)
+            tensor = tf.nn.tanh(tensor)
+            tensor = tf.nn.relu(tensor)
+            tensor = tf.nn.relu(tensor)
+            return tf.nn.relu(tensor)
+
+        def fake_list_operators():
+            return {'Relu'}
+
+        input_tensor = tf.random.uniform([1, 1])
+        with patch('tensorflow.neuron._trace.list_operators', fake_list_operators):
+            func_neuron = tfn.trace(func, input_tensor)
+        compiled_func = func_neuron.aws_neuron_function.python_function
+        op_list = compiled_func.graph.get_operations()
+        assert len(op_list) == 7
+        assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'
 
 
 def _assert_compiler_success_func(wfunc):

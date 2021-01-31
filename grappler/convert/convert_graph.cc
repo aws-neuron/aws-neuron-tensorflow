@@ -714,6 +714,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
                             const std::vector<std::string> &output_op_names,
                             const bool fuse_foldable_nodes,
                             const int minimum_segment_size,
+                            const double prune_small_subgraphs_ratio,
                             const std::set<std::string> &supported_op_types,
                             const std::set<std::string> &no_fuse_ops,
                             const std::set<std::string> &force_fuse_ops) {
@@ -785,7 +786,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
     }
   }
 
-  tensorflow::tensorrt::segment::SegmentNodesVector normal_segments;
+  tensorflow::tensorrt::segment::SegmentNodesVector segments;
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
     &graph,
@@ -793,14 +794,34 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
     [](const Edge* edge) { return true; },
     OutputEdgeValidator(),
     segment_options,
-    &normal_segments));
-  if (normal_segments.size() > 1) {
-    VLOG(1) << "MULTIPLE Neuron candidate conversion: " << normal_segments.size();
+    &segments));
+  if (segments.size() > 1) {
+    VLOG(1) << "MULTIPLE Neuron candidate conversion: " << segments.size();
+    if (prune_small_subgraphs_ratio < 0.0 || prune_small_subgraphs_ratio > 1.0) {
+      return errors::Internal("Found invalid prune_small_subgraphs_ratio ",
+                              prune_small_subgraphs_ratio);
+    }
+    if (prune_small_subgraphs_ratio > 0.0) {
+      size_t size_all_segments = 0;
+      for (const auto& seg : segments) {
+        size_all_segments += seg.size();
+      }
+      VLOG(1) << "Total size of all segments: " << size_all_segments;
+      auto comp = [](const std::set<const Node*>& lhs, const std::set<const Node*>& rhs) {
+        return lhs.size() < rhs.size();
+      };
+      auto max_segment = *std::max_element(segments.begin(), segments.end(), comp);
+      if (((double)max_segment.size() / (double)size_all_segments) > prune_small_subgraphs_ratio) {
+        VLOG(1) << "Only keep maximum segment with size " << max_segment.size();
+        segments.clear();
+        segments.push_back(max_segment);
+      }
+    }
   }
 
-  if (normal_segments.size()) {
-    PreProcessSegmentsForResources(graph, normal_segments);
-    TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map, normal_segments));
+  if (segments.size()) {
+    PreProcessSegmentsForResources(graph, segments);
+    TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map, segments));
   }
 
   graph.ToGraphDef(new_graph_def);
