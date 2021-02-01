@@ -322,7 +322,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 &scoped_io, input_names, input_tensor_sizes, sliced_inputs,
                 output_names, output_tensor_sizes, output_tensors, nn_id_, thread_pool));
             TF_RETURN_IF_ERROR(neuron_device_->infer_with_profiling(
-                &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
+                &scoped_io.runtime_io_, nullptr, &profile_));
             RIE_IGNORE_ABORTED(scoped_io.finish());
         }
 
@@ -485,12 +485,10 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         if (profile_.enabled_) {
             VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
             RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(
-                &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
+                &scoped_io.runtime_io_, &timestamps, &profile_));
         } else {
-            SemResQueue sem_res_queue;
-            RIE_IGNORE_ABORTED(neuron_device_->infer_post(
-                &scoped_io.runtime_io_, &sem_res_queue, infer_sem_, &timestamps, nn_id_));
-            TF_RETURN_IF_ERROR(neuron_device_->infer_wait(&scoped_io.runtime_io_, &timestamps));
+            RIE_IGNORE_ABORTED(neuron_device_->infer(
+                &scoped_io.runtime_io_, infer_sem_, &timestamps));
         }
         RIE_IGNORE_ABORTED(scoped_io.finish());
     }

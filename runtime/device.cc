@@ -438,7 +438,8 @@ Status NeuronDevice::wait_infer(RuntimeIO *runtime_io) {
 }
 
 Status NeuronDevice::infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
-                           Timestamps *timestamps, const uint32_t nn_id) {
+                           Timestamps *timestamps) {
+    uint32_t nn_id = runtime_io->get_nn_id();
     SemResQueue sem_res_queue;
     {
         tensorflow::mutex_lock lock(mutex_eg_);
@@ -446,7 +447,7 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore
         TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
         if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
         uint32_t active_nn_id = NRT_INVALID_NN_ID;
-        TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
+        TF_RETURN_IF_ERROR(get_active(&active_nn_id, nn_id));
         runtime_io->set_nn_id(active_nn_id);
         TF_RETURN_IF_ERROR(runtime_.infer_post(runtime_io));
     }
@@ -456,7 +457,8 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore
 }
 
 Status NeuronDevice::infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
-                                          ProfilerInterface *profile, const uint32_t nn_id) {
+                                          ProfilerInterface *profile) {
+    uint32_t nn_id = runtime_io->get_nn_id();
     tensorflow::mutex_lock lock(mutex_eg_);
     TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (profile->enabled_) profile->start_session(nrtd_address_, nn_id);
@@ -470,13 +472,12 @@ Status NeuronDevice::infer_with_profiling(RuntimeIO *runtime_io, Timestamps *tim
 }
 
 Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                                std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
-                                const uint32_t nn_id) {
+                                std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps) {
     tensorflow::mutex_lock lock(mutex_eg_);
     if (TF_PREDICT_TRUE(infer_sem)) {
         sem_res_queue->push(infer_sem->ScopedAcquire(1));
     }
-    return infer_post_unsafe(runtime_io, timestamps, nn_id);
+    return infer_post_unsafe(runtime_io, timestamps);
 }
 
 void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
@@ -506,12 +507,12 @@ Status NeuronDevice::release_sem(SemResQueue *sem_res_queue) {
     return Status::OK();
 }
 
-Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
-                                       const uint32_t nn_id) {
+Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps) {
+    uint32_t nn_id = runtime_io->get_nn_id();
     TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
     uint32_t active_nn_id = NRT_INVALID_NN_ID;
-    TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
+    TF_RETURN_IF_ERROR(get_active(&active_nn_id, nn_id));
     runtime_io->set_nn_id(active_nn_id);
     return runtime_.infer_post(runtime_io);
 }

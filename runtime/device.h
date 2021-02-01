@@ -58,19 +58,17 @@ public:
     Status post_infer(RuntimeIO *runtime_io);
     Status wait_infer(RuntimeIO *runtime_io);
     Status infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
-                 Timestamps *timestamps, const uint32_t nn_id);
+                 Timestamps *timestamps);
     Status infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
-                                ProfilerInterface *profile, const uint32_t nn_id);
+                                ProfilerInterface *profile);
     Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                      std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
-                      const uint32_t nn_id);
+                      std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps);
     Status infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps);
     void unload(const uint32_t nn_id);
     void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
     Status acquire_sem(SemResQueue *sem_res_queue, std::shared_ptr<xla::Semaphore> infer_sem);
     Status release_sem(SemResQueue *sem_res_queue);
-    Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
-                             const uint32_t nn_id);
+    Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps);
     void clear(bool from_global_state=false);
     size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
     uint32_t num_cores() { return num_cores_; };
