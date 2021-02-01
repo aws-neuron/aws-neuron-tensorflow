@@ -57,8 +57,10 @@ public:
     Status setup_infer(RuntimeIO *runtime_io, int64_t post_tag);
     Status post_infer(RuntimeIO *runtime_io);
     Status wait_infer(RuntimeIO *runtime_io);
-    Status infer(RuntimeIO *runtime_io, Timestamps *timestamps,
-                 ProfilerInterface *profile, const uint32_t nn_id);
+    Status infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
+                 Timestamps *timestamps, const uint32_t nn_id);
+    Status infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
+                                ProfilerInterface *profile, const uint32_t nn_id);
     Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
                       std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
                       const uint32_t nn_id);
