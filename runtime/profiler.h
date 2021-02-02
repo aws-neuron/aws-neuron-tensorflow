@@ -16,11 +16,14 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_PROFILER_H_
 #define TENSORFLOW_NEURON_RUNTIME_PROFILER_H_
 
+#include "macros.h"
+
 namespace tensorflow {
 namespace neuron {
 
 class ProfilerInterface {
 public:
+    ProfilerInterface() {}
     void initialize(const std::string &profile_dir, const std::string &op_name);
     void dump_info(const std::string &graph_def, const std::string &executable);
     void start_session(const std::string &nrtd_address, const uint32_t nn_id);
@@ -31,6 +34,7 @@ private:
     std::string mangled_op_name_ = "";
     std::string profile_dir_ = "";
     std::string session_filename_ = "";
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(ProfilerInterface);
 };
 \
 }  // namespace neuron

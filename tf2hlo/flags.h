@@ -1,4 +1,4 @@
-/* Copyright Amazon Web Services and its Affiliates. All Rights Reserved.
+/* Copyright 2017 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -13,20 +13,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_TENSOR_UTIL_H_
-#define TENSORFLOW_NEURON_RUNTIME_TENSOR_UTIL_H_
+#ifndef TENSORFLOW_COMPILER_AOT_FLAGS_H_
+#define TENSORFLOW_COMPILER_AOT_FLAGS_H_
 
-#include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/lib/core/threadpool.h"
+#include <string>
+#include <vector>
+
+#include "tensorflow/core/util/command_line_flags.h"
 
 namespace tensorflow {
-namespace neuron {
+namespace tfcompile {
 
-void fast_memcpy(thread::ThreadPool *thread_pool, char *char_dst, const char *char_src, int64 total_size);
-Status tensor_memcpy(thread::ThreadPool *thread_pool, Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
-Status tensor_memset(Tensor *tensor, int ch);
+// Flags for the tfcompile binary.  See *.cc file for descriptions.
 
-}  // namespace neuron
+struct MainFlags {
+  string graph;
+  string config;
+  string out_session_module;
+};
+
+// Appends to flag_list a tensorflow::Flag for each field in MainFlags.
+void AppendMainFlags(std::vector<Flag>* flag_list, MainFlags* flags);
+
+}  // namespace tfcompile
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_RUNTIME_TENSOR_UTIL_H_
+#endif  // TENSORFLOW_COMPILER_AOT_FLAGS_H_

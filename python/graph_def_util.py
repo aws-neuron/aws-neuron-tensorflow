@@ -12,12 +12,16 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 import math
 import reprlib
+from collections import namedtuple
 from tensorflow.core.framework import graph_pb2
 from tensorflow.python.framework import dtypes
+from tensorflow.python.framework.ops import convert_to_tensor
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.neuron.python.neuron_cc import compile_savetemps
 from tensorflow.neuron.python import neff_util
 
 
@@ -169,6 +173,103 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
     return graph_def
 
 
+def convert_shape_to_constant(graph_def):
+    name_to_node = {node.name: node for node in graph_def.node}
+    for node in graph_def.node:
+        if node.op == 'Shape':
+            input_name = node.input[0]
+            if ':' in input_name:
+                input_node_name, index = input_name.split(':')
+                index = int(index)
+            else:
+                input_node_name = input_name
+                index = 0
+            input_node = name_to_node[input_node_name]
+            shape_proto = input_node.attr[kNeuronInferredShapes].list.shape[index]
+            shape = TensorShape(shape_proto)
+            if shape.is_fully_defined():
+                node.op = 'Const'
+                node.input[:] = []
+                dtype_enum = node.attr['out_type'].type
+                node.attr['dtype'].type = dtype_enum
+                node.attr.pop('T')
+                node.attr.pop('out_type')
+                dtype = dtypes.as_dtype(dtype_enum)
+                shape_tensor = convert_to_tensor(shape.as_list(), dtype)
+                tensor_proto = node.attr['value'].tensor
+                tensor_proto.dtype = dtype_enum
+                tensor_proto.tensor_shape.CopyFrom(shape_tensor.shape.as_proto())
+                tensor_proto.tensor_content = shape_tensor.numpy().tobytes()
+    return graph_def
+
+
+def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
+    for node in get_neuron_nodes(graph_def):
+        subgraph_def = get_subgraph_def(node)
+        subgraph_def = graph_def_pass(subgraph_def)
+        node.attr[knGraphDef].s = subgraph_def.SerializeToString()
+    return graph_def
+
+
+def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None, must_compile=False):
+    IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
+    for node in get_neuron_nodes(graph_def):
+        is_compilable, reason = neuron_node_is_compilable(node)
+        if not is_compilable:
+            logging.warning('Not fusing subgraph {} because {}'.format(node.name, reason))
+            continue
+
+        # get graph_def and io tensors
+        subgraph_def = get_subgraph_def(node)
+        inputs = []
+        outputs = []
+        zip_inputs = zip(node.attr[knInputNames].list.s,
+                         node.attr[knInputDtypes].list.type,
+                         node.attr[knInputShapes].list.shape)
+        zip_outputs = zip(node.attr[knOutputNames].list.s,
+                          node.attr[knOutputDtypes].list.type,
+                          node.attr[knOutputShapes].list.shape)
+        for container, tensors in zip([inputs, outputs], [zip_inputs, zip_outputs]):
+            for name, dtype_enum, shape in tensors:
+                name = name.decode()
+                dtype = dtypes.as_dtype(dtype_enum)
+                tensor = IOTensor(name, dtype, shape)
+                container.append(tensor)
+
+        # remove attributes that are not recognized by neuron-cc
+        for sg_node in subgraph_def.node:
+            sg_node.attr.pop(kNeuronInferredShapes)
+
+        # setup workdir and run neuron-cc
+        subgraph_workdir = None if workdir is None else os.path.join(workdir, node.name)
+        executable, input_names, output_names = compile_savetemps(
+            subgraph_def, inputs, outputs, workdir=subgraph_workdir, compiler_args=compiler_args)
+        if executable:
+            node.attr[knExecutable].s = executable
+            node.attr[knInputNames].list.s[:] = [name.encode() for name in input_names]
+            node.attr[knOutputNames].list.s[:] = [name.encode() for name in output_names]
+        elif must_compile:
+            raise ValueError('Compilation failure on operator {}'.format(node.name))
+    return graph_def
+
+
+def neuron_node_is_compilable(node):
+    reasons = []
+    # skip compiling this subgraph for the following reasons
+    if len(node.attr[knInputNames].list.s) == 0:
+        reasons.append('it does not have inputs')
+    if len(node.attr[knOutputNames].list.s) == 0:
+        reasons.append('it does not have outputs')
+    if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knInputShapes].list.shape):
+        reasons.append('input shapes are not fully defined')
+    if any(not TensorShape(shape).is_fully_defined() for shape in node.attr[knOutputShapes].list.shape):
+        reasons.append('output shapes are not fully defined')
+    if reasons:
+        return False, ' and '.join(reasons)
+    else:
+        return True, None
+
+
 def restore_compiler_failures(compiled_graph_def, original_graph_def):
     """Restore `NeuronOp`'s that failed to compile
     """
@@ -220,15 +321,6 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     return graph_def
 
 
-def erase_constants_from_compiled_subgraphs(compiled_graph_def):
-    for node in get_neuron_nodes(compiled_graph_def):
-        if node.attr[knExecutable].s:
-            subgraph_def = get_subgraph_def(node)
-            erase_constants(subgraph_def)
-            node.attr[knGraphDef].s = subgraph_def.SerializeToString()
-    return compiled_graph_def
-
-
 def set_execution_plan(compiled_graph_def):
     # scan to get num neuroncores and total number of bytes of input and output tensors
     default_io_buffer_size = 128 * 1024 * 1024
@@ -247,9 +339,9 @@ def set_execution_plan(compiled_graph_def):
     for node in neuron_nodes:
         model_io_bytes = 0
         for enum, shape in zip(node.attr[knInputDtypes].list.type, node.attr[knInputShapes].list.shape):
-            model_io_bytes += dtypes._INTERN_TABLE[enum].size * _prod([dim.size for dim in shape.dim])
+            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
         for enum, shape in zip(node.attr[knOutputDtypes].list.type, node.attr[knOutputShapes].list.shape):
-            model_io_bytes += dtypes._INTERN_TABLE[enum].size * _prod([dim.size for dim in shape.dim])
+            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
         if node.name not in num_cores_tuple_map:
             total_io_bytes = 0
             break
@@ -291,11 +383,11 @@ def get_subgraph_def(node, volatile=False):
     graph_def = graph_pb2.GraphDef()
     graph_def.ParseFromString(node.attr[knGraphDef].s)
     if volatile:
-        erase_constants(graph_def)
+        erase_large_constants(graph_def)
     return graph_def
 
 
-def erase_constants(graph_def):
+def erase_large_constants(graph_def):
     # Destroys the input graph_def! Please don't call it on a graph_def that you'll use later
     large_const_threshold = 1024
     for node in graph_def.node:
@@ -313,6 +405,7 @@ def erase_constants(graph_def):
             tensor.string_val[:] = []
             tensor.uint32_val[:] = []
             tensor.uint64_val[:] = []
+    return graph_def
 
 
 def format_tensor_name(tensor_name):
@@ -328,6 +421,17 @@ def get_node_with_control_inputs(graph_def):
     return node_with_control_inputs
 
 
+def compiled_graph_op_counts(graph_def):
+    neuron_nodes = [node for node in graph_def.node if node.op == tNeuronOp]
+    num_ops_on_neuron = 0
+    for node in neuron_nodes:
+        if node.attr['executable'].s:
+            subgraph_def = get_subgraph_def(node)
+            num_ops_on_neuron += len(subgraph_def.node) - len(node.attr['input_names'].list.s)
+    num_ops_tfn = len(graph_def.node) + num_ops_on_neuron - len(neuron_nodes)
+    return max(num_ops_tfn, 0), max(num_ops_on_neuron, 0)
+
+
 def _graph_def_op_index(graph_def_tensor_name):
     comma_split = graph_def_tensor_name.split(':')
     if ':' in graph_def_tensor_name:
@@ -336,10 +440,3 @@ def _graph_def_op_index(graph_def_tensor_name):
     else:
         op_name, value_index = comma_split[0], 0
     return op_name, value_index
-
-
-def _prod(num_list):
-    result = 1
-    for num in num_list:
-        result *= num
-    return result

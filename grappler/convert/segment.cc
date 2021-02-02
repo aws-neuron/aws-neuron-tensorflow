@@ -29,9 +29,6 @@ limitations under the License.
 #include "tensorflow/core/lib/strings/strcat.h"
 #include "tensorflow/core/platform/types.h"
 
-#if GOOGLE_CUDA
-#if GOOGLE_TENSORRT
-
 namespace tensorflow {
 namespace tensorrt {
 namespace segment {
@@ -724,6 +721,3 @@ Status SegmentGraph(const Graph* tf_graph,
 }  // namespace segment
 }  // namespace tensorrt
 }  // namespace tensorflow
-
-#endif  // GOOGLE_TENSORRT
-#endif  // GOOGLE_CUDA

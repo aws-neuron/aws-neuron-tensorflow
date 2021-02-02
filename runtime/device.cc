@@ -16,20 +16,21 @@ limitations under the License.
 #ifdef NEURONTFSERV
 #include <csignal>
 #endif  // NEURONTFSERV
-#include "./macros.h"
-#include "./device.h"
+#include "macros.h"
+#include "env.h"
+#include "device.h"
 
 
 namespace tensorflow {
 namespace neuron {
 
 
-NeuronDeviceManager global_neuron_device_manager;
+static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 
 
 #ifdef NEURONTFSERV
 void sigint_handler(int sig) {
-    global_neuron_device_manager.clear_from_global_state();
+    NeuronDeviceManager::GetNeuronDeviceManager().clear_from_global_state();
     std::signal(SIGINT, SIG_DFL);
     std::signal(SIGTERM, SIG_DFL);
     std::raise(sig);
@@ -219,6 +220,11 @@ void NeuronDeviceManager::clear_from_global_state() {
 }
 
 
+NeuronDeviceManager &NeuronDeviceManager::GetNeuronDeviceManager() {
+    static NeuronDeviceManager mgr;
+    return mgr;
+}
+
 Status NeuronDeviceManager::apply_for_device(NeuronDevice **device,
                                              const std::string &session_handle,
                                              const int64_t opt_device_size,
@@ -381,6 +387,24 @@ void NeuronDevice::unload(const uint32_t nn_id) {
     VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
+Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
+                                             AttrList &input_names,
+                                             const std::vector<size_t> &input_tensor_sizes,
+                                             const std::vector<const Tensor*> &input_tensors,
+                                             AttrList &output_names,
+                                             const std::vector<size_t> &output_tensor_sizes,
+                                             const std::vector<Tensor*> &output_tensors,
+                                             const uint32_t nn_id,
+                                             thread::ThreadPool *thread_pool) {
+    if (nullptr == scoped_io) {
+        return errors::Internal("bad ScopedRuntimeIO pointer");
+    }
+    return scoped_io->setup(
+        input_names, input_tensor_sizes, input_tensors,
+        output_names, output_tensor_sizes, output_tensors,
+        nn_id, thread_pool, shm_buf_mgr_);
+}
+
 Status NeuronDevice::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {
     uint32_t active_nn_id = NRT_INVALID_NN_ID;
     TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
@@ -393,6 +417,7 @@ Status NeuronDevice::post_infer_post(RuntimeIO *runtime_io) {
 }
 
 Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
+    last_infer_timestamp_ = Env::Default()->NowMicros();
     return runtime_.wait_infer_post(runtime_io);
 }
 
@@ -408,6 +433,7 @@ Status NeuronDevice::post_infer(RuntimeIO *runtime_io) {
 }
 
 Status NeuronDevice::wait_infer(RuntimeIO *runtime_io) {
+    last_infer_timestamp_ = Env::Default()->NowMicros();
     return runtime_.wait_infer(runtime_io);
 }
 
@@ -424,15 +450,40 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps,
 }
 
 Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                                xla::Semaphore *infer_sem, Timestamps *timestamps,
+                                std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
                                 const uint32_t nn_id) {
     tensorflow::mutex_lock lock(mutex_eg_);
-    sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    if (TF_PREDICT_TRUE(infer_sem)) {
+        sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    }
     return infer_post_unsafe(runtime_io, timestamps, nn_id);
 }
 
 void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
     mutex_lock_queue->emplace(mutex_eg_);
+}
+
+Status NeuronDevice::acquire_sem(SemResQueue *sem_res_queue,
+                                 std::shared_ptr<xla::Semaphore> infer_sem) {
+    if (TF_PREDICT_FALSE(nullptr == sem_res_queue)) {
+        return errors::Internal("Invalid SemResQueue in acquire_sem");
+    }
+    if (TF_PREDICT_FALSE(!infer_sem)) {
+        return errors::Internal("Invalid xla::Semaphore");
+    }
+    sem_res_queue->push(infer_sem->ScopedAcquire(1));
+    return Status::OK();
+}
+
+Status NeuronDevice::release_sem(SemResQueue *sem_res_queue) {
+    if (TF_PREDICT_FALSE(nullptr == sem_res_queue)) {
+        return errors::Internal("Invalid SemResQueue in release_sem");
+    }
+    if (TF_PREDICT_FALSE(sem_res_queue->empty())) {
+        return errors::Internal("Empty SemResQueue in release_sem");
+    }
+    sem_res_queue->pop();
+    return Status::OK();
 }
 
 Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
@@ -490,7 +541,11 @@ Status NeuronDevice::start_ping(const uint32_t nn_id) {
     if (closed_) {
         return errors::Aborted("neuron_device is closed");
     }
-    return runtime_.start_ping(nn_id);
+    uint64 infer_timestamp = Env::Default()->NowMicros();
+    if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
+        return runtime_.start_ping(nn_id);
+    }
+    return Status::OK();
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
@@ -552,22 +607,6 @@ Status NeuronDevice::get_active(uint32_t *active_nn_id, const uint32_t nn_id) {
     nn_id_to_active_idx_[nn_id] = (idx + 1) % nn_id_to_all_nn_ids_[nn_id].size();
     *active_nn_id = nn_id_to_all_nn_ids_[nn_id][idx];
     return Status::OK();
-}
-
-
-std::string env_get(const char *env_var, const char *default_env_var) {
-    char *str = std::getenv(env_var);
-    return str ? str : default_env_var;
-}
-
-int stoi_no_throw(const std::string &str) {
-    try {
-        return std::stoi(str);
-    } catch (std::invalid_argument e) {
-        return STOI_INVALID_RESULT;
-    } catch (std::out_of_range e) {
-        return STOI_INVALID_RESULT;
-    }
 }
 
 

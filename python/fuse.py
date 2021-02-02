@@ -33,9 +33,9 @@ from tensorflow.python.ops import array_ops, variables, variable_scope, init_ops
 from tensorflow.python.eager.context import executing_eagerly
 from tensorflow.neuron.python import neff_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
-from tensorflow.neuron.python.graph_def_util import normalize_operators, erase_constants
-from tensorflow.neuron.python.graph_util import (
-    most_popular_namescope, logging_show_info, find_neuron_cc)
+from tensorflow.neuron.python.graph_def_util import normalize_operators, erase_large_constants
+from tensorflow.neuron.python import neuron_cc as ncc
+from tensorflow.neuron.python import utils
 
 
 _neuron_sess_run_decorated = False
@@ -98,8 +98,9 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
         inputs_mgr.mapping = {value: key for key, value in inputs_mgr.mapping.items()}
         inputs_mgr.build((args, kwargs))
         if name is None:
-            op_name = most_popular_namescope(op.name for op in fuse_graph.get_operations()
-                                             if op.name not in inputs_mgr.new_op_names)
+            all_op_names = [op.name for op in fuse_graph.get_operations()
+                            if op.name not in inputs_mgr.new_op_names]
+            op_name = utils.most_popular_namescope(all_op_names)
         else:
             op_name = name
         outputs_mgr = TensorManager()
@@ -151,7 +152,7 @@ def fuse(func=None, *, compiler_args=None, name=None, asynchronous=True, timeout
             ops.enable_eager_execution()
             ops._default_graph_stack._global_default_graph = global_default_graph
         fuse_graph_def = fuse_graph.as_graph_def()
-        erase_constants(fuse_graph_def)
+        erase_large_constants(fuse_graph_def)
         with ops.name_scope(op_name):
             output_tensors = neuron_op(
                 input_tensors=input_tensors, graph_def=fuse_graph_def.SerializeToString(),
@@ -398,7 +399,7 @@ class NeuronGraphHook:
         graph_def = normalize_operators(graph_def)
         with open(os.path.join(tempdir.name, _neuron_cc_input_name), 'wb') as f:
             f.write(graph_def.SerializeToString())
-        neuron_cc = find_neuron_cc()
+        neuron_cc = ncc.find_neuron_cc()
         command = [neuron_cc, 'compile', _neuron_cc_input_name, '--framework', 'TENSORFLOW',
                    '--output', _neuron_executable_name, '--pipeline', 'compile', 'SaveTemps',
                    '--io-config', io_config]
@@ -411,7 +412,7 @@ class NeuronGraphHook:
             if workdir is not None:
                 info_string = '{}; log file is at {}'.format(info_string, logfile_path)
         def neuron_cc_job():
-            with logging_show_info():
+            with utils.logging_show_info():
                 logging.info(info_string)
                 if verbose:
                     if isinstance(verbose, int):

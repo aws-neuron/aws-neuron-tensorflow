@@ -16,11 +16,12 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 #define TENSORFLOW_NEURON_RUNTIME_RUNTIME_GRPC_H_
 
-#include "./tensor_util.h"
-#include "./shared_memory_io.h"
-#include "./nmgr_service.grpc.pb.h"
-#include "./nmgr_session_service.grpc.pb.h"
-#include "./nerr.pb.h"
+#include "macros.h"
+#include "tensor_util.h"
+#include "shared_memory_io.h"
+#include "nmgr_service.grpc.pb.h"
+#include "nmgr_session_service.grpc.pb.h"
+#include "nerr.pb.h"
 
 
 namespace tensorflow {
@@ -60,6 +61,7 @@ inline Status nrt_error_status(const std::string &fn_name,
 template <class T_request, class T_response>
 class RuntimeSwitcher {
 public:
+    RuntimeSwitcher() {}
     T_request request_;
     T_response response_;
     grpc::Status status_;
@@ -67,12 +69,15 @@ public:
     grpc::CompletionQueue cq_;
     std::unique_ptr<grpc::ClientAsyncResponseReader<T_response> > rpc_ = nullptr;
     int64_t post_tag_ = -1;
+private:
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeSwitcher);
 };
 typedef RuntimeSwitcher<nrt::start_request, nrt::start_response> RuntimeStarter;
 typedef RuntimeSwitcher<nrt::stop_request, nrt::stop_response> RuntimeStopper;
 
 class RuntimeIO {
 public:
+    RuntimeIO() {}
     Status setup(AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
                  AttrList &output_names, const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, thread::ThreadPool *thread_pool=nullptr,
@@ -80,6 +85,8 @@ public:
     void set_nn_id(const uint32_t nn_id) { request_.mutable_h_nn()->set_id(nn_id); }
     uint32_t get_nn_id() { return request_.mutable_h_nn()->id(); }
     Status finish();
+private:
+    friend class RuntimeGRPC;
     uint64_t cookie = NRT_INVALID_COOKIE;
     thread::ThreadPool *thread_pool_;
     nrt::infer_request request_;
@@ -96,10 +103,12 @@ public:
     grpc::CompletionQueue cq_;
     std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > rpc_infer_post_ = nullptr;
     std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_response> > rpc_infer_ = nullptr;
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };
 
 class RuntimeGRPC {
 public:
+    RuntimeGRPC() {}
     Status initialize(const std::string &nrtd_address);
     Status create_eg(uint32_t *eg_id, uint32_t *num_cores, const int num_cores_req,
                      const uint64_t session_id);
@@ -129,6 +138,7 @@ private:
     std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeGRPC);
 };
 
 class RuntimeSession {
@@ -145,6 +155,7 @@ private:
     std::unique_ptr<nrt::nmgr_session_manager::Stub> stub_;
     std::shared_ptr<grpc::ClientContext> context_;
     std::shared_ptr<SessionReaderWriter> stream_;
+    TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeSession);
 };
 
 }  // namespace neuron

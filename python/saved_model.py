@@ -17,6 +17,7 @@ import sys
 import os
 import argparse
 import json
+from tempfile import TemporaryDirectory
 from tensorflow.python.util.deprecation import deprecated
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
@@ -32,10 +33,16 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import saved_model_pb2
 from tensorflow.python.profiler import model_analyzer, option_builder
 from tensorflow.python.client import timeline
+from tensorflow.python.ops.variables import global_variables_initializer
+from tensorflow.python.training import checkpoint_utils
+from tensorflow.python.ops.variable_scope import get_variable
+from tensorflow.python.ops.init_ops import Zeros as zeros_initializer
+from tensorflow.python.training.saver import Saver
+from tensorflow.python.framework import importer
+from tensorflow.core.framework import graph_pb2
+from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.graph_util import inference_graph_from_session
-from tensorflow.neuron.python.graph_util import logging_show_info
-from tensorflow.neuron.python.graph_util import compiled_graph_op_counts
-from tensorflow.neuron.python.graph_def_util import tNeuronOp
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -97,7 +104,8 @@ def _infer_input_shapes(input_tensors, batch_size):
 def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                model_shape_feed_dict=None, model_feed_dict=None,
                                tags=None, signature_def_key=None, strip_default_attrs=False,
-                               config_proto=None, **kwargs):
+                               config_proto=None, constant_size_to_exclude=1024, 
+                               convert_constants_to_variables=False, compiler_workdir=None, **kwargs):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -166,10 +174,25 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
         infer_graph = inference_graph_from_session.__wrapped__(
             sess, input_tensors=input_tensors, output_tensors=output_tensors,
             signature_def=signature_def,
-            protected_op_names=saved_model_main_op, **kwargs)
+            protected_op_names=saved_model_main_op, compiler_workdir=compiler_workdir, **kwargs)
 
+        if convert_constants_to_variables:
+            if compiler_workdir is None:
+                temp_dir = TemporaryDirectory()
+                compiler_workdir = temp_dir.name
+            infer_graph = convert_constant_to_variables(
+                    sess, 
+                    infer_graph,
+                    compiler_workdir=compiler_workdir,
+                    constant_size_to_exclude=constant_size_to_exclude,
+                )
     # load inference graph into a session and export as a SavedModel
     with tf_session.Session(graph=infer_graph, config=config_proto) as sess:
+        # After adding variables in the graph, need to initialize the variables before saving them
+        for op in infer_graph.get_operations():
+            if "init" in op.name and op.type == "NoOp":
+                sess.run(op)
+
         builder = tf_saved_model.builder.SavedModelBuilder(new_model_dir)
         signature_def_map = {signature_def_key: signature_def}
         for tensor in signature_def.inputs.values():
@@ -184,27 +207,9 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                                              strip_default_attrs=strip_default_attrs,
                                              main_op=main_op)
         builder.save()
-    num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(infer_graph)
+    num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(infer_graph.as_graph_def())
     on_neuron_ratio = float(num_ops_on_neuron) / num_ops_tfn if num_ops_tfn != 0 else 0.0
-    converted_msg = '{} to {}'.format(model_dir, new_model_dir)
-    if on_neuron_ratio == 0.0:
-        ops_msg = 'no operator'
-        unless_msg = ''
-    else:
-        ops_msg = 'only a small portion of operators'
-        unless_msg = ' (well, unless there are too many training operators in your SavedModel)'
-    warning_msg = (
-        'but {} will be running on AWS machine learning accelerators. This is probably '
-        'not what you want{}. Please refer to https://github.com/aws/aws-neuron-sdk '
-        'for current limitations of the AWS Neuron SDK. We are actively improving '
-        '(and hiring)!'.format(ops_msg, unless_msg))
-    if on_neuron_ratio > 0.3:
-        with logging_show_info():
-            logging.info('Successfully converted {}'.format(converted_msg))
-    elif on_neuron_ratio == 0.0:
-        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
-    else:
-        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
+    utils.model_conversion_report(model_dir, new_model_dir, on_neuron_ratio)
     return dict(OnNeuronRatio=on_neuron_ratio)
 compile = convert_to_inference_model
 
@@ -262,7 +267,7 @@ def set_core_binding(model_dir, index_list):
 
 def inspect_core_binding(model_dir):
     saved_model_pb, neuron_node_list = _saved_model_pb_neuron_nodes(model_dir)
-    with logging_show_info():
+    with utils.logging_show_info():
         for node in neuron_node_list:
             if len(node.attr['model_config'].list.i) > 4:
                 device_index = node.attr['model_config'].list.i[4]
@@ -282,7 +287,7 @@ def _saved_model_pb_neuron_nodes(model_dir):
     neuron_node_list = []
     for meta_graph in saved_model_pb.meta_graphs:
         for node in meta_graph.graph_def.node:
-            if node.op == tNeuronOp:
+            if node.op == gdu.tNeuronOp:
                 neuron_node_list.append(node)
     return saved_model_pb, neuron_node_list
 
@@ -366,3 +371,64 @@ def _check_for_compatible_tf_version(model_dir, sess):
                                         'save your model with tensorflow1.15.x '
                                         'and try again.'.format(model_dir))
                                         
+
+def convert_constant_to_variables(
+    sess,
+    compiled_graph,
+    compiler_workdir,
+    constant_size_to_exclude=1024,
+):
+    # This function is used to replace the constants in the graph with the variables.
+    # This is done specifically for the large constants in the graph.
+
+    checkpoint_dir = os.path.join(compiler_workdir, "checkpoint_dir")
+    if not os.path.exists(checkpoint_dir):
+        os.mkdir(checkpoint_dir)
+    checkpoint_dir = os.path.join(checkpoint_dir, "og.ckpt")
+
+    _saver = Saver()
+    _saver.save(sess, checkpoint_dir)
+
+    with tf_session.Session(graph=compiled_graph) as session:
+        _variables = {}
+        # Getting all the Const nodes and their values. These const nodes will be removed from the graph
+        for op in session.graph.get_operations():
+            if "Const" in op.type:
+                for tensor in op.values():
+                    value = session.run(tensor)
+                    total_elements = 1
+                    for x in value.shape:
+                        total_elements *= x
+                    if total_elements > constant_size_to_exclude:
+                        _variables[op.name] = value
+
+        new_nodes = []
+        old_nodes_names = []
+        # Creating the graph def by removing all the Const nodes
+        for node in session.graph.as_graph_def().node:
+            if node.name in _variables:
+                old_nodes_names.append(node.name)
+                continue
+            else:
+                new_nodes.append(node)
+
+        mod_graph_def = graph_pb2.GraphDef()
+        mod_graph_def.node.extend(new_nodes)
+
+    # Creating a graph from the modified graph def. This graph def has all the nodes from the frozen graph, except the const nodes
+    graph = ops.Graph()
+    with tf_session.Session(graph=graph) as session:
+        init_vars = {}
+        for var, value in _variables.items():
+            _variables[var] = ops.convert_to_tensor(get_variable(
+                name="{}-imported".format(var),
+                shape=value.shape,
+                initializer=zeros_initializer(),
+            ))
+            init_vars[var] = "{}-imported".format(var)
+        checkpoint_utils.init_from_checkpoint(checkpoint_dir, init_vars)
+
+        session.run(global_variables_initializer())
+        importer.import_graph_def(mod_graph_def, name="", input_map=_variables)
+
+    return graph

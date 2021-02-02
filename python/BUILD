@@ -13,7 +13,15 @@ py_library(
     deps = [
         ":graph_def_util_py",
         ":meta_graph_util_py",
+        ":neuron_cc_py",
         ":neuron_op_py",
+    ],
+)
+
+py_library(
+    name = "utils_py",
+    srcs = [
+        "utils.py",
     ],
 )
 
@@ -30,6 +38,7 @@ py_library(
         "graph_def_util.py",
     ],
     deps = [
+        ":neuron_cc_py",
         ":neff_util_py",
     ],
 )
@@ -59,14 +68,33 @@ py_library(
 )
 
 py_library(
+    name = "trace_py",
+    srcs = [
+        "_trace.py",
+    ],
+    deps = [
+        ":graph_def_util_py",
+        ":meta_graph_util_py",
+        ":neuron_cc_py",
+    ],
+)
+
+py_library(
     name = "saved_model_v2_py",
     srcs = [
         "saved_model_v2.py",
     ],
     deps = [
-        ":graph_def_util_py",
-        ":meta_graph_util_py",
+        ":trace_py",
     ],
+)
+
+py_library(
+    name = "neuron_cc_py",
+    srcs = glob(["neuron_cc*.py"]),
+    deps = [
+        ":utils_py",
+    ]
 )
 
 tf_custom_op_library(
@@ -97,6 +125,7 @@ py_library(
         "fuse.py",
     ],
     deps = [
+        ":neuron_cc_py",
         ":neff_util_py",
         ":neuron_op_py",
     ],
@@ -123,12 +152,15 @@ py_library(
         "tfv1_keras_test.py",
         "test_early_exit.py",
         "unittest_base.py",
+        "trace_test.py",
         "saved_model_v2_test.py",
+        "tf2_prototype_test.py",
     ],
     deps = [
         ":graph_util_py",
         ":saved_model_py",
         ":fuse_py",
+        ":trace_py",
         ":saved_model_v2_py",
     ],
 )

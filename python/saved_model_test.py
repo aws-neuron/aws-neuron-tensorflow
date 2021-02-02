@@ -528,6 +528,104 @@ class TestCoreBinding(TestV1Only):
             tfn.saved_model.simple_save(sess, export_dir=export_dir, inputs=inputs, outputs=outputs)
             return export_dir
 
+class TestConvertConstantsToVariables(TestV1Only):
+
+    def test_simple(self):
+        np.random.seed(_RANDOM_SEED)
+        model_dir = './original_saved_model0'
+        new_model_dir = './neuron_saved_model0'
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 5], name='input0')
+            var = tf.compat.v1.get_variable(
+                name='var0',
+                shape=[5],
+                initializer=tf.compat.v1.zeros_initializer(),
+            )
+            output = input0 + var
+            inputs = {'x0': input0}
+            outputs = {'y0': output}
+            sess.run(tf.global_variables_initializer())
+            shutil.rmtree(model_dir, ignore_errors=True)
+            tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(
+                model_dir, 
+                new_model_dir, 
+                no_fuse_ops=['var0', 'add'], 
+                constant_size_to_exclude=10, 
+                convert_constants_to_variables=False
+            )
+        with tf.Session(graph=tf.Graph()) as sess:
+            tf.saved_model.loader.load(
+                sess, [tf.saved_model.tag_constants.SERVING], new_model_dir
+            )
+            for op in sess.graph.get_operations():
+                assert 'Variable' not in op.type
+    
+    def test_constant_size_to_exclude(self):
+        np.random.seed(_RANDOM_SEED)
+        model_dir = './original_saved_model0'
+        new_model_dir = './neuron_saved_model0'
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 5], name='input0')
+            var = tf.compat.v1.get_variable(
+                name='var0',
+                shape=[5],
+                initializer=tf.compat.v1.zeros_initializer(),
+            )
+            output = input0 + var
+            inputs = {'x0': input0}
+            outputs = {'y0': output}
+            sess.run(tf.global_variables_initializer())
+            shutil.rmtree(model_dir, ignore_errors=True)
+            tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(
+                model_dir, 
+                new_model_dir, 
+                no_fuse_ops=['var0', 'add'], 
+                constant_size_to_exclude=10, 
+                convert_constants_to_variables=True
+            )
+        with tf.Session(graph=tf.Graph()) as sess:
+            tf.saved_model.loader.load(
+                sess, [tf.saved_model.tag_constants.SERVING], new_model_dir
+            )
+            for op in sess.graph.get_operations():
+                assert 'Variable' not in op.type
+    
+    def test_consts_to_variables_conversion(self):
+        np.random.seed(_RANDOM_SEED)
+        model_dir = './original_saved_model0'
+        new_model_dir = './neuron_saved_model0'
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 5], name='input0')
+            var = tf.compat.v1.get_variable(
+                name='var0',
+                shape=[5],
+                initializer=tf.compat.v1.zeros_initializer(),
+            )
+            output = input0 + var
+            sess.run(tf.global_variables_initializer())
+            inputs = {'x0': input0}
+            outputs = {'y0': output}
+            shutil.rmtree(model_dir, ignore_errors=True)
+            tf.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
+        shutil.rmtree(new_model_dir, ignore_errors=True)
+        tfn.saved_model.compile(
+                model_dir, 
+                new_model_dir, 
+                no_fuse_ops=['var0', 'add'], 
+                constant_size_to_exclude=2, 
+                convert_constants_to_variables=True
+            )
+        with tf.Session(graph=tf.Graph()) as sess:
+            tf.saved_model.loader.load(
+                sess, [tf.saved_model.tag_constants.SERVING], new_model_dir
+            )
+            for op in sess.graph.get_operations():
+                if op.name == "var0-imported":
+                    assert op.type == "VariableV2"
 
 if __name__ == '__main__':
     unittest.main()

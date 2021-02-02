@@ -65,6 +65,7 @@ function main() {
     cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow_core/neuron/"
     mkdir -p "${TMPDIR}/tensorflow/neuron/"
     cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow/neuron/"
+    mv "${TMPDIR}/tensorflow_neuron/tf2hlo/" "${TMPDIR}/tensorflow/neuron/"
     sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
     echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/__init__.py"
 

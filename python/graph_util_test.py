@@ -56,15 +56,15 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             }
             result_ref0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
             infer_graph0 = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
             result_ref1 = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
             infer_graph1 = graph_util.inference_graph_from_session(
                 sess, output_tensors={'relu0:0', sigmoid0, 'relu1:0', 'add0:0'},
-                op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 compiler_workdir='./workdir')
             infer_graph1 = graph_util.inference_graph_from_session(
                 sess, output_tensors={'relu0:0', 'sigmoid0:0', relu1, 'add0:0'},
-                op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph0)
         _assert_compiler_success(infer_graph1)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
@@ -102,7 +102,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             result_ref = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
                 sess, feed_dict=feed_dict, output_tensors={'relu0:0', 'sigmoid0:0', relu1, 'add0:0'},
-                op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -137,7 +137,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             result_names = ['relu0:0', 'relu1:0']
             result_ref = sess.run(result_names, feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 feed_dict=feed_dict, output_tensors=result_names,
                 compiler_workdir='./workdir')
         for name in feed_dict.keys():
@@ -179,7 +179,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             result_names = ['relu0:0', conv2d3.name, 'add0:0', 'relu1:0']
             result_ref = sess.run(result_names, feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 feed_dict=feed_dict, output_tensors=result_names,
                 compiler_workdir='./workdir', compiler_timeout=1)
         for name in feed_dict.keys():
@@ -223,7 +223,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             from distutils.version import LooseVersion
             neuroncc_version = LooseVersion(neuroncc.__version__.split('+')[0])
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu', 'IdentityN'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu', 'IdentityN'},
                 feed_dict=feed_dict, output_tensors=result_names,
                 compiler_args=['--experimental-suppress-scheduler-data-race'] if neuroncc_version > LooseVersion('1.0.10450') else None,
                 compiler_workdir='./workdir')
@@ -281,7 +281,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
             result_names = ['relu0:0']
             result_ref = sess.run(result_names, feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'}, feed_dict=feed_dict,
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'}, feed_dict=feed_dict,
                 compiler_workdir='./workdir')
         for name in feed_dict.keys():
             infer_graph.get_tensor_by_name(name)
@@ -491,7 +491,7 @@ class TestDynamicBatchSize(unittest.TestCase):
                 feed_dict_list.append(feed_dict)
             result_ref_list = [sess.run('relu0:0', feed_dict) for feed_dict in feed_dict_list]
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 feed_dict=feed_dict_compile, output_tensors=['relu0:0'])
         assert infer_graph.get_operations()[1].outputs[0].shape.as_list() == [None, pix, pix, 3]
         _assert_compiler_success(infer_graph)
@@ -556,7 +556,7 @@ class TestDynamicBatchSize(unittest.TestCase):
             result_names = ['relu0:0', 'relu1:0']
             result_ref_list = [sess.run(result_names, feed_dict) for feed_dict in feed_dict_list]
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 feed_dict=feed_dict_compile, output_tensors=result_names,
                 dynamic_batch_size=True,
                 compiler_workdir='./workdir')
@@ -582,7 +582,7 @@ class TestDynamicBatchSize(unittest.TestCase):
             result_names = ['relu0:0']
             result_ref_list = [sess.run(result_names, feed_dict) for feed_dict in feed_dict_list]
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Relu'},
                 feed_dict=feed_dict_compile, output_tensors=result_names,
                 dynamic_batch_size=True,
                 compiler_workdir='./workdir')
@@ -614,7 +614,7 @@ class TestDynamicBatchSize(unittest.TestCase):
         with tf.Session(graph=tf.Graph()) as sess:
             tf.import_graph_def(graph_def, name='')
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'MatMul', 'Const', 'Relu', 'ConcatV2'},
+                sess, supported_op_types={'MatMul', 'Const', 'Relu', 'ConcatV2'},
                 feed_dict=feed_dict_compile, output_tensors=result_names)
         _assert_compiler_success(infer_graph)
         assert infer_graph.get_operations()[-2].get_attr('input_batch_axis') == [-1]
@@ -766,7 +766,7 @@ class TestSharedMemoryInfer(unittest.TestCase):
             result_names = ['relu0:0', 'relu1:0']
             result_ref = sess.run(result_names, feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 feed_dict=feed_dict, output_tensors=result_names,
                 compiler_workdir='./workdir')
         for name in feed_dict.keys():
@@ -820,7 +820,7 @@ class TestNeuronCoreGroupSizes(unittest.TestCase):
                          for key in ['input0:0', 'input1:0']}
             result_ref = sess.run('relu0:0', feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -863,7 +863,7 @@ class TestMiscUtils(unittest.TestCase):
             result_ref = sess.run(['relu0:0', 'sigmoid0:0', 'relu1:0', 'add0:0'], feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
                 sess, feed_dict=feed_dict, output_tensors={'relu0:0', 'sigmoid0:0', relu1, 'add0:0'},
-                op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         infer_graph_def = infer_graph.as_graph_def()
         for node in infer_graph_def.node:
@@ -898,7 +898,7 @@ class TestMiscUtils(unittest.TestCase):
             }
             result_ref0 = sess.run(['relu0:0', 'relu1:0'], feed_dict)
             infer_graph0 = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
                 compiler_workdir='./workdir', compiler_verbose=2)
         _assert_compiler_success(infer_graph0)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
@@ -969,7 +969,7 @@ class TestNeuronCCFlagsEnvMustCompileSuccess(TestNeuronCCFlagsEnv):
             fetch_list, feed_dict = self._gen_graph()
             result_ref0 = sess.run(fetch_list, feed_dict)
             infer_graph0 = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
 
 class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
     _neuron_cc_flags = '--i-am-not-recognized --must-compile'
@@ -980,7 +980,7 @@ class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
             result_ref0 = sess.run(fetch_list, feed_dict)
             with self.assertRaises(ValueError) as cm:
                 infer_graph0 = graph_util.inference_graph_from_session(
-                    sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                    sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
             assert cm.exception.args[0].startswith('The following subgraphs failed')
 
 class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
@@ -993,7 +993,7 @@ class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
             fetch_list, feed_dict = self._gen_graph()
             result_ref0 = sess.run(fetch_list, feed_dict)
             infer_graph0 = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
             _assert_compiler_success(infer_graph0)
             assert os.path.isdir(workdir)
             assert len(list(glob.glob(os.path.join(workdir, 'neuron_op_*', 'graph_def.pb')))) == 2
@@ -1019,7 +1019,7 @@ class TestStress(unittest.TestCase):
                                for key in ['input0:0', 'input1:0']} for _ in range(max_workers)]
             result_ref_list = [sess.run('relu0:0', feed_dict) for feed_dict in feed_dict_list]
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -1088,7 +1088,7 @@ class TestStress(unittest.TestCase):
                 result_ref_list = [sess.run(outputs, feed_dict) for feed_dict in feed_dict_list]
                 infer_graph = graph_util.inference_graph_from_session(
                     sess, input_tensors=inputs, output_tensors=outputs,
-                    op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'}, minimum_segment_size=2,
+                    supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'}, minimum_segment_size=2,
                     no_fuse_ops=no_fuse_ops)
                 with open(infer_graph_fn, 'wb') as f:
                     f.write(infer_graph.as_graph_def().SerializeToString())
@@ -1116,7 +1116,7 @@ class TestLargeIO(unittest.TestCase):
             feed_dict = {input0.name: np.random.uniform(0, 1, size=input0.shape.as_list()).astype(np.float32)}
             result_ref = sess.run('relu0:0', feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -1134,7 +1134,7 @@ class TestLargeIO(unittest.TestCase):
             feed_dict = {input0.name: np.random.uniform(0, 1, size=input0.shape.as_list()).astype(np.float32)}
             result_ref = sess.run('relu0:0', feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -1152,7 +1152,7 @@ class TestLargeIO(unittest.TestCase):
             feed_dict = {input0.name: np.random.uniform(0, 1, size=input0.shape.as_list()).astype(np.float32)}
             result_ref = sess.run('relu0:0', feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+                sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -1298,7 +1298,7 @@ class TestShapeInference(unittest.TestCase):
             feed_dict = {input0.name: np.random.rand(1, 16), 'input1:0': np.random.rand(1, 8)}
             result_ref = sess.run(['relu0:0', 'exp0:0'], feed_dict)
             infer_graph = graph_util.inference_graph_from_session(
-                sess, op_whitelist={'MatMul', 'Const', 'Add', 'Relu'}, feed_dict=feed_dict)
+                sess, supported_op_types={'MatMul', 'Const', 'Add', 'Relu'}, feed_dict=feed_dict)
         _assert_compiler_success(infer_graph)
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             with tf.Session(graph=infer_graph) as sess:
@@ -1493,15 +1493,15 @@ class TestWhitelistPartition(unittest.TestCase):
         signature_def0 = meta_graph_util.build_signature_def([input0, input1], [add0, relu0, sigmoid0])
         partitioned_graph_def0 = graph_util.whitelist_partition(
             graph_def, signature_def=signature_def0,
-            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         signature_def1 = meta_graph_util.build_signature_def([conv2d0, input1], [add0, relu0, sigmoid0])
         partitioned_graph_def1 = graph_util.whitelist_partition(
             graph_def, signature_def=signature_def1,
-            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         signature_def2 = meta_graph_util.build_signature_def([input0, input1], [relu0, sigmoid0])
         partitioned_graph_def2 = graph_util.whitelist_partition(
             graph_def, signature_def=signature_def2,
-            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         assert len(partitioned_graph_def0.node) == 6
         assert len(partitioned_graph_def0.node[2].attr['output_names'].list.s) == 2
         assert len(partitioned_graph_def1.node) == 8
@@ -1533,7 +1533,7 @@ class TestWhitelistPartition(unittest.TestCase):
         signature_def = meta_graph_util.build_signature_def([input0], [add0, relu0])
         partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
-            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'})
+            supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
         neuron_op_node = partitioned_graph_def.node[1]
         assert len(neuron_op_node.input) == 1
         assert len(neuron_op_node.attr['input_names'].list.s) == 1
@@ -1577,7 +1577,7 @@ class TestWhitelistPartition(unittest.TestCase):
         signature_def = meta_graph_util.build_signature_def([input0], [relu0, relu1, relu2])
         partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
-            op_whitelist={'Conv2D', 'Const', 'Add', 'Relu'},
+            supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'},
             no_fuse_ops=['add0'])
         assert len(partitioned_graph_def.node) == 8
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
@@ -1615,7 +1615,7 @@ class TestWhitelistPartition(unittest.TestCase):
         signature_def = meta_graph_util.build_signature_def([input0], [relu0, relu1, relu2])
         partitioned_graph_def = graph_util.whitelist_partition(
             sess.graph.as_graph_def(add_shapes=True), signature_def=signature_def,
-            op_whitelist={'Conv2D', 'Const', 'Relu'},
+            supported_op_types={'Conv2D', 'Const', 'Relu'},
             no_fuse_ops=[conv2d2.op], force_fuse_ops=['add0', add5.op])
         assert len(partitioned_graph_def.node) == 12
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:

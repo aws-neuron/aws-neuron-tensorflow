@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
 import sys
 import os
 import signal
@@ -46,6 +45,8 @@ from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import meta_graph
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import meta_graph_util as mgu
+from tensorflow.neuron.python import neuron_cc as ncc
+from tensorflow.neuron.python import utils
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
@@ -53,7 +54,7 @@ def inference_graph_from_session(
         sess=None, input_tensors=None, output_tensors=None, signature_def=None,
         shape_feed_dict=None, feed_dict=None, dynamic_batch_size=False,
         protected_op_names=None,
-        op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
+        supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
         grappler=False, max_num_compilers=None,
         compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True,
         compiler_verbose=None):
@@ -62,7 +63,7 @@ def inference_graph_from_session(
     Generally decomposes into 5 passes:
         1. Convert all variables to constants, `Assign`s to `Identity`s.
         2. Whitelist-based graph partitioning, each subgraph (wrapped in an `NeuronOp`)
-            will contain only operations whose types match the types listed in `op_whitelist`.
+            will contain only operations whose types match the types listed in `supported_op_types`.
         3. Shape inference to find shapes for input/output tensors of `NeuronOp` subgraphs.
         4. Call neuron-cc compiler on each `NeuronOp`.
         5. Restore `NeuronOp`s that are failed to compile into their original form.
@@ -83,7 +84,7 @@ def inference_graph_from_session(
             `shape_inference` first and then `shape_inference_with_inputs`.
         dynamic_batch_size: Bool that represents whether the inference graph will support
             dynamic batch sizes during inference.
-        op_whitelist: Iterable of strings (unordered) representing compilable op names.
+        supported_op_types: Iterable of strings (unordered) representing compilable op names.
         no_fuse_ops: None or iterable of strings (unordered) representing names of ops
             that are forcibly placed on CPU.
         force_fuse_ops: None or iterable of strings (unordered) representing names of ops
@@ -186,6 +187,11 @@ def inference_graph_from_session(
     with replace_extract_sub_graph():
         graph_def = tf_graph_util.convert_variables_to_constants.__wrapped__(
             sess, graph_def, list(protected_op_names))
+    for node in graph_def.node:
+        if node.op == 'RefEnter':
+            node.op = 'Enter'
+        elif node.op == 'RefExit':
+            node.op = 'Exit'
     original_graph_def = graph_def
 
     # setup op exclusions
@@ -221,7 +227,7 @@ def inference_graph_from_session(
 
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
-        graph_def, signature_def, op_whitelist=op_whitelist,
+        graph_def, signature_def, supported_op_types=supported_op_types,
         no_fuse_ops=no_fuse_ops, force_fuse_ops=force_fuse_ops,
         minimum_segment_size=minimum_segment_size)
 
@@ -244,7 +250,7 @@ def inference_graph_from_session(
 
     if compiler_recovery:
         compiled_graph_def = gdu.restore_compiler_failures(compiled_graph_def, original_graph_def)
-        compiled_graph_def = gdu.erase_constants_from_compiled_subgraphs(compiled_graph_def)
+        compiled_graph_def = gdu.run_graph_def_pass_in_subgraphs(compiled_graph_def, gdu.erase_large_constants)
         compiled_graph_def = nchw_to_nhwc(compiled_graph_def)
 
     # try to enable dynamic batch size if possible
@@ -254,7 +260,7 @@ def inference_graph_from_session(
     # rename NeuronOp's for better visualization
     name_change_map = {}
     for node in gdu.get_neuron_nodes(compiled_graph_def):
-        prefix = most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
+        prefix = utils.most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
         if not prefix:
             continue
         new_op_name = '/'.join([prefix, node.name])
@@ -283,12 +289,12 @@ def inference_graph_from_session(
 
     # statistics on number of operations
     num_ops_original = len(sess.graph.get_operations())
-    num_ops_tfn, num_ops_on_neuron = compiled_graph_op_counts(compiled_graph)
-    with logging_show_info():
+    num_ops_tfn, num_ops_on_neuron = gdu.compiled_graph_op_counts(compiled_graph_def)
+    with utils.logging_show_info():
         logging.info('Number of operations in TensorFlow session: {}'.format(num_ops_original))
         logging.info('Number of operations after tf.neuron optimizations: {}'.format(num_ops_tfn))
         logging.info('Number of operations placed on Neuron runtime: {}'.format(num_ops_on_neuron))
-    if find_neuron_cc() is None:
+    if ncc.find_neuron_cc() is None:
         logging.warning('***************************************************************')
         logging.warning('')
         logging.warning('  neuron-cc is not found.')
@@ -301,27 +307,7 @@ def inference_graph_from_session(
     return compiled_graph
 
 
-def find_neuron_cc():
-    path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
-    return spawn.find_executable('neuron-cc', path)
-
-
-def most_popular_namescope(all_node_names):
-    all_splitted = [name.split('/') for name in all_node_names]
-    max_level = max(len(splitted) for splitted in all_splitted)
-    most_popular_namescope = []
-    max_popularity = 0
-    for lvl in range(max_level):
-        names = [splitted[lvl] for splitted in all_splitted if lvl < len(splitted)]
-        (scope, popularity), = collections.Counter(names).most_common(1)
-        if popularity >= max_popularity:
-            most_popular_namescope.append(scope)
-            max_popularity = popularity
-        else:
-            break
-    return '/'.join(most_popular_namescope)
-
-
+# for test package compatibility
 def compiled_graph_op_counts(compiled_graph):
     neuron_ops = [op for op in _neuron_ops(compiled_graph)]
     num_ops_on_neuron = 0
@@ -346,16 +332,6 @@ def _neuron_ops(graph):
 
 def _has_control_input(node):
     return any(inp.startswith('^') for inp in node.input)
-
-
-@contextmanager
-def logging_show_info():
-    verbosity = logging.get_verbosity()
-    logging.set_verbosity(logging.INFO)
-    try:
-        yield
-    finally:
-        logging.set_verbosity(verbosity)
 
 
 @contextmanager
@@ -390,7 +366,7 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
 
 
 def whitelist_partition(graph_def, signature_def,
-                        op_whitelist=None, no_fuse_ops=None, force_fuse_ops=None,
+                        supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None,
                         minimum_segment_size=None):
     """Partitions a `GraphDef` proto according to a TensorFlow op whitelist and
     fuses each whitelisted subgraph into an `NeuronOp`.
@@ -398,7 +374,7 @@ def whitelist_partition(graph_def, signature_def,
     Args:
         graph_def: input `GraphDef` proto.
         signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
-        op_whitelist: None or iterable of strings (unordered) representing
+        supported_op_types: None or iterable of strings (unordered) representing
             whitelisted op type names.
         no_fuse_ops: None or iterable of strings (unordered) representing
             names of ops that will stay unfused.
@@ -410,21 +386,21 @@ def whitelist_partition(graph_def, signature_def,
         A `GraphDef` proto with whitelisted subgraphs fused as `NeuronOp`s.
     """
     original_graph_def = graph_def
-    if op_whitelist is None:
-        neuron_cc = find_neuron_cc()
+    if supported_op_types is None:
+        neuron_cc = ncc.find_neuron_cc()
         if neuron_cc is None:
             return graph_def
         else:
             command = [neuron_cc, 'list-operators', '--framework', 'TENSORFLOW']
             try:
-                op_whitelist = {op_type.strip() for op_type in subprocess.check_output(command).decode()[:-1].split('\n')}
+                supported_op_types = {op_type.strip() for op_type in subprocess.check_output(command).decode()[:-1].split('\n')}
             except subprocess.CalledProcessError:
                 logging.warning('neuron-cc is not behaving correctly. Please check neuron-cc '
                                 'installation, or reinstall by "pip install --force neuron-cc".')
                 return graph_def
-            op_whitelist.discard('Placeholder')
-            op_whitelist.discard('IdentityN')
-            op_whitelist.add('SquaredDifference')
+            supported_op_types.discard('Placeholder')
+            supported_op_types.discard('IdentityN')
+            supported_op_types.add('SquaredDifference')
     if no_fuse_ops is None:
         no_fuse_ops = []
     if force_fuse_ops is None:
@@ -443,7 +419,7 @@ def whitelist_partition(graph_def, signature_def,
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     param_map = fuser_config.parameter_map
     param_map['minimum_segment_size'].i = minimum_segment_size
-    param_map['op_whitelist'].list.s.extend(compat.as_bytes(item) for item in op_whitelist)
+    param_map['supported_op_types'].list.s.extend(compat.as_bytes(item) for item in supported_op_types)
     param_map['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
     param_map['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
 
@@ -500,7 +476,7 @@ def compile_subgraphs(graph_def,
     Compiler = collections.namedtuple('Compiler', 'command verbose workdir_path subgraph_info')
     _neuron_cc_input_name = 'graph_def.pb'
     _neuron_executable_name = 'graph_def.neff'
-    neuron_cc = find_neuron_cc()
+    neuron_cc = ncc.find_neuron_cc()
     if neuron_cc is None:
         return graph_def
     subgraph_info_format = '{{subgraph {} with input tensors {}, output tensors {}}}'.format
@@ -540,14 +516,17 @@ def compile_subgraphs(graph_def,
 
     # try progress bar mode first
     try_progress_bar_mode = len(subgraph_compilers) == 1 and verbose is None and workdir is None
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--verbose', type=int, default=None)
+    verbose_args, _ = parser.parse_known_args(command)
     progress_bar_mode_done = False
-    if try_progress_bar_mode:
+    if try_progress_bar_mode and (verbose_args.verbose is None or verbose_args.verbose == 35):
         node_name = next(iter(subgraph_compilers))
         command = subgraph_compilers[node_name].command.copy()
         command.extend(['--verbose=35'])
         _, _, workdir_path, subgraph_info = subgraph_compilers[node_name]
         info_string = 'fusing subgraph {} with neuron-cc'.format(subgraph_info)
-        with logging_show_info():
+        with utils.logging_show_info():
             logging.info(info_string)
         neuron_cc_stderr_txt_path = os.path.join(workdir_path, 'neuron-cc-stderr.txt')
         try:
@@ -614,7 +593,7 @@ def _io_tensor_info(node):
     tensor_format = "<tf.Tensor '{}' shape={} dtype={}>".format
     for name, dtype_enum, shape_proto in zip(input_names, input_dtypes, input_shapes):
         name = name.decode()
-        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        dtype = dtypes.as_dtype(dtype_enum)
         shape = TensorShape(shape_proto)
         shape = '<unknown>' if shape.rank is None else tuple(shape.as_list())
         input_tensors_info.append(tensor_format(name, shape, dtype.name))
@@ -624,7 +603,7 @@ def _io_tensor_info(node):
     output_tensors_info = []
     for name, dtype_enum, shape_proto in zip(output_names, output_dtypes, output_shapes):
         name = name.decode()
-        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        dtype = dtypes.as_dtype(dtype_enum)
         shape = TensorShape(shape_proto)
         shape = '<unknown>' if shape.rank is None else tuple(shape.as_list())
         output_tensors_info.append(tensor_format(name, shape, dtype.name))
@@ -641,7 +620,7 @@ def _fork_compiler(subgraph_compilers, node_name, timeout, try_progress_bar_mode
     if not verbose:
         info_string = '{}; you may check progress by inspecting file {}'.format(info_string, logfile)
     if not try_progress_bar_mode:
-        with logging_show_info():
+        with utils.logging_show_info():
             logging.info(info_string)
     if verbose:
         proc = subprocess.Popen(command, cwd=workdir_path)
@@ -698,7 +677,7 @@ def _io_config(node):
     input_shapes = node.attr['input_shapes'].list.shape
     for name, dtype_enum, shape_proto in zip(input_names, input_dtypes, input_shapes):
         name = name.decode()
-        dtype = dtypes._INTERN_TABLE[dtype_enum]
+        dtype = dtypes.as_dtype(dtype_enum)
         shape = TensorShape(shape_proto)
         if not shape.is_fully_defined():
             logging.warning('subgraph {} input tensor {} has undetermined shape {}'.format(node.name, name, shape))
@@ -884,7 +863,7 @@ class DynamicBatchSizeHelper:
 
 def _get_int32_values(const_op):
     tensor_proto = const_op.node_def.attr['value'].tensor
-    dtype = dtypes._INTERN_TABLE[tensor_proto.dtype]
+    dtype = dtypes.as_dtype(tensor_proto.dtype)
     if dtype is not dtypes.int32:
         return []
     content = tensor_proto.tensor_content

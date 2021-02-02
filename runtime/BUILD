@@ -19,7 +19,10 @@ tf_gen_op_libs(
 
 tf_kernel_library(
     name = "neuron_op_kernel",
-    srcs = ["kernels/neuron_op.cc"],
+    srcs = [
+        "kernels/neuron_op.cc",
+        "kernels/model_config.h",
+    ],
     hdrs = ["kernels/neuron_op.h"],
     deps = [
         ":device",
@@ -30,21 +33,40 @@ cc_library(
     name = "device",
     srcs = [
         "device.cc",
-        "timestamps.h",
-        "profiler.h",
-        "profiler.cc",
-        "tensor_util.h",
-        "tensor_util.cc",
+        "device.h",
         "shared_memory_io.h",
         "shared_memory.h",
         "shared_memory.cc",
         "runtime_grpc.h",
         "runtime_grpc.cc",
         "runtime_io.h",
-        "semaphore.h",
-        "semaphore.cc",
     ],
     hdrs = ["device.h"],
+    deps = [
+        ":utils",
+    ],
+)
+
+cc_library(
+    name = "utils",
+    srcs = [
+        "timestamps.h",
+        "profiler.h",
+        "profiler.cc",
+        "tensor_util.h",
+        "tensor_util.cc",
+        "semaphore.h",
+        "semaphore.cc",
+        "env.h",
+        "env.cc",
+    ],
+    hdrs = [
+        "timestamps.h",
+        "profiler.h",
+        "tensor_util.h",
+        "semaphore.h",
+        "env.h",
+    ],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",

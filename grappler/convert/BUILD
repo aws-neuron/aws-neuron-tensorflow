@@ -5,7 +5,6 @@ cc_library(
     name = "convert_graph",
     srcs = ["convert_graph.cc"],
     hdrs = ["convert_graph.h"],
-    copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         ":segment",
         "//tensorflow/neuron/grappler:graph_constructor_wrapper",
@@ -22,7 +21,6 @@ cc_library(
     hdrs = [
         "segment.h",
     ],
-    copts = ["-DGOOGLE_CUDA=1", "-DGOOGLE_TENSORRT=1"],
     deps = [
         "//tensorflow/core:core_cpu",
     ],

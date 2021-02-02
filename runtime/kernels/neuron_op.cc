@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "../runtime_io.h"
-#include "./neuron_op.h"
+#include "model_config.h"
+#include "neuron_op.h"
 
 
 namespace tensorflow {
@@ -45,130 +45,9 @@ namespace neuron {
 
 
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
-extern NeuronDeviceManager global_neuron_device_manager;
 
 
-class NeuronModelConfig {
-public:
-    void parse_opt_device_size(AttrList &model_config) {
-        if (model_config_valid(model_config)) {
-            opt_device_size_ = model_config_global_opt_num_cores(model_config);
-            max_num_duplicates_ = model_config_max_num_duplicates(model_config);
-        }
-    }
-
-    void parse_timeout(AttrList &model_config) {
-        if (model_config_valid(model_config)) {
-            int64 int64_timeout = model_config_timeout(model_config);
-            if (int64_timeout > 0) {
-                timeout_ = (uint32_t)int64_timeout;
-                return;
-            }
-        }
-        timeout_ = 10;
-        std::string infer_timeout_str = env_get("NEURON_FRAMEWORK_INFER_TIMEOUT_SEC", "10");
-        int int_timeout = stoi_no_throw(infer_timeout_str);
-        if (int_timeout <= 0) {
-            LOG(WARNING) << "NEURON_FRAMEWORK_INFER_TIMEOUT_SEC=" << infer_timeout_str
-                         << " is invalid; using default value " << timeout_ << " seconds.";
-        } else {
-            timeout_ = (uint32_t)int_timeout;
-        }
-    }
-
-    void parse_ninfer(AttrList &model_config, NeuronDevice *neuron_device) {
-        int64 max_num_threads = DEFAULT_MAX_NUM_INFER;
-        if (model_config_valid(model_config)) {
-            int64 opt_num_infer = model_config_this_opt_num_cores(model_config);
-            if (opt_num_infer > 0 && opt_num_infer <= HARD_MAX_NUM_THREADS) {
-                // add some extras for CPU nodes
-                max_num_threads = opt_num_infer + NRTD_NUM_CPU_THREADS;
-            } else {
-                LOG(WARNING) << "model_config with opt_num_infer=" << opt_num_infer
-                             << " is invalid; using default value "
-                             << max_num_threads  << " instead.";
-            }
-        }
-        std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
-        bool num_infer_is_negative = false;
-        if (!ninfer_str.empty()) {
-            int64 env_ninfer = (int64)stoi_no_throw(ninfer_str);
-            if (env_ninfer < -HARD_MAX_NUM_THREADS || env_ninfer > HARD_MAX_NUM_THREADS) {
-                LOG(WARNING) << "NEURON_MAX_NUM_INFERS=" << ninfer_str
-                             << " is invalid; using default value "
-                             << max_num_threads  << " instead.";
-            } else if (env_ninfer < 0) {
-                num_infer_is_negative = true;
-                max_num_threads = -env_ninfer;
-            } else if (0 == env_ninfer) {
-                LOG(WARNING) << "NEURON_MAX_NUM_INFERS=0 is invalid; using 1 instead.";
-                max_num_threads = 1;
-            } else {
-                max_num_threads = env_ninfer;
-            }
-        }
-        if (model_config_valid(model_config)) {
-            // enforce max_num_threads = 1 if ncg size is insufficient
-            int64 int64_opt_num_cores = model_config_this_opt_num_cores(model_config);
-            if (int64_opt_num_cores < NeuronDeviceManager::MIN_NUM_CORES
-                    || int64_opt_num_cores > NeuronDeviceManager::MAX_NUM_CORES) {
-                max_num_threads = NRTD_INSUFFICIENT_NUM_INFER;
-            } else {
-                uint32_t opt_num_cores = (uint32_t)int64_opt_num_cores;
-                if (neuron_device->num_cores() < opt_num_cores) {
-                    max_num_threads = NRTD_INSUFFICIENT_NUM_INFER;
-                }
-            }
-        }
-        max_num_threads = max_num_threads > 1 ? max_num_threads : 1;
-        max_num_threads = std::min(max_num_threads, HARD_MAX_NUM_THREADS);
-        max_num_infers_ = (uint32_t)max_num_threads;
-        ninfer_ = num_infer_is_negative ? max_num_infers_ : max_num_infers_ + 1;
-    }
-
-    void parse_device_index(AttrList &model_config) {
-        device_index_ = model_config_device_index(model_config);
-    }
-
-    int64_t opt_device_size_ = -1;
-    int64_t max_num_duplicates_ = 1;
-    uint32_t max_num_infers_ = 4;
-    uint32_t timeout_ = 2;
-    uint32_t ninfer_ = 5;
-    int64_t device_index_ = -1;
-private:
-    bool model_config_valid(AttrList &model_config) {
-        return model_config.i_size() >= 4;
-    }
-    int64 model_config_global_opt_num_cores(AttrList &model_config) {
-        return model_config.i(0);
-    }
-    int64 model_config_this_opt_num_cores(AttrList &model_config) {
-        return model_config.i(1);
-    }
-    int64 model_config_max_num_duplicates(AttrList &model_config) {
-        return model_config.i(2);
-    }
-    int64 model_config_timeout(AttrList &model_config) {
-        return model_config.i(3);
-    }
-    int64 model_config_device_index(AttrList &model_config) {
-        if (model_config.i_size() >= 5) {
-            return model_config.i(4);
-        } else {
-            return -1;
-        }
-    }
-
-    static const int64 DEFAULT_MAX_NUM_INFER = 4;
-    static const int64 NRTD_INSUFFICIENT_NUM_INFER = 1;
-    static const int64 NRTD_NUM_CPU_THREADS = 3;
-    static const int64 HARD_MAX_NUM_THREADS = 1024;
-};
-
-
-NeuronOp::NeuronOp(OpKernelConstruction *ctx)
-        : OpKernel(ctx), infer_sem_(INFER_SEM_MAX_CAPACITY) {
+NeuronOp::NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
     VLOG(1) << "calling NeuronOp constructor";
     OP_REQUIRES(ctx, 0 != def().attr().at("executable").s().size(),
                 errors::InvalidArgument(
@@ -183,37 +62,22 @@ NeuronOp::NeuronOp(OpKernelConstruction *ctx)
     VLOG(1) << "NeuronOp constructor done";
 }
 
-Status NeuronOp::initialize(const std::string &session_handle) {
-    tensorflow::mutex_lock lock(mutex_model_);
-    if (ready_) {
-        VLOG(1) << "NeuronOp is already initialized";
-        return Status::OK();
-    }
-    AttrList &model_config_attr = def().attr().at("model_config").list();
-    NeuronModelConfig model_config;
-    model_config.parse_opt_device_size(model_config_attr);
-    model_config.parse_device_index(model_config_attr);
-    TF_RETURN_IF_ERROR(
-        global_neuron_device_manager.apply_for_device(
-            &neuron_device_, session_handle,
-            model_config.opt_device_size_, model_config.max_num_duplicates_,
-            model_config.device_index_)
-    );
-    model_config.parse_timeout(model_config_attr);
-    model_config.parse_ninfer(model_config_attr, neuron_device_);
-    StringPiece executable(def().attr().at("executable").s());
-    TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
-                                            model_config.ninfer_, profile_.enabled_));
-    VLOG(1) << "loaded " << def().name() << " as " << nn_id_
-            << "; number of NEFFs: " << neuron_device_->num_executable();
+static size_t get_tensor_size(const DataType dype, const TensorShapeProto &shape_proto) {
+    size_t dtype_size = (size_t)DataTypeSize(dype);
+    size_t num_elements = (size_t)TensorShape(shape_proto).num_elements();
+    return dtype_size * num_elements;
+}
 
-    // check argument sizes
-    AttrList &input_names = def().attr().at("input_names").list();
-    AttrList &input_dtypes = def().attr().at("input_dtypes").list();
-    AttrList &input_shapes = def().attr().at("input_shapes").list();
-    AttrList &output_names = def().attr().at("output_names").list();
-    AttrList &output_dtypes = def().attr().at("output_dtypes").list();
-    AttrList &output_shapes = def().attr().at("output_shapes").list();
+static Status get_io_tensor_sizes(std::vector<size_t> *input_tensor_sizes,
+                                  std::vector<size_t> *output_tensor_sizes,
+                                  const NodeDef &node_def) {
+    const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
+    AttrList &input_names = attr.at("input_names").list();
+    AttrList &input_dtypes = attr.at("input_dtypes").list();
+    AttrList &input_shapes = attr.at("input_shapes").list();
+    AttrList &output_names = attr.at("output_names").list();
+    AttrList &output_dtypes = attr.at("output_dtypes").list();
+    AttrList &output_shapes = attr.at("output_shapes").list();
     if (input_names.s_size() != input_dtypes.type_size()
             || input_names.s_size() != input_shapes.shape_size()) {
         return errors::FailedPrecondition(
@@ -228,32 +92,80 @@ Status NeuronOp::initialize(const std::string &session_handle) {
             ", output_dtypes size ", output_dtypes.type_size(),
             ", output_shapes size ", output_shapes.shape_size());
     }
-    for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
-        Tensor temp_tensor(input_dtypes.type(idx), input_shapes.shape(idx));
-        input_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
+    if (input_tensor_sizes != nullptr) {
+        input_tensor_sizes->clear();
+        for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
+            size_t tensor_size = get_tensor_size(input_dtypes.type(idx), input_shapes.shape(idx));
+            input_tensor_sizes->push_back(tensor_size);
+        }
     }
-    for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-        Tensor temp_tensor(output_dtypes.type(idx), output_shapes.shape(idx));
-        output_tensor_sizes_.push_back(temp_tensor.tensor_data().size());
+    if (output_tensor_sizes != nullptr) {
+        output_tensor_sizes->clear();
+        for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
+            size_t tensor_size = get_tensor_size(output_dtypes.type(idx), output_shapes.shape(idx));
+            output_tensor_sizes->push_back(tensor_size);
+        }
     }
+    return Status::OK();
+}
+
+static Status check_input_tensors(const std::vector<const Tensor*> &input_tensors,
+                                  const NodeDef &node_def) {
+    AttrList &input_names = node_def.attr().at("input_names").list();
+    std::vector<size_t> input_tensor_sizes;
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&input_tensor_sizes, nullptr, node_def));
+    if ((int)input_tensors.size() != input_names.s_size()) {
+        return errors::Internal(
+            "incorrect number of input tensors, input_tensors size ",
+            input_tensors.size(), ", input_names size", input_names.s_size());
+    }
+    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
+        size_t tensor_data_size = input_tensors[idx]->tensor_data().size();
+        if (tensor_data_size != input_tensor_sizes[idx]) {
+            return errors::Internal(
+                "incorrect input tensor size ", tensor_data_size, " found on ",
+                input_names.s(idx), " (", input_tensor_sizes[idx], ")");
+        }
+    }
+    return Status::OK();
+}
+
+Status NeuronOp::initialize(const std::string &session_handle) {
+    tensorflow::mutex_lock lock(mutex_model_);
+    if (nullptr != neuron_device_) {
+        VLOG(1) << "NeuronOp is already initialized";
+        return Status::OK();
+    }
+    AttrList &model_config_attr = def().attr().at("model_config").list();
+    NeuronModelConfig model_config;
+    model_config.parse_opt_device_size(model_config_attr);
+    model_config.parse_device_index(model_config_attr);
+    TF_RETURN_IF_ERROR(
+        NeuronDeviceManager::GetNeuronDeviceManager().apply_for_device(
+            &neuron_device_, session_handle,
+            model_config.opt_device_size_, model_config.max_num_duplicates_,
+            model_config.device_index_)
+    );
+    model_config.parse_timeout(model_config_attr);
+    model_config.parse_ninfer(
+        model_config_attr, neuron_device_->num_cores(),
+        NeuronDeviceManager::MIN_NUM_CORES, NeuronDeviceManager::MAX_NUM_CORES);
+    StringPiece executable(def().attr().at("executable").s());
+    TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
+                                            model_config.ninfer_, profile_.enabled_));
+    VLOG(1) << "loaded " << def().name() << " as " << nn_id_
+            << "; number of NEFFs: " << neuron_device_->num_executable();
+
+    // check argument sizes
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, nullptr, def()));
 
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
-    int64 init_acquire_amount = INFER_SEM_MAX_CAPACITY - (int64)max_num_infers_;
-    if (init_acquire_amount >= INFER_SEM_MAX_CAPACITY) {
-        LOG(WARNING) << "infer semaphore cannot be correctly initialized;"
-                     << " forcing semaphore value to be 1";
-        init_acquire_amount = INFER_SEM_MAX_CAPACITY - 1;
-    }
     std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
-    if (init_acquire_amount > 0 && !infer_sem_initialized_ && "yes" != unlimited_threads) {
-        infer_sem_reserve_ptr_ = std::make_shared<xla::Semaphore::ScopedReservation>(
-            infer_sem_.ScopedAcquire(init_acquire_amount));
-        infer_sem_initialized_ = true;
-        int64 infer_sem_capacity = INFER_SEM_MAX_CAPACITY - init_acquire_amount;
-        VLOG(1) << "infer semaphore capacity " << infer_sem_capacity;
+    if (!infer_sem_ && "yes" != unlimited_threads) {
+        infer_sem_ = std::make_shared<xla::Semaphore>(max_num_infers_);
+        VLOG(1) << "infer semaphore capacity " << max_num_infers_;
     }
-    ready_ = true;
     return Status::OK();
 }
 
@@ -266,7 +178,7 @@ NeuronOp::~NeuronOp() {
     }
     neuron_device_->unload(nn_id_);
     VLOG(1) << "unload from NeuronOp::~NeuronOp";
-    global_neuron_device_manager.clear_if_empty();
+    NeuronDeviceManager::GetNeuronDeviceManager().clear_if_empty();
     VLOG(1) << "NeuronOp destructor done";
 }
 
@@ -283,6 +195,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     }
     OP_REQUIRES(ctx, (int)input_tensors.size() == input_names.s_size(),
                 errors::InvalidArgument("incorrect number of input tensors"));
+    std::vector<size_t> input_tensor_sizes;
+    std::vector<size_t> output_tensor_sizes;
+    OP_REQUIRES_OK(ctx, get_io_tensor_sizes(&input_tensor_sizes, &output_tensor_sizes, def()));
 
     int64_t batch_size = UNINIT_BATCH_SIZE;
     int64_t k_batch_size = UNINIT_BATCH_SIZE;
@@ -421,7 +336,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 sliced_inputs[idx] = is_batch_input_tensors[idx] ?
                     &batches_neuron_input_tensors[0][idx] : input_tensors[idx];
             }
-            OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+            OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs, def()));
             std::vector<Tensor> temp_outputs(output_dtypes.type_size());
             for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
                 OP_REQUIRES_OK(ctx, ctx->allocate_temp(
@@ -433,10 +348,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 output_tensors[idx] = &temp_outputs[idx];
             }
             ScopedRuntimeIO scoped_io;
-            OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-                input_names, input_tensor_sizes_, sliced_inputs,
-                output_names, output_tensor_sizes_, output_tensors,
-                nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
+            OK_IGNORE_ABORTED(ctx, neuron_device_->setup_scoped_runtime_io(
+                &scoped_io,
+                input_names, input_tensor_sizes, sliced_inputs,
+                output_names, output_tensor_sizes, output_tensors,
+                nn_id_, thread_pool));
             OP_REQUIRES_OK(ctx, neuron_device_->infer(
                 &scoped_io.runtime_io_, nullptr, &profile_, nn_id_));
             OK_IGNORE_ABORTED(ctx, scoped_io.finish());
@@ -452,11 +368,9 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                 int64_t first_need_wait_infer_post_bidx = num_batches - window_size;
                 neuron_device_->acquire_mutex(&mutex_lock_queue);
                 OK_IGNORE_ABORTED(ctx, neuron_device_->start_model_unsafe(nn_id_));
-                uint64 infer_timestamp = Env::Default()->NowMicros();
-                if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC_) {
-                    // need an extra grpc call to re-establish channel in case of seeing grpc 14
-                    OK_IGNORE_ABORTED(ctx, neuron_device_->start_ping(nn_id_));
-                }
+                // need an extra unary grpc call to re-establish channel in case of seeing grpc 14
+                // as start_model_unsafe may not call grpc start
+                OK_IGNORE_ABORTED(ctx, neuron_device_->start_ping(nn_id_));
                 // post ninfer ones
                 for (int64_t post_bidx = 0; post_bidx < window_size; ++post_bidx) {
                     // setup inputs
@@ -465,7 +379,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         sliced_inputs[idx] = is_batch_input_tensors[idx] ?
                             &batches_neuron_input_tensors[post_bidx][idx] : input_tensors[idx];
                     }
-                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs, def()));
 
                     // setup outputs
                     int64_t dim0_start = post_bidx * k_batch_size;
@@ -485,11 +399,14 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_sliced_outputs[post_bidx][idx] : batch_output_tensors[idx];
                     }
                     scoped_io_queue.emplace();
-                    OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
-                        input_names, input_tensor_sizes_, sliced_inputs,
-                        output_names, output_tensor_sizes_, output_tensors,
-                        nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
-                    sem_res_queue.push(infer_sem_.ScopedAcquire(1));
+                    OK_IGNORE_ABORTED(ctx, neuron_device_->setup_scoped_runtime_io(
+                        &scoped_io_queue.back(),
+                        input_names, input_tensor_sizes, sliced_inputs,
+                        output_names, output_tensor_sizes, output_tensors,
+                        nn_id_, thread_pool));
+                    if (infer_sem_) {
+                        OP_REQUIRES_OK(ctx, neuron_device_->acquire_sem(&sem_res_queue, infer_sem_));
+                    }
 
                     // post
                     RuntimeIO *runtime_io = &scoped_io_queue.back().runtime_io_;
@@ -517,7 +434,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                         sliced_inputs[idx] = is_batch_input_tensors[idx] ?
                             &batches_neuron_input_tensors[post_bidx][idx] : input_tensors[idx];
                     }
-                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs));
+                    OP_REQUIRES_OK(ctx, check_input_tensors(sliced_inputs, def()));
 
                     // setup outputs for next one
                     int64_t dim0_start = post_bidx * k_batch_size;
@@ -537,10 +454,11 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                             &batches_sliced_outputs[post_bidx][idx] : batch_output_tensors[idx];
                     }
                     scoped_io_queue.emplace();
-                    OK_IGNORE_ABORTED(ctx, scoped_io_queue.back().setup(
-                        input_names, input_tensor_sizes_, sliced_inputs,
-                        output_names, output_tensor_sizes_, output_tensors,
-                        nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
+                    OK_IGNORE_ABORTED(ctx, neuron_device_->setup_scoped_runtime_io(
+                        &scoped_io_queue.back(),
+                        input_names, input_tensor_sizes, sliced_inputs,
+                        output_names, output_tensor_sizes, output_tensors,
+                        nn_id_, thread_pool));
                     RuntimeIO *runtime_io_back = &scoped_io_queue.back().runtime_io_;
                     if (post_bidx >= first_need_wait_infer_post_bidx) {
                         OP_REQUIRES_OK(ctx, neuron_device_->setup_infer_post(runtime_io_back, post_bidx));
@@ -571,7 +489,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     OP_REQUIRES_OK(ctx, neuron_device_->wait_infer_post(runtime_io_front));
                     need_wait_infer_post.pop();
                 }
-                last_infer_timestamp_ = Env::Default()->NowMicros();
             }   // unlock device
 
             // wait for remaining ones in the queue
@@ -583,7 +500,7 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
                     &timestamps : nullptr;
                 RuntimeIO *runtime_io_front = &scoped_io_queue.front().runtime_io_;
                 OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(runtime_io_front, wait_timestamps));
-                sem_res_queue.pop();
+                OP_REQUIRES_OK(ctx, neuron_device_->release_sem(&sem_res_queue));
                 OK_IGNORE_ABORTED(ctx, runtime_io_front->finish());
                 scoped_io_queue.pop();
             }
@@ -597,12 +514,13 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
         OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
+        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors, def()));
         ScopedRuntimeIO scoped_io;
-        OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensor_sizes_, input_tensors,
-            output_names, output_tensor_sizes_, output_tensors,
-            nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
+        OK_IGNORE_ABORTED(ctx, neuron_device_->setup_scoped_runtime_io(
+            &scoped_io,
+            input_names, input_tensor_sizes, input_tensors,
+            output_names, output_tensor_sizes, output_tensors,
+            nn_id_, thread_pool));
         OK_IGNORE_ABORTED(ctx, neuron_device_->infer(
             &scoped_io.runtime_io_, &timestamps, &profile_, nn_id_));
         OP_REQUIRES_OK(ctx, scoped_io.finish());
@@ -614,40 +532,23 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
         }
         OK_IGNORE_ABORTED(ctx, initialize(ctx->session_handle()));
         session_alive = neuron_device_->get_session();
-        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors));
+        OP_REQUIRES_OK(ctx, check_input_tensors(input_tensors, def()));
         ScopedRuntimeIO scoped_io;
-        OK_IGNORE_ABORTED(ctx, scoped_io.setup(
-            input_names, input_tensor_sizes_, input_tensors,
-            output_names, output_tensor_sizes_, output_tensors,
-            nn_id_, thread_pool, neuron_device_->shm_buf_mgr_));
+        OK_IGNORE_ABORTED(ctx, neuron_device_->setup_scoped_runtime_io(
+            &scoped_io,
+            input_names, input_tensor_sizes, input_tensors,
+            output_names, output_tensor_sizes, output_tensors,
+            nn_id_, thread_pool));
         {
             SemResQueue sem_res_queue;
             OK_IGNORE_ABORTED(ctx, neuron_device_->infer_post(
-                &scoped_io.runtime_io_, &sem_res_queue, &infer_sem_, &timestamps, nn_id_));
+                &scoped_io.runtime_io_, &sem_res_queue, infer_sem_, &timestamps, nn_id_));
             OP_REQUIRES_OK(ctx, neuron_device_->infer_wait(&scoped_io.runtime_io_, &timestamps));
         }
         OK_IGNORE_ABORTED(ctx, scoped_io.finish());
     }
     timestamps.mark_exit();
     VLOG(1) << timestamps.timing_string();
-}
-
-Status NeuronOp::check_input_tensors(const std::vector<const Tensor*> &input_tensors) {
-    AttrList &input_names = def().attr().at("input_names").list();
-    if ((int)input_tensors.size() != input_names.s_size()) {
-        return errors::Internal(
-            "incorrect number of input tensors, input_tensors size ",
-            input_tensors.size(), ", input_names size", input_names.s_size());
-    }
-    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-        size_t tensor_data_size = input_tensors[idx]->tensor_data().size();
-        if (tensor_data_size != input_tensor_sizes_[idx]) {
-            return errors::Internal(
-                "incorrect input tensor size ", tensor_data_size, " found on ",
-                input_names.s(idx), " (", input_tensor_sizes_[idx], ")");
-        }
-    }
-    return Status::OK();
 }
 
 // need to override kernel_builder as NeuronName to prevent multiple kernel registrations

@@ -15,9 +15,12 @@ limitations under the License.
 
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/public/version.h"
+#include "tensorflow/core/framework/attr_value.pb.h"
 
 namespace tensorflow {
 namespace neuron {
+
+typedef const AttrValue_ListValue AttrList;
 
 #define NRT_INVALID_NN_ID 0
 #define NRT_INVALID_EG_ID 0
@@ -65,6 +68,12 @@ namespace neuron {
     }                                                               \
     OP_REQUIRES_OK(CTX, status);                                    \
 }
+
+#define TFN_DISALLOW_COPY_MOVE_ASSIGN(TypeName) \
+    TypeName(const TypeName &) = delete;        \
+    void operator=(const TypeName &) = delete;  \
+    TypeName(TypeName &&);                      \
+    void operator=(TypeName &&) = delete;
 
 #define TF_VERSION_LESS_THAN(MAJOR, MINOR) \
     (TF_MAJOR_VERSION < (MAJOR) || (TF_MAJOR_VERSION == (MAJOR) && TF_MINOR_VERSION < (MINOR)))
