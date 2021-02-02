@@ -19,6 +19,8 @@ import subprocess
 import shlex
 import tempfile
 from distutils import spawn
+from distutils.version import LooseVersion
+from tensorflow_neuron import __version__
 
 
 def list_operators():
@@ -92,4 +94,5 @@ try:
 except ImportError:
     pass
 else:
-    from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
+    if LooseVersion(__version__) >= LooseVersion('2.0.0'):
+        from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
