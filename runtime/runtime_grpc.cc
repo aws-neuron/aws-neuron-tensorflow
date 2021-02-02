@@ -227,15 +227,6 @@ Status RuntimeGRPC::load(
     return Status::OK();
 }
 
-Status RuntimeGRPC::start(const uint32_t nn_id) {
-    nrt::start_request request;
-    request.mutable_h_nn()->set_id(nn_id);
-    nrt::start_response response;
-    grpc::Status status = NRT_GRPC(stub_->start, request, &response);
-    NRT_CHECK_RETURN("start", status, response);
-    return Status::OK();
-}
-
 static Status wait_grpc_cq(void **got_tag, bool *ok, grpc::CompletionQueue *cq, const int64_t post_tag) {
     if (!cq->Next(got_tag, ok)) {
         return errors::Internal("CompletionQueue::Next failed");
@@ -267,53 +258,11 @@ Status RuntimeGRPC::wait_start(RuntimeStarter *starter) {
     return Status::OK();
 }
 
-Status RuntimeGRPC::start_ping(const uint32_t nn_id) {
-    // this function is only used as a hack to re-establish channel in case of grpc 14
-    // and so intentionally returns OK as long as grpc status is ok
-    nrt::start_request request;
-    request.mutable_h_nn()->set_id(nn_id);
-    nrt::start_response response;
-    grpc::Status status = NRT_GRPC(stub_->start, request, &response);
-    if (!status.ok()) {
-        NRT_CHECK_RETURN("start", status, response);
-    }
-    return Status::OK();
-}
-
-Status RuntimeGRPC::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {
-    runtime_io->rpc_infer_post_ = stub_->PrepareAsyncinfer_post(
-        &runtime_io->context_, runtime_io->request_, &runtime_io->cq_);
-    runtime_io->post_tag_ = post_tag;
-    return Status::OK();
-}
-
 Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
     nrt::infer_post_response response;
     grpc::Status status = NRT_GRPC(stub_->infer_post, runtime_io->request_, &response);
     NRT_CHECK_RETURN("infer_post", status, response);
     runtime_io->cookie = response.cookie();
-    return Status::OK();
-}
-
-Status RuntimeGRPC::post_infer_post(RuntimeIO *runtime_io) {
-    if (nullptr == runtime_io->rpc_infer_post_) {
-        return errors::Unavailable("runtime_io->rpc_infer_post_ is not initialized");
-    }
-    runtime_io->rpc_infer_post_->StartCall();
-    runtime_io->rpc_infer_post_->Finish(&runtime_io->post_response_, &runtime_io->post_status_,
-                                        (void*)runtime_io->post_tag_);
-    return Status::OK();
-}
-
-Status RuntimeGRPC::wait_infer_post(RuntimeIO *runtime_io) {
-    if (runtime_io->cookie != NRT_INVALID_COOKIE) {
-        return Status::OK();
-    }
-    void *got_tag;
-    bool ok = false;
-    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &runtime_io->cq_, runtime_io->post_tag_));
-    NRT_CHECK_RETURN("infer_post", runtime_io->post_status_, runtime_io->post_response_);
-    runtime_io->cookie = runtime_io->post_response_.cookie();
     return Status::OK();
 }
 
@@ -330,38 +279,6 @@ Status RuntimeGRPC::infer_wait(RuntimeIO *runtime_io) {
         }
     }
     NRT_CHECK_RETURN("infer_wait", status, *response);
-    return Status::OK();
-}
-
-Status RuntimeGRPC::setup_infer(RuntimeIO *runtime_io, int64_t post_tag) {
-    runtime_io->rpc_infer_ = stub_->PrepareAsyncinfer(
-        &runtime_io->context_, runtime_io->request_, &runtime_io->cq_);
-    runtime_io->post_tag_ = post_tag;
-    return Status::OK();
-}
-
-Status RuntimeGRPC::post_infer(RuntimeIO *runtime_io) {
-    if (nullptr == runtime_io->rpc_infer_) {
-        return errors::Unavailable("runtime_io->rpc_infer_ is not initialized");
-    }
-    runtime_io->rpc_infer_->StartCall();
-    runtime_io->rpc_infer_->Finish(&runtime_io->response_, &runtime_io->post_status_,
-                                   (void*)runtime_io->post_tag_);
-    return Status::OK();
-}
-
-Status RuntimeGRPC::wait_infer(RuntimeIO *runtime_io) {
-    void *got_tag;
-    bool ok = false;
-    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &runtime_io->cq_, runtime_io->post_tag_));
-    nrt::infer_response *response = &runtime_io->response_;
-    if (runtime_io->post_status_.ok()) {
-        // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
-            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
-        }
-    }
-    NRT_CHECK_RETURN("infer", runtime_io->post_status_, runtime_io->response_);
     return Status::OK();
 }
 

@@ -405,38 +405,6 @@ Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
         nn_id, thread_pool, shm_buf_mgr_);
 }
 
-Status NeuronDevice::setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag) {
-    uint32_t active_nn_id = NRT_INVALID_NN_ID;
-    TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
-    runtime_io->set_nn_id(active_nn_id);
-    return runtime_.setup_infer_post(runtime_io, post_tag);
-}
-
-Status NeuronDevice::post_infer_post(RuntimeIO *runtime_io) {
-    return runtime_.post_infer_post(runtime_io);
-}
-
-Status NeuronDevice::wait_infer_post(RuntimeIO *runtime_io) {
-    last_infer_timestamp_ = Env::Default()->NowMicros();
-    return runtime_.wait_infer_post(runtime_io);
-}
-
-Status NeuronDevice::setup_infer(RuntimeIO *runtime_io, int64_t post_tag) {
-    uint32_t active_nn_id = NRT_INVALID_NN_ID;
-    TF_RETURN_IF_ERROR(get_active(&active_nn_id, runtime_io->get_nn_id()));
-    runtime_io->set_nn_id(active_nn_id);
-    return runtime_.setup_infer(runtime_io, post_tag);
-}
-
-Status NeuronDevice::post_infer(RuntimeIO *runtime_io) {
-    return runtime_.post_infer(runtime_io);
-}
-
-Status NeuronDevice::wait_infer(RuntimeIO *runtime_io) {
-    last_infer_timestamp_ = Env::Default()->NowMicros();
-    return runtime_.wait_infer(runtime_io);
-}
-
 Status NeuronDevice::infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
                            Timestamps *timestamps) {
     uint32_t nn_id = runtime_io->get_nn_id();
@@ -469,58 +437,6 @@ Status NeuronDevice::infer_with_profiling(RuntimeIO *runtime_io, Timestamps *tim
     if (profile->enabled_) profile->stop_session();
     TF_RETURN_IF_ERROR(status_post);
     return status_wait;
-}
-
-Status NeuronDevice::infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                                std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps) {
-    tensorflow::mutex_lock lock(mutex_eg_);
-    if (TF_PREDICT_TRUE(infer_sem)) {
-        sem_res_queue->push(infer_sem->ScopedAcquire(1));
-    }
-    return infer_post_unsafe(runtime_io, timestamps);
-}
-
-void NeuronDevice::acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue) {
-    mutex_lock_queue->emplace(mutex_eg_);
-}
-
-Status NeuronDevice::acquire_sem(SemResQueue *sem_res_queue,
-                                 std::shared_ptr<xla::Semaphore> infer_sem) {
-    if (TF_PREDICT_FALSE(nullptr == sem_res_queue)) {
-        return errors::Internal("Invalid SemResQueue in acquire_sem");
-    }
-    if (TF_PREDICT_FALSE(!infer_sem)) {
-        return errors::Internal("Invalid xla::Semaphore");
-    }
-    sem_res_queue->push(infer_sem->ScopedAcquire(1));
-    return Status::OK();
-}
-
-Status NeuronDevice::release_sem(SemResQueue *sem_res_queue) {
-    if (TF_PREDICT_FALSE(nullptr == sem_res_queue)) {
-        return errors::Internal("Invalid SemResQueue in release_sem");
-    }
-    if (TF_PREDICT_FALSE(sem_res_queue->empty())) {
-        return errors::Internal("Empty SemResQueue in release_sem");
-    }
-    sem_res_queue->pop();
-    return Status::OK();
-}
-
-Status NeuronDevice::infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps) {
-    uint32_t nn_id = runtime_io->get_nn_id();
-    TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
-    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
-    uint32_t active_nn_id = NRT_INVALID_NN_ID;
-    TF_RETURN_IF_ERROR(get_active(&active_nn_id, nn_id));
-    runtime_io->set_nn_id(active_nn_id);
-    return runtime_.infer_post(runtime_io);
-}
-
-Status NeuronDevice::infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps) {
-    TF_RETURN_IF_ERROR(runtime_.infer_wait(runtime_io));
-    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
-    return Status::OK();
 }
 
 void NeuronDevice::clear(bool from_global_state) {
@@ -556,17 +472,6 @@ void NeuronDevice::clear(bool from_global_state) {
         shm_buf_mgr_->clear();
         vec_eg_id_.clear();
     }
-}
-
-Status NeuronDevice::start_ping(const uint32_t nn_id) {
-    if (closed_) {
-        return errors::Aborted("neuron_device is closed");
-    }
-    uint64 infer_timestamp = Env::Default()->NowMicros();
-    if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
-        return runtime_.start_ping(nn_id);
-    }
-    return Status::OK();
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {

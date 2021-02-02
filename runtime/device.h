@@ -51,29 +51,15 @@ public:
                                    const std::vector<Tensor*> &output_tensors,
                                    const uint32_t nn_id,
                                    thread::ThreadPool *thread_pool);
-    Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
-    Status post_infer_post(RuntimeIO *runtime_io);
-    Status wait_infer_post(RuntimeIO *runtime_io);
-    Status setup_infer(RuntimeIO *runtime_io, int64_t post_tag);
-    Status post_infer(RuntimeIO *runtime_io);
-    Status wait_infer(RuntimeIO *runtime_io);
     Status infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
                  Timestamps *timestamps);
     Status infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
                                 ProfilerInterface *profile);
-    Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                      std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps);
-    Status infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps);
     void unload(const uint32_t nn_id);
-    void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
-    Status acquire_sem(SemResQueue *sem_res_queue, std::shared_ptr<xla::Semaphore> infer_sem);
-    Status release_sem(SemResQueue *sem_res_queue);
-    Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps);
     void clear(bool from_global_state=false);
     size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
     uint32_t num_cores() { return num_cores_; };
     Status start_model_unsafe(const uint32_t nn_id);
-    Status start_ping(const uint32_t nn_id);
     size_t semaphore_factor() { return vec_eg_id_.size(); }
     std::shared_ptr<RuntimeSession> get_session() { return session_; }
 private:
@@ -91,7 +77,6 @@ private:
     std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
     uint32_t running_nn_id_;
     uint32_t num_cores_ = 0;
-    uint64 last_infer_timestamp_ = 0;
     static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
     std::string nrtd_address_ = "";
     std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;
