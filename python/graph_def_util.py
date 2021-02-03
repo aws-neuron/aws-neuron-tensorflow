@@ -316,6 +316,7 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     graph_def.node.extend(
         node for node in compiled_graph_def.node if node.name not in remove_node_names)
     graph_def.node.extend(node for node in restore_nodes)
+    graph_def.library.CopyFrom(compiled_graph_def.library)
     return graph_def
 
 
