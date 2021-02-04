@@ -77,10 +77,23 @@ class TestTraceFunction(TestV2Only):
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
-        func_neuron.save('neuron_keras_model_func_1conv_save')
-        assert len(result_func_ref) == len(result_func_neuron)
-        for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
-            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+        func_neuron.save('neuron_func_1conv_save')
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
+
+    def test_func_input_list_len_1_save(self):
+        kernel = tf.random.uniform([3, 3, 3, 32])
+
+        def func(tensor_list):
+            tensor, = tensor_list
+            return tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 1, 1])
+
+        input_tensor = tf.random.uniform([1, 28, 28, 3])
+        func_neuron = tfn.trace(func, [input_tensor])
+        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        result_func_ref = func([input_tensor])
+        result_func_neuron = func_neuron([input_tensor])
+        func_neuron.save('neuron_func_input_list_len_1_save')
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     def test_func_1conv_with_shuffle(self):
         kernel = tf.random.uniform([3, 3, 3, 6])
@@ -116,9 +129,7 @@ class TestTraceFunction(TestV2Only):
         _assert_compiler_success_func(cfunc)
         result_func_ref = func_ref(input_tensor)
         result_func_neuron = cfunc(input_tensor)
-        assert len(result_func_ref) == len(result_func_neuron)
-        for res_ref, res_neuron in zip(result_func_ref, result_func_neuron):
-            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     def test_func_pad_conv(self):
         kernel = tf.random.uniform([7, 7, 3, 64])

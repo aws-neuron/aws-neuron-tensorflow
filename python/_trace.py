@@ -149,10 +149,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         except AttributeError:
             pass
 
-    # wrap ConcreteFunction as a Function
-    if isinstance(original_func, Model) and len(flat_input_signature) > 1:
-        flat_input_signature = flat_input_signature,
-    func = def_function.function(input_signature=flat_input_signature)(cfunc)
+    # wrap ConcreteFunction as a keras model
+    func = def_function.function(cfunc)
     return AwsNeuronModel(func)
 
 
