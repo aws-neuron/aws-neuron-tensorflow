@@ -55,10 +55,10 @@ class TestTraceKerasModel(TestV2Only):
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         input0_tensor = tf.random.uniform([1, 3])
         model_neuron = tfn.trace(model, input0_tensor)
+        model_neuron.save('neuron_keras_model_1in_1out_save')
         _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
         result_model_ref = model(input0_tensor)
         result_model_neuron = model_neuron(input0_tensor)
-        model_neuron.save('neuron_keras_model_1in_1out_save')
         assert len(result_model_ref) == len(result_model_neuron)
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
@@ -74,11 +74,14 @@ class TestTraceFunction(TestV2Only):
 
         input_tensor = tf.random.uniform([1, 28, 28, 3])
         func_neuron = tfn.trace(func, input_tensor)
+        func_neuron.save('neuron_func_1conv_save')
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
-        func_neuron.save('neuron_func_1conv_save')
+        func_neuron_reloaded = tf.keras.models.load_model('neuron_func_1conv_save')
+        result_func_neuron_reloaded = func_neuron_reloaded(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
+        self.assertAllClose(result_func_neuron_reloaded, result_func_ref, rtol=1e-2, atol=1e-2)
 
     def test_func_input_list_len_1_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
@@ -89,10 +92,10 @@ class TestTraceFunction(TestV2Only):
 
         input_tensor = tf.random.uniform([1, 28, 28, 3])
         func_neuron = tfn.trace(func, [input_tensor])
+        func_neuron.save('neuron_func_input_list_len_1_save')
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func([input_tensor])
         result_func_neuron = func_neuron([input_tensor])
-        func_neuron.save('neuron_func_input_list_len_1_save')
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     def test_func_1conv_with_shuffle(self):

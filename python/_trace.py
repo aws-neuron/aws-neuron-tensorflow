@@ -46,8 +46,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         pass
     else:
         func = def_function.function(func).get_concrete_function(example_inputs)
-    if isinstance(example_inputs, ops.Tensor):
-        example_inputs = example_inputs,
     tfn_args, compiler_args = utils.parse_neuron_cc_flags()
 
     # Note: input_names is also used for constructing the output ConcreteFunction,
@@ -62,7 +60,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     original_graph_def = graph_def
 
     # encode known shapes
-    shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, example_inputs)}
+    inputs_list = [example_inputs] if isinstance(example_inputs, ops.Tensor) else example_inputs
+    shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, inputs_list)}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # produce GraphDef by running grappler passes
@@ -148,7 +147,14 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # wrap ConcreteFunction as a keras model
     func = def_function.function(cfunc)
-    return AwsNeuronModel(func)
+    model = AwsNeuronModel(func)
+
+    # run a fake inference to propagate metadata for saving
+    model(example_inputs)
+
+    # finalize and return
+    model.aws_neuron_finalized = True
+    return model
 
 
 class AwsNeuronModel(Model):
@@ -156,9 +162,11 @@ class AwsNeuronModel(Model):
     def __init__(self, aws_neuron_function):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = aws_neuron_function
+        self.aws_neuron_finalized = False
 
     def call(self, inputs):
-        return self.aws_neuron_function(inputs)
+        if self.aws_neuron_finalized:
+            return self.aws_neuron_function(inputs)
 
 
 def _find_pad_ops_preceding_conv2d(graph):
