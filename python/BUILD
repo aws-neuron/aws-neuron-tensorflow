@@ -154,7 +154,7 @@ py_library(
         "unittest_base.py",
         "trace_test.py",
         "saved_model_v2_test.py",
-        "tf2_prototype_test.py",
+        "tf2_keras_test.py",
     ],
     deps = [
         ":graph_util_py",
