@@ -322,8 +322,17 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
             node.input[idx] = gd_tensor_name_map.get(name, name)
 
     graph_def = graph_pb2.GraphDef()
-    graph_def.node.extend(
-        node for node in compiled_graph_def.node if node.name not in remove_node_names)
+
+    def is_not_removed(name):
+        if name.startswith('^'):
+            return name[1:] not in remove_node_names
+        else:
+            return name not in remove_node_names
+
+    for node in compiled_graph_def.node:
+        node.input[:] = [name for name in node.input if is_not_removed(name)]
+        if node.name not in remove_node_names:
+            graph_def.node.append(node)
     graph_def.node.extend(node for node in restore_nodes)
     graph_def.library.CopyFrom(compiled_graph_def.library)
     return graph_def
