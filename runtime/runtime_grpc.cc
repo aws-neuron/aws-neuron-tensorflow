@@ -15,6 +15,7 @@ limitations under the License.
 
 #include <grpcpp/grpcpp.h>
 #include "nmgr.pb.h"
+#include "version.h"
 #include "runtime_grpc.h"
 
 
@@ -395,10 +396,25 @@ Status RuntimeSession::initialize(const std::string& nrtd_address) {
     // get session id from the actual stream
     context_ = std::make_shared<grpc::ClientContext>();
     stream_ = stub_->session_monitor(context_.get());
+    nrt::session_monitor_request request;
+    request.set_framework_name("TENSORFLOW");
+    nrt::version *framework_version = request.mutable_framework_version();
+    framework_version->set_full_version(TF_VERSION_STRING);
+    framework_version->set_major_num(TF_MAJOR_VERSION);
+    framework_version->set_minor_num(TF_MINOR_VERSION);
+    nrt::version *fal_version = request.mutable_fal_version();
+    fal_version->set_full_version(TFN_VERSION_STRING);
+    fal_version->set_major_num(TFN_MAJOR_VERSION);
+    fal_version->set_minor_num(TFN_MINOR_VERSION);
+    if (!stream_->Write(request)) {
+        return errors::Internal("error in writing session request to neuron-rtd");
+    }
     nrt::session_monitor_response response;
     if (!stream_->Read(&response)) {
         return errors::Internal("error in reading session ID from neuron-rtd");
     }
+    VLOG(1) << "passed tensorflow version " << TF_VERSION_STRING << " to runtime";
+    VLOG(1) << "passed tensorflow-neuron version " << TFN_VERSION_STRING << " to runtime";
     id_ = response.session_id();
     return Status::OK();
 }
