@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from collections import abc
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.eager import function
@@ -62,7 +63,14 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # encode known shapes
     inputs_list = [example_inputs] if isinstance(example_inputs, ops.Tensor) else example_inputs
-    shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, inputs_list)}
+    if isinstance(example_inputs, abc.Mapping):
+        func_args, func_kwargs = func.structured_input_signature
+        if len(func_args) != 1:
+            raise NotImplementedError('function with multiple dictionary inputs is not supported')
+        input_dict, = func_args
+        shape_feed_dict = {'{}:0'.format(spec.name): example_inputs[name].shape for name, spec in input_dict.items()}
+    else:
+        shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, inputs_list)}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # call main-graph grappler passes
@@ -97,31 +105,37 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         pass
 
     # wrap ConcreteFunction as a keras model
-    func = def_function.function(cfunc)
-    model = AwsNeuronModel(func, unroll_args)
+    new_func = def_function.function(cfunc)
+    struct_out = func.structured_outputs
+    output_type = type(struct_out) if isinstance(struct_out, abc.Mapping) else None
+    model = AwsNeuronModel(new_func, unroll_args, output_type)
 
     # run a fake inference to propagate metadata for saving
     model(example_inputs)
 
     # finalize and return
-    model.aws_neuron_finalized = True
+    model._aws_neuron_finalized = True
     return model
 
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, aws_neuron_function, unroll_args):
+    def __init__(self, aws_neuron_function, unroll_args, output_type):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = aws_neuron_function
-        self.aws_neuron_finalized = False
-        self.aws_neuron_unroll_args = unroll_args
+        self._aws_neuron_finalized = False
+        self._aws_neuron_unroll_args = unroll_args
+        self._aws_neuron_output_type = output_type
 
     def call(self, inputs):
-        if self.aws_neuron_finalized:
-            if self.aws_neuron_unroll_args:
-                return self.aws_neuron_function(*inputs)
+        if self._aws_neuron_finalized:
+            if self._aws_neuron_unroll_args:
+                output = self.aws_neuron_function(*inputs)
             else:
-                return self.aws_neuron_function(inputs)
+                output = self.aws_neuron_function(inputs)
+            if self._aws_neuron_output_type is not None:
+                output = self._aws_neuron_output_type(**output)
+            return output
 
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
