@@ -140,14 +140,11 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     cfunc._set_function_spec(func._function_spec)
 
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
-    cfunc_input_names = {argdef.name for argdef in cfunc.function_def.signature.input_arg}
-    flat_input_signature = nest.flatten(func.structured_input_signature, expand_composites=True)
-    input_name_set = {tss.name for tss in flat_input_signature}
-    if cfunc_input_names != input_name_set:
-        try:
+    try:
+        if cfunc._arg_keywords != func._arg_keywords:
             cfunc._arg_keywords = func._arg_keywords
-        except AttributeError:
-            pass
+    except AttributeError:
+        pass
 
     # wrap ConcreteFunction as a keras model
     func = def_function.function(cfunc)
