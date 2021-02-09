@@ -55,7 +55,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     input_names = [ts.name for ts in func.inputs if ts.name not in captured_inputs]
 
     # convert all variables to constants
-    cfunc = convert_to_constants.convert_variables_to_constants_v2(func)
+    with utils.change_grappler_logging_level_according_to_cc_flags():
+        cfunc = convert_to_constants.convert_variables_to_constants_v2(func)
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     original_graph_def = graph_def
 
@@ -162,7 +163,8 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
         fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
 
     # call all grappler passes
-    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    with utils.change_grappler_logging_level_according_to_cc_flags():
+        graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
     return graph_def
 
 

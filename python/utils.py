@@ -18,6 +18,7 @@ import argparse
 import shlex
 from contextlib import contextmanager
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.python.grappler import tf_optimizer
 
 
 @contextmanager
@@ -70,6 +71,25 @@ def parse_neuron_cc_flags():
     neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
     parser = argparse.ArgumentParser()
     parser.add_argument('--dump-prefix', default=None)
-    parser.add_argument('--log-level', type=int, default=None)
+    parser.add_argument('--log-level', type=int, default=logging.WARN)
     tfn_args, compiler_args = parser.parse_known_args(shlex.split(neuron_cc_flags))
     return tfn_args, compiler_args
+
+
+@contextmanager
+def change_grappler_logging_level_according_to_cc_flags():
+    tfn_args, _ = parse_neuron_cc_flags()
+    verbose = tfn_args.log_level < logging.WARN
+    original_optimize_graph = tf_optimizer.OptimizeGraph
+
+    def optimize_graph(*args, **kwargs):
+        if len(args) > 2:
+            args = args[:2]
+        kwargs.pop('verbose', None)
+        return original_optimize_graph(*args, **kwargs, verbose=verbose)
+
+    tf_optimizer.OptimizeGraph = optimize_graph
+    try:
+        yield
+    finally:
+        tf_optimizer.OptimizeGraph = original_optimize_graph
