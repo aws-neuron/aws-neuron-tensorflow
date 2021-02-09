@@ -30,7 +30,25 @@ def build_signature_def(input_tensors, output_tensors):
     return sdef
 
 
-def run_grappler_on_subgraphs(graph_def, passes):
+def run_grappler_on_subgraphs(graph_def):
+    passes = [
+        'constfold',
+        'debug_stripper',
+        'constfold',
+        'pruning',
+        'dependency',
+        'constfold',
+        'remap',
+        'constfold',
+        'memory',
+        'constfold',
+        'common_subgraph_elimination',
+        'constfold',
+        'arithmetic',
+        'constfold',
+        'loop',
+        'constfold',
+    ]
     for node in gdu.get_neuron_nodes(graph_def):
         is_compilable, reason = gdu.neuron_node_is_compilable(node)
         if not is_compilable:

@@ -65,67 +65,12 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, inputs_list)}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
-    # produce GraphDef by running grappler passes
-    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
-    sig_def_grappler = mgu.build_signature_def(cfunc.inputs, cfunc.outputs)
-    meta_graph_def.signature_def['serving_default'].CopyFrom(sig_def_grappler)
-    opt_config = config_pb2.ConfigProto()
-    rewriter_config = opt_config.graph_options.rewrite_options
-    rewriter_config.meta_optimizer_iterations = 1
-    rewriter_config.min_graph_nodes = -1
-    graph_passes = [
-        'debug_stripper',
-        'pruning',
-        'dependency',
-        'aws_neuron_static_shape_inference',
-    ]
-    rewriter_config.optimizers.extend(graph_passes)
+    # call main-graph grappler passes
+    graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
 
-    # configure operator fusion
-    fuser_config = rewriter_config.custom_optimizers.add()
-    fuser_config.name = 'aws_neuron_fuse_supported_operators'
-    fuser_param_map = fuser_config.parameter_map
-    fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
-    if subgraph_builder_function is None:
-        fuser_param_map['fuse_foldable_nodes'].b = True
-        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.9
-        try:
-            import hlo2neuron
-        except ImportError:
-            no_fuse_ops = []
-        else:
-            no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
-    else:
-        force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
-        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
-        no_fuse_ops = [node.name for node in graph_def.node]
-    if no_fuse_ops:
-        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
-
-    # call all grappler passes
-    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
-
-    # call graph_def_util passes
-    subgraph_passes = [
-        'constfold',
-        'debug_stripper',
-        'constfold',
-        'pruning',
-        'dependency',
-        'constfold',
-        'remap',
-        'constfold',
-        'memory',
-        'constfold',
-        'common_subgraph_elimination',
-        'constfold',
-        'arithmetic',
-        'constfold',
-        'loop',
-        'constfold',
-    ]
+    # call graph_def_util/meta_graph_util passes
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
-    graph_def = mgu.run_grappler_on_subgraphs(graph_def, subgraph_passes)
+    graph_def = mgu.run_grappler_on_subgraphs(graph_def)
     graph_def = gdu.run_compiler_on_subgraphs(graph_def, tfn_args.dump_prefix, compiler_args)
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
@@ -177,6 +122,49 @@ class AwsNeuronModel(Model):
                 return self.aws_neuron_function(*inputs)
             else:
                 return self.aws_neuron_function(inputs)
+
+
+def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
+    # produce GraphDef by running grappler passes
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    sig_def = mgu.build_signature_def(cfunc.inputs, cfunc.outputs)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(sig_def)
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = -1
+    graph_passes = [
+        'debug_stripper',
+        'pruning',
+        'dependency',
+        'aws_neuron_static_shape_inference',
+    ]
+    rewriter_config.optimizers.extend(graph_passes)
+
+    # configure operator fusion
+    fuser_config = rewriter_config.custom_optimizers.add()
+    fuser_config.name = 'aws_neuron_fuse_supported_operators'
+    fuser_param_map = fuser_config.parameter_map
+    fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
+    if subgraph_builder_function is None:
+        fuser_param_map['fuse_foldable_nodes'].b = True
+        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.9
+        try:
+            import hlo2neuron
+        except ImportError:
+            no_fuse_ops = []
+        else:
+            no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
+    else:
+        force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
+        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
+        no_fuse_ops = [node.name for node in graph_def.node]
+    if no_fuse_ops:
+        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
+
+    # call all grappler passes
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def
 
 
 def _find_pad_ops_preceding_conv2d(graph):
