@@ -47,7 +47,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     else:
         original_func = def_function.function(func)
         func = original_func.get_concrete_function(example_inputs)
-    tfn_args, compiler_args = utils.parse_neuron_cc_flags()
 
     # Note: input_names is also used for constructing the output ConcreteFunction,
     # where using a dictionary (such as `{ts.name: ts.name for ts in func_inputs}`) can cause
@@ -71,7 +70,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     # call graph_def_util/meta_graph_util passes
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def)
-    graph_def = gdu.run_compiler_on_subgraphs(graph_def, tfn_args.dump_prefix, compiler_args)
+    graph_def = gdu.run_compiler_on_subgraphs(graph_def)
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)

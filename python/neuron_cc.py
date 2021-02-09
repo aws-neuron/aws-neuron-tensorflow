@@ -16,11 +16,11 @@ import sys
 import os
 import json
 import subprocess
-import shlex
 import tempfile
 from distutils import spawn
 from distutils.version import LooseVersion
 from tensorflow_neuron import __version__
+from tensorflow.neuron.python import utils
 
 
 def list_operators():
@@ -42,9 +42,10 @@ def list_operators():
     return supported_op_types.difference(tf_reserved_ops)
 
 
-def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=None):
+def compile_savetemps(graph_def, inputs, outputs, node_name):
     """Returns raw neff bytes (empty bytes if neuron-cc crashed)
     """
+    error_return_value = b'', None, None
     # form io-config
     io_config = {
         'inputs': {ts.name: [[dim.size for dim in ts.shape.dim], ts.dtype.name] for ts in inputs},
@@ -54,33 +55,29 @@ def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=No
     # find neuron-cc and setup workdir
     neuron_cc = find_neuron_cc()
     if neuron_cc is None:
-        return b'', None, None
+        return error_return_value
     neuron_cc_input_name = 'graph_def.pb'
     neuron_executable_name = 'graph_def.neff'
-    if workdir is None:
-        workdir_obj = tempfile.TemporaryDirectory()
-        workdir = workdir_obj.name
-    else:
-        workdir = os.path.realpath(workdir)
-        os.makedirs(workdir, exist_ok=True)
-    input_path = os.path.join(workdir, neuron_cc_input_name)
-    output_path = os.path.join(workdir, neuron_executable_name)
-    with open(input_path, 'wb') as f:
-        f.write(graph_def.SerializeToString())
-    command = [neuron_cc, 'compile', input_path, '--framework', 'TENSORFLOW',
-               '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
-    command.extend(['--io-config', json.dumps(io_config)])
-    if compiler_args is not None:
-        if isinstance(compiler_args, bytes):
-            compiler_args = compiler_args.decode()
-        if isinstance(compiler_args, str):
-            compiler_args = shlex.split(compiler_args)
+    tfn_args, compiler_args = utils.parse_neuron_cc_flags()
+    with tempfile.TemporaryDirectory() as workdir:
+        if tfn_args.dump_prefix is not None:
+            workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
+            os.makedirs(workdir, exist_ok=True)
+        input_path = os.path.join(workdir, neuron_cc_input_name)
+        output_path = os.path.join(workdir, neuron_executable_name)
+        with open(input_path, 'wb') as f:
+            f.write(graph_def.SerializeToString())
+        command = [neuron_cc, 'compile', input_path, '--framework', 'TENSORFLOW',
+                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
+        command.extend(['--io-config', json.dumps(io_config)])
         command.extend(compiler_args)
-    proc = subprocess.run(command, cwd=workdir)
-    if proc.returncode != 0:
-        return b'', None, None
-    with open(output_path, 'rb') as f:
-        executable = f.read()
+        if tfn_args.log_level is not None:
+            command.append('--verbose={}'.format(tfn_args.log_level))
+        proc = subprocess.run(command, cwd=workdir)
+        if proc.returncode != 0:
+            return error_return_value
+        with open(output_path, 'rb') as f:
+            executable = f.read()
     return executable, inputs, outputs
 
 

@@ -62,8 +62,6 @@ def model_conversion_report(model_dir, new_model_dir, on_neuron_ratio):
     if on_neuron_ratio > 0.3:
         with logging_show_info():
             logging.info('Successfully converted {}'.format(converted_msg))
-    elif on_neuron_ratio == 0.0:
-        logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
     else:
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
 
@@ -72,5 +70,6 @@ def parse_neuron_cc_flags():
     neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
     parser = argparse.ArgumentParser()
     parser.add_argument('--dump-prefix', default=None)
+    parser.add_argument('--log-level', type=int, default=None)
     tfn_args, compiler_args = parser.parse_known_args(shlex.split(neuron_cc_flags))
     return tfn_args, compiler_args

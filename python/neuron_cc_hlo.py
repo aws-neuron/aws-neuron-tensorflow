@@ -20,6 +20,7 @@ try:
 except ImportError:
     from tensorflow.neuron.python.tf2xla import tf2xla_pb2
 from tensorflow.compiler.xla.service import hlo_pb2
+from tensorflow.neuron.python import utils
 from hlo2neuron.driver import hlo2neff
 
 
@@ -58,7 +59,7 @@ def list_operators():
     return supported_operator_types
 
 
-def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=None):
+def compile_savetemps(graph_def, inputs, outputs, node_name):
     # form tf2xla Config
     tf2xla_config = tf2xla_pb2.Config()
     for tensors, container in zip([inputs, outputs], [tf2xla_config.feed, tf2xla_config.fetch]):
@@ -79,28 +80,27 @@ def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=No
     graph_def_name = 'graph_def.pb'
     tf2xla_config_name = 'tf2xla_config.pb'
     hlo_snapshot_name = 'hlo_snapshot.pb'
-    if workdir is None:
-        workdir_obj = tempfile.TemporaryDirectory()
-        workdir = workdir_obj.name
-    else:
-        workdir = os.path.realpath(workdir)
-        os.makedirs(workdir, exist_ok=True)
-    graph_def_path = os.path.join(workdir, graph_def_name)
-    tf2xla_config_path = os.path.join(workdir, tf2xla_config_name)
-    hlo_snapshot_path = os.path.join(workdir, hlo_snapshot_name)
-    with open(graph_def_path, 'wb') as f:
-        f.write(graph_def.SerializeToString())
-    with open(tf2xla_config_path, 'wb') as f:
-        f.write(tf2xla_config.SerializeToString())
-    command = [aws_neuron_tf2hlo_path, '--graph={}'.format(graph_def_path),
-               '--config={}'.format(tf2xla_config_path),
-               '--out_session_module={}'.format(hlo_snapshot_path)]
-    proc = subprocess.run(command, cwd=workdir)
-    if proc.returncode != 0:
-        return b'', None, None
-    hlo_snapshot = hlo_pb2.HloSnapshot()
-    with open(hlo_snapshot_path, 'rb') as f:
-        hlo_snapshot.ParseFromString(f.read())
-    hlo_module = hlo_snapshot.hlo.hlo_module
-    executable, new_inputs, new_outputs = hlo2neff(hlo_module)
+    tfn_args, compiler_args = utils.parse_neuron_cc_flags()
+    with tempfile.TemporaryDirectory() as workdir:
+        if tfn_args.dump_prefix is not None:
+            workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
+            os.makedirs(workdir, exist_ok=True)
+        graph_def_path = os.path.join(workdir, graph_def_name)
+        tf2xla_config_path = os.path.join(workdir, tf2xla_config_name)
+        hlo_snapshot_path = os.path.join(workdir, hlo_snapshot_name)
+        with open(graph_def_path, 'wb') as f:
+            f.write(graph_def.SerializeToString())
+        with open(tf2xla_config_path, 'wb') as f:
+            f.write(tf2xla_config.SerializeToString())
+        command = [aws_neuron_tf2hlo_path, '--graph={}'.format(graph_def_path),
+                   '--config={}'.format(tf2xla_config_path),
+                   '--out_session_module={}'.format(hlo_snapshot_path)]
+        proc = subprocess.run(command, cwd=workdir)
+        if proc.returncode != 0:
+            return b'', None, None
+        hlo_snapshot = hlo_pb2.HloSnapshot()
+        with open(hlo_snapshot_path, 'rb') as f:
+            hlo_snapshot.ParseFromString(f.read())
+        hlo_module = hlo_snapshot.hlo.hlo_module
+        executable, new_inputs, new_outputs = hlo2neff(hlo_module)
     return executable, new_inputs, new_outputs

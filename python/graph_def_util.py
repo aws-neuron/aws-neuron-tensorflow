@@ -211,7 +211,7 @@ def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
     return graph_def
 
 
-def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
+def run_compiler_on_subgraphs(graph_def):
     IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)
@@ -223,12 +223,9 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
         subgraph_def = get_subgraph_def(node)
         inputs = []
         outputs = []
-        zip_inputs = zip(node.attr[knInputNames].list.s,
-                         node.attr[knInputDtypes].list.type,
-                         node.attr[knInputShapes].list.shape)
-        zip_outputs = zip(node.attr[knOutputNames].list.s,
-                          node.attr[knOutputDtypes].list.type,
-                          node.attr[knOutputShapes].list.shape)
+        nal = lambda key: node.attr[key].list
+        zip_inputs = zip(nal(knInputNames).s, nal(knInputDtypes).type, nal(knInputShapes).shape)
+        zip_outputs = zip(nal(knOutputNames).s, nal(knOutputDtypes).type, nal(knOutputShapes).shape)
         for container, tensors in zip([inputs, outputs], [zip_inputs, zip_outputs]):
             for name, dtype_enum, shape in tensors:
                 name = name.decode()
@@ -241,9 +238,7 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None):
             sg_node.attr.pop(kNeuronInferredShapes)
 
         # setup workdir and run neuron-cc
-        subgraph_workdir = None if workdir is None else os.path.join(workdir, node.name)
-        executable, inputs, outputs = compile_savetemps(
-            subgraph_def, inputs, outputs, workdir=subgraph_workdir, compiler_args=compiler_args)
+        executable, inputs, outputs = compile_savetemps(subgraph_def, inputs, outputs, node.name)
         if executable:
             node.attr[knExecutable].s = executable
             node.attr[knInputNames].list.s[:] = [ts.name.encode() for ts in inputs]
