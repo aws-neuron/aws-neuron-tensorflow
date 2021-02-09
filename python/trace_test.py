@@ -160,7 +160,7 @@ class TestTraceFunction(TestV2Only):
         _assert_compiler_success_func(compiled_func)
         neuron_op = [op for op in compiled_func.graph.get_operations() if op.type == 'NeuronOp'][0]
         neff_size = len(neuron_op.get_attr('executable'))
-        assert neff_size < 1e6, 'neff too large -- replication is probably not working'
+        assert neff_size < 2e6, 'neff too large -- replication is probably not working'
         result_func_ref = func_ref(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
