@@ -85,6 +85,9 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         if tfn_args.dump_prefix is not None:
             workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
             os.makedirs(workdir, exist_ok=True)
+            compiler_args.append('--dump-prefix={}'.format(workdir))
+        if tfn_args.log_level is not None:
+            compiler_args.append('--log-level={}'.format(tfn_args.log_level))
         graph_def_path = os.path.join(workdir, graph_def_name)
         tf2xla_config_path = os.path.join(workdir, tf2xla_config_name)
         hlo_snapshot_path = os.path.join(workdir, hlo_snapshot_name)
@@ -102,5 +105,5 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         with open(hlo_snapshot_path, 'rb') as f:
             hlo_snapshot.ParseFromString(f.read())
         hlo_module = hlo_snapshot.hlo.hlo_module
-        executable, new_inputs, new_outputs = hlo2neff(hlo_module)
+        executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args)
     return executable, new_inputs, new_outputs
