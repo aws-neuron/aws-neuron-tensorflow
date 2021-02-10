@@ -51,8 +51,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     # Note: input_names is also used for constructing the output ConcreteFunction,
     # where using a dictionary (such as `{ts.name: ts.name for ts in func_inputs}`) can cause
     # the resulted ConcreteFunction to get feed tensors going to the wrong inputs occationally
-    captured_inputs = {ts.ref() for _, ts in func.graph.captures}
-    input_names = [ts.name for ts in func.inputs if ts.ref() not in captured_inputs]
+    captured_inputs = {ts.name for _, ts in func.graph.captures}
+    input_names = [ts.name for ts in func.inputs if ts.name not in captured_inputs]
 
     # convert all variables to constants
     cfunc = convert_to_constants.convert_variables_to_constants_v2(func)
