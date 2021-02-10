@@ -72,8 +72,8 @@ def compile_savetemps(graph_def, inputs, outputs, workdir=None, compiler_args=No
             item.type = ts.dtype.as_datatype_enum
 
     # call aws_neuron_tf2hlo
-    temp_path = tf2xla_pb2.__file__
-    for _ in range(3):
+    temp_path = hlo_pb2.__file__
+    for _ in range(4):
         temp_path = os.path.dirname(temp_path)
     aws_neuron_tf2hlo_path = os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
     graph_def_name = 'graph_def.pb'
