@@ -138,7 +138,7 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t size) {
         if (buffer_vec_.back()->unsupported_by_runtime()) {
             LOG(INFO) << "The current Neuron runtime configuration does not support "
                          "shared memory data transfer. Please refer to "
-                         "https://github.com/aws/aws-neuron-sdk/blob/master/docs/neuron-runtime/nrt-theory-of-operation.md#shared-memory-for-inference-ifmaps-and-ofmaps "
+                         "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/neuron-guide/neuron-runtime/nrt-theory-of-operation.html#shared-memory-for-inference-ifmaps-and-ofmaps "
                          "if you encounter performance problem caused by high CPU usage on inf1 instances.";
             is_valid_ = false;
         }

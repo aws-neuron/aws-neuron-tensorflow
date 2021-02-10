@@ -454,8 +454,8 @@ Status SegmentGraph(const Graph* tf_graph,
     StrAppend(&msg, elem, ", ");
   }
   LOG(INFO) << msg << "(For more information see "
-            << "https://github.com/aws/aws-neuron-sdk"
-            << "/blob/master/release-notes/neuron-cc-ops/neuron-cc-ops-tensorflow.md).";
+            << "https://awsdocs-neuron.readthedocs-hosted.com"
+            << "/en/latest/release-notes/neuron-cc-ops/neuron-cc-ops-tensorflow.html).";
 
   // The segmentation algorithm below visits nodes in reverse topological order
   // and attempts to merge nodes along output edges. That means that subgraphs
