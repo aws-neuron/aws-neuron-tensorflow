@@ -15,7 +15,10 @@
 import os
 import subprocess
 import tempfile
-from tensorflow.compiler.tf2xla import tf2xla_pb2
+try:
+    from tensorflow.compiler.tf2xla import tf2xla_pb2
+except ImportError:
+    from tensorflow.neuron.python.tf2xla import tf2xla_pb2
 from tensorflow.compiler.xla.service import hlo_pb2
 from hlo2neuron.driver import hlo2neff
 

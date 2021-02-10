@@ -1,9 +1,8 @@
-package(default_visibility = ["//visibility:public"])
-
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_wrapper_py")
 
+package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "graph_util_py",
@@ -94,7 +93,12 @@ py_library(
     srcs = glob(["neuron_cc*.py"]),
     deps = [
         ":utils_py",
-    ]
+    ] + select({
+        "//tensorflow:api_version_2": [
+            "//tensorflow/neuron/python/tf2xla:tf2xla_proto_py",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 tf_custom_op_library(
