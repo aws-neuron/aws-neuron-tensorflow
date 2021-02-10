@@ -39,13 +39,14 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     Returns:
         A Neuron-optimized `keras.Model`.
     """
-    original_func = func
     if isinstance(func, def_function.Function):
+        original_func = func
         func = func.get_concrete_function(example_inputs)
     elif isinstance(func, function.ConcreteFunction):
-        pass
+        original_func = func
     else:
-        func = def_function.function(func).get_concrete_function(example_inputs)
+        original_func = def_function.function(func)
+        func = original_func.get_concrete_function(example_inputs)
     tfn_args, compiler_args = utils.parse_neuron_cc_flags()
 
     # Note: input_names is also used for constructing the output ConcreteFunction,
@@ -136,7 +137,12 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # some hacks to ensure the new ConcreteFunction will have the same calling signature
     cfunc.graph.structured_input_signature = func.graph.structured_input_signature
-    cfunc._set_function_spec(func._function_spec)
+    try:
+        cfunc._set_function_spec(func._function_spec)
+    except AttributeError:
+        unroll_args = True
+    else:
+        unroll_args = False
 
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
     try:
@@ -147,7 +153,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # wrap ConcreteFunction as a keras model
     func = def_function.function(cfunc)
-    model = AwsNeuronModel(func)
+    model = AwsNeuronModel(func, unroll_args)
 
     # run a fake inference to propagate metadata for saving
     model(example_inputs)
@@ -159,14 +165,18 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, aws_neuron_function):
+    def __init__(self, aws_neuron_function, unroll_args):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = aws_neuron_function
         self.aws_neuron_finalized = False
+        self.aws_neuron_unroll_args = unroll_args
 
     def call(self, inputs):
         if self.aws_neuron_finalized:
-            return self.aws_neuron_function(inputs)
+            if self.aws_neuron_unroll_args:
+                return self.aws_neuron_function(*inputs)
+            else:
+                return self.aws_neuron_function(inputs)
 
 
 def _find_pad_ops_preceding_conv2d(graph):
