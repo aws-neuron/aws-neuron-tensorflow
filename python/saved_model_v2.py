@@ -14,7 +14,7 @@
 # ==============================================================================
 from tensorflow.python import saved_model
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.python.saved_model import loader_impl
+from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python._trace import trace
@@ -37,7 +37,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None):
     model = saved_model.load(model_dir, tags=tags)
 
     # get ConcreteFunction from the SavedModel
-    saved_model_proto, debug_info = loader_impl.parse_saved_model_with_debug_info(model_dir)
+    saved_model_proto = parse_saved_model(model_dir)
     signature_def = saved_model_proto.meta_graphs[0].signature_def
     signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
     if len(signature_def) == 1:
