@@ -44,3 +44,13 @@ class TestV2Only(tf.test.TestCase):
 
         if 'NEURON_TF_COMPILE_ONLY' in os.environ:
             function.ConcreteFunction.__call__ = fake_call
+
+
+def xfail_for_versions(*versions):
+    def major_minor(ver):
+        return LooseVersion(ver).version[:2]
+    def wrapper(test_func):
+        if any(major_minor(tf.__version__) == major_minor(ver) for ver in versions):
+            test_func = unittest.expectedFailure(test_func)
+        return test_func
+    return wrapper

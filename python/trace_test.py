@@ -16,11 +16,12 @@ from unittest.mock import patch
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
 
 
 class TestTraceKerasModel(TestV2Only):
 
+    @xfail_for_versions('2.2')
     def test_keras_model_3in_5out_stateful(self):
         input0 = tf.keras.layers.Input(3)
         input1 = tf.keras.layers.Input(3)
@@ -47,6 +48,7 @@ class TestTraceKerasModel(TestV2Only):
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
+    @xfail_for_versions('2.1', '2.2')
     def test_keras_model_1in_1out_save(self):
         input0 = tf.keras.layers.Input(3)
         dense0 = tf.keras.layers.Dense(3)(input0)
@@ -66,6 +68,7 @@ class TestTraceKerasModel(TestV2Only):
 
 class TestTraceFunction(TestV2Only):
 
+    @xfail_for_versions('2.1', '2.2')
     def test_func_1conv_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
 
@@ -83,6 +86,7 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
         self.assertAllClose(result_func_neuron_reloaded, result_func_ref, rtol=1e-2, atol=1e-2)
 
+    @xfail_for_versions('2.1', '2.2')
     def test_func_input_list_len_1_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
 
@@ -134,6 +138,7 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = cfunc(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
+    @xfail_for_versions('2.1', '2.2')
     def test_func_pad_conv(self):
         kernel = tf.random.uniform([7, 7, 3, 64])
         kernel = tf.cast(kernel, tf.float16)

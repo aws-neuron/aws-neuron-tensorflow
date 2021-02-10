@@ -19,7 +19,7 @@ import tensorflow.neuron as tfn
 import random
 from itertools import product
 import shutil
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
 
 # each number represents the number of random
 # parameters from that catergory
@@ -68,6 +68,7 @@ class TestSequentialKeras(TestV2Only):
     # 3. The type of activation function that the input layer uses
     # @parameterized.expand()
 
+    @xfail_for_versions('2.1', '2.2')
     def test_flatten_dense_dropout(self):
 
         param_list = list(product(inputNumUnits, activations, outputNumUnits))
@@ -96,6 +97,7 @@ class TestSequentialKeras(TestV2Only):
                 feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
                 run_inference(model_dir, [test_input], feed_dict)
 
+    @xfail_for_versions('2.1', '2.2')
     def test_conv2d_conv2d_flatten_dense(self):
 
         param_list = list(product(inputNumUnits, activations, outputNumUnits, kernelSizes))
@@ -152,6 +154,7 @@ class TestSequentialKeras(TestV2Only):
                 feed_dict = tf2_compile(model, model_dir, example_inputs=[test_input])
                 run_inference(model_dir, [test_input], feed_dict)
 
+    @xfail_for_versions('2.1', '2.2')
     def test_maxpool2d(self):
         # A simple test that is only parameterized by inputNumUnits
         # which in this case describes the size of the square input
@@ -182,6 +185,8 @@ class TestSequentialKeras(TestV2Only):
                 run_inference(model_dir, [test_input], feed_dict)
 
 class TestFunctionalKeras(TestV2Only):
+
+    @xfail_for_versions('2.1', '2.2')
     def test_toy_resnet(self):
         inputs = tf.keras.Input(shape=(32, 32, 3), name="img")
         x = tf.keras.layers.Conv2D(32, 3, activation="relu")(inputs)
@@ -284,7 +289,7 @@ class TestGraphUtil(TestV2Only):
         feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
         run_inference(model_dir, [test_input1, test_input2], feed_dict)
 
-
+    @xfail_for_versions('2.1', '2.2')
     def test_branch_merge(self):
         input1 = tf.keras.Input(shape=[2, 2, 3], name='input1')
         conv2d1 = tf.keras.layers.Conv2D(filters=3, kernel_size=(1, 1), strides=1, padding='VALID', name='conv2d1')(input1)
@@ -302,6 +307,7 @@ class TestGraphUtil(TestV2Only):
         feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input])
         run_inference(model_dir, [test_input], feed_dict)
 
+    @xfail_for_versions('2.1', '2.2')
     def test_no_fuse(self):
         input1 = tf.keras.Input(shape=[2, 2, 3], name='input1')
         conv2d1 = tf.keras.layers.Conv2D(filters=3, kernel_size=(1, 1), strides=1, padding='VALID', name='conv2d1')(input1)
@@ -347,6 +353,7 @@ class TestGraphUtil(TestV2Only):
         feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
         run_inference(model_dir, [test_input1, test_input2], feed_dict)
 
+    @xfail_for_versions('2.2')
     def test_short_long_mid(self):
         input1 = tf.keras.Input(shape=[3, 5], name='input1')
         input2 = tf.keras.Input(shape=[3, 5], name='input2')
