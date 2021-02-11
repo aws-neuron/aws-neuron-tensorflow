@@ -38,7 +38,7 @@ inputNumUnits = list(range(1, 1025))
 outputNumUnits = list(range(1, 1025))
 magicNumbers = [28, 14, 7, 224, 112, 56, 28, 299, 150, 75]
 kernelSizes = [1, 3]
-activations = ['softmax', 'relu', 'tanh', 'sigmoid', 'exponential', 'linear']
+_ACTIVATIONS = ['softmax', 'relu', 'tanh', 'sigmoid', 'exponential', 'linear']
 powersOfTwo = [2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048]
 
 
@@ -48,7 +48,7 @@ random.shuffle(inputNumUnits)
 random.shuffle(outputNumUnits)
 random.shuffle(magicNumbers)
 random.shuffle(kernelSizes)
-random.shuffle(activations)
+random.shuffle(_ACTIVATIONS)
 random.shuffle(powersOfTwo)
 
 # Pick the first n params based on specified constants above
@@ -56,7 +56,7 @@ inputNumUnits = inputNumUnits[0:NUM_INPUT_UNITS]
 outputNumUnits = outputNumUnits[0:NUM_OUTPUT_UNITS]
 magicNumbers = magicNumbers[0:NUM_MAGIC_NUMBERS]
 kernelSizes = kernelSizes[0:NUM_KERNEL_SIZES]
-activations = activations[0:NUM_ACTIVATIONS]
+_ACTIVATIONS = _ACTIVATIONS[0:NUM_ACTIVATIONS]
 powersOfTwo = powersOfTwo[0:NUM_POWERS]
 
 
@@ -70,7 +70,7 @@ class TestSequentialKeras(TestV2Only):
 
     def test_flatten_dense_dropout(self):
 
-        param_list = list(product(inputNumUnits, activations, outputNumUnits))
+        param_list = list(product(inputNumUnits, _ACTIVATIONS, outputNumUnits))
         for inu, a, onu in param_list:
             # subTest allows us to generate tests dynamically
             # if one of the subTests fail, the error message
@@ -98,7 +98,7 @@ class TestSequentialKeras(TestV2Only):
 
     def test_conv2d_conv2d_flatten_dense(self):
 
-        param_list = list(product(inputNumUnits, activations, outputNumUnits, kernelSizes))
+        param_list = list(product(inputNumUnits, _ACTIVATIONS, outputNumUnits, kernelSizes))
         for inu, a, onu, ks in param_list:
             # subTest allows us to generate tests dynamically
             # if one of the subTests fail, the error message
@@ -130,7 +130,7 @@ class TestSequentialKeras(TestV2Only):
     #internal compiler error
     @unittest.expectedFailure
     def test_lstm_lstm_dense_dense(self):
-        param_list = list(product(inputNumUnits, activations, outputNumUnits))
+        param_list = list(product(inputNumUnits, _ACTIVATIONS, outputNumUnits))
         for inu, a, onu in param_list:
             with self.subTest(inputNumUnits=inu, activations=a, outputNumUnits=onu):
                 model = tf.keras.models.Sequential(
@@ -348,7 +348,6 @@ class TestGraphUtil(TestV2Only):
         feed_dict = tf2_compile(model1, model_dir, example_inputs=[test_input1, test_input2])
         run_inference(model_dir, [test_input1, test_input2], feed_dict)
 
-    @xfail_for_versions('2.2')
     def test_short_long_mid(self):
         input1 = tf.keras.Input(shape=[3, 5], name='input1')
         input2 = tf.keras.Input(shape=[3, 5], name='input2')

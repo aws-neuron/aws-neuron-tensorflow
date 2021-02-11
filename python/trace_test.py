@@ -21,7 +21,6 @@ from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_version
 
 class TestTraceKerasModel(TestV2Only):
 
-    @xfail_for_versions('2.2')
     def test_keras_model_3in_5out_stateful(self):
         input0 = tf.keras.layers.Input(3)
         input1 = tf.keras.layers.Input(3)
@@ -48,7 +47,7 @@ class TestTraceKerasModel(TestV2Only):
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
-    @xfail_for_versions('2.1', '2.2')
+    @xfail_for_versions('2.1')
     def test_keras_model_1in_1out_save(self):
         input0 = tf.keras.layers.Input(3)
         dense0 = tf.keras.layers.Dense(3)(input0)
