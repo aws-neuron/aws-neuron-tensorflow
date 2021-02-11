@@ -93,7 +93,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     try:
         cfunc._set_function_spec(func._function_spec)
     except AttributeError:
-        unroll_args = True
+        unroll_args = len(input_names) > 1
     else:
         unroll_args = False
 

@@ -68,7 +68,7 @@ class TestTraceKerasModel(TestV2Only):
 
 class TestTraceFunction(TestV2Only):
 
-    @xfail_for_versions('2.1', '2.2')
+    @xfail_for_versions('2.1')
     def test_func_1conv_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
 
@@ -138,7 +138,6 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = cfunc(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
-    @xfail_for_versions('2.1', '2.2')
     def test_func_pad_conv(self):
         kernel = tf.random.uniform([7, 7, 3, 64])
         kernel = tf.cast(kernel, tf.float16)
