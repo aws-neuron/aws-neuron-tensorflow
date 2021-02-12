@@ -93,7 +93,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     try:
         cfunc._set_function_spec(func._function_spec)
     except AttributeError:
-        unroll_args = len(input_names) > 1
+        unroll_args = isinstance(example_inputs, list)
     else:
         unroll_args = False
 
@@ -132,7 +132,7 @@ class AwsNeuronModel(Model):
         self._aws_neuron_output_type = output_type
 
     def call(self, inputs):
-        if self._aws_neuron_unroll_args:
+        if self._aws_neuron_unroll_args and not isinstance(inputs, ops.Tensor):
             output = self.aws_neuron_function(*inputs)
         else:
             output = self.aws_neuron_function(inputs)

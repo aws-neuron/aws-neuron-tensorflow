@@ -83,7 +83,6 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
         self.assertAllClose(result_func_neuron_reloaded, result_func_ref, rtol=1e-2, atol=1e-2)
 
-    @xfail_for_versions('2.1', '2.2')
     def test_func_input_list_len_1_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
 
