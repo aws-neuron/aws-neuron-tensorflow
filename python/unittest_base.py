@@ -27,7 +27,17 @@ class TestV1Only(unittest.TestCase):
             raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
 
 
-class TestV2Only(tf.test.TestCase):
+class RemoveTestSession(type):
+
+    def __new__(mcs, name, bases, dct):
+        try:
+            del tf.test.TestCase.test_session
+        except AttributeError:
+            pass
+        return type.__new__(mcs, name, bases, dct)
+
+
+class TestV2Only(tf.test.TestCase, metaclass=RemoveTestSession):
 
     @classmethod
     def setUpClass(cls):
