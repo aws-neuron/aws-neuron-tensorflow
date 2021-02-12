@@ -72,7 +72,10 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         command.extend(['--io-config', json.dumps(io_config)])
         command.extend(compiler_args)
         if tfn_args.log_level is not None:
-            command.append('--verbose={}'.format(tfn_args.log_level))
+            verbose = tfn_args.log_level
+            if verbose not in {0, 1, 2}:  # set to default for unrecognized values
+                verbose = 35
+            command.append('--verbose={}'.format(verbose))
         proc = subprocess.run(command, cwd=workdir)
         if proc.returncode != 0:
             return error_return_value
