@@ -19,7 +19,7 @@ import tensorflow.neuron as tfn
 import random
 from itertools import product
 import shutil
-from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
+from tensorflow.neuron.python.unittest_base import TestV2Only
 
 # each number represents the number of random
 # parameters from that catergory
@@ -183,7 +183,6 @@ class TestSequentialKeras(TestV2Only):
 
 class TestFunctionalKeras(TestV2Only):
 
-    @xfail_for_versions('2.1', '2.2')
     def test_toy_resnet(self):
         inputs = tf.keras.Input(shape=(32, 32, 3), name="img")
         x = tf.keras.layers.Conv2D(32, 3, activation="relu")(inputs)
