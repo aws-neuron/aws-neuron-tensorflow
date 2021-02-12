@@ -110,11 +110,16 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     output_type = type(struct_out) if isinstance(struct_out, abc.Mapping) else None
     model = AwsNeuronModel(new_func, unroll_args, output_type)
 
-    # run a fake inference to propagate metadata for saving
-    model(example_inputs)
-
-    # finalize and return
-    model._aws_neuron_finalized = True
+    # hack to propagate metadata for saving
+    if hasattr(model, '_set_save_spec'):
+        set_save_spec = model._set_save_spec
+    elif hasattr(model, '_set_input_attrs'):
+        set_save_spec = model._set_input_attrs
+    else:
+        set_save_spec = None
+        logging.warning('Not setting inputs for the traced model; it may not be savable before running inference')
+    if set_save_spec is not None:
+        set_save_spec(example_inputs)
     return model
 
 
@@ -123,19 +128,17 @@ class AwsNeuronModel(Model):
     def __init__(self, aws_neuron_function, unroll_args, output_type):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = aws_neuron_function
-        self._aws_neuron_finalized = False
         self._aws_neuron_unroll_args = unroll_args
         self._aws_neuron_output_type = output_type
 
     def call(self, inputs):
-        if self._aws_neuron_finalized:
-            if self._aws_neuron_unroll_args:
-                output = self.aws_neuron_function(*inputs)
-            else:
-                output = self.aws_neuron_function(inputs)
-            if self._aws_neuron_output_type is not None:
-                output = self._aws_neuron_output_type(**output)
-            return output
+        if self._aws_neuron_unroll_args:
+            output = self.aws_neuron_function(*inputs)
+        else:
+            output = self.aws_neuron_function(inputs)
+        if self._aws_neuron_output_type is not None:
+            output = self._aws_neuron_output_type(**output)
+        return output
 
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):

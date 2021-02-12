@@ -47,7 +47,6 @@ class TestTraceKerasModel(TestV2Only):
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
-    @xfail_for_versions('2.1')
     def test_keras_model_1in_1out_save(self):
         input0 = tf.keras.layers.Input(3)
         dense0 = tf.keras.layers.Dense(3)(input0)
@@ -67,7 +66,6 @@ class TestTraceKerasModel(TestV2Only):
 
 class TestTraceFunction(TestV2Only):
 
-    @xfail_for_versions('2.1')
     def test_func_1conv_save(self):
         kernel = tf.random.uniform([3, 3, 3, 32])
 
