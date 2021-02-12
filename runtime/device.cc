@@ -290,10 +290,6 @@ Status NeuronDevice::initialize(const std::string &nrtd_address,
             uint32_t eg_id = NRT_INVALID_EG_ID;
             uint32_t num_cores = 0;
             TF_RETURN_IF_ERROR(runtime_.create_eg(&eg_id, &num_cores, num_cores_req, session_id));
-            if (num_cores != 1) {
-                return errors::InvalidArgument(
-                    "NeuronCore group size ", num_cores, " is not allowed in model duplication mode");
-            }
             vec_eg_id_.push_back(eg_id);
             num_cores_ = num_cores_req;
         }
