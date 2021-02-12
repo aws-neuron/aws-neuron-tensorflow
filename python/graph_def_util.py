@@ -317,18 +317,16 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
             node.input[idx] = gd_tensor_name_map.get(name, name)
 
     graph_def = graph_pb2.GraphDef()
-
-    def is_not_removed(name):
-        if name.startswith('^'):
-            return name[1:] not in remove_node_names
-        else:
-            return name not in remove_node_names
-
-    for node in compiled_graph_def.node:
-        node.input[:] = [name for name in node.input if is_not_removed(name)]
-        if node.name not in remove_node_names:
-            graph_def.node.append(node)
+    graph_def.node.extend(
+        node for node in compiled_graph_def.node if node.name not in remove_node_names)
     graph_def.node.extend(node for node in restore_nodes)
+
+    # remove illegal node names
+    node_names = {node.name for node in graph_def.node}
+    for node in graph_def.node:
+        node.input[:] = [name for name in node.input if _graph_def_op_index(name)[0] in node_names]
+
+    # preserve information for function-call operators (e. g., MapDataset)
     graph_def.library.CopyFrom(compiled_graph_def.library)
     return graph_def
 
@@ -445,10 +443,11 @@ def compiled_graph_op_counts(graph_def):
 
 
 def _graph_def_op_index(graph_def_tensor_name):
-    comma_split = graph_def_tensor_name.split(':')
     if ':' in graph_def_tensor_name:
-        op_name, value_index = comma_split
+        op_name, value_index = graph_def_tensor_name.split(':')
         value_index = int(value_index)
     else:
-        op_name, value_index = comma_split[0], 0
+        op_name, value_index = graph_def_tensor_name, 0
+    if op_name.startswith('^'):
+        op_name = op_name[1:]
     return op_name, value_index
