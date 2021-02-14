@@ -35,21 +35,17 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     Args:
         func: The function to be converted.
-        example_inputs: A `tf.Tensor` or a tuple/list of `tf.Tensor`s for tracing the function.
+        example_inputs: A `tf.Tensor` or a tuple/list/dict of `tf.Tensor`s for tracing the function.
 
     Returns:
         A Neuron-optimized `keras.Model`.
     """
+    if not isinstance(example_inputs, tuple):
+        example_inputs = (example_inputs,)
     if not isinstance(func, (def_function.Function, function.ConcreteFunction)):
         func = def_function.function(func)
-    if isinstance(func, function.ConcreteFunction):
-        pass
-    else:
-        is_single_input = len(func.function_spec.fullargspec.args) == 1
-        if isinstance(example_inputs, tuple) and len(example_inputs) > 1:
-            is_single_input = False
-        func_inputs = (example_inputs,) if is_single_input else example_inputs
-        func = func.get_concrete_function(*func_inputs)
+    if not isinstance(func, function.ConcreteFunction):
+        func = func.get_concrete_function(*example_inputs)
 
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
@@ -99,6 +95,8 @@ class AwsNeuronModel(Model):
 
 
 def _get_shape_feed_dict(func, inputs):
+    if len(inputs) == 1:
+        inputs, = inputs
     if isinstance(inputs, abc.Mapping):
         func_args, func_kwargs = func.structured_input_signature
         if len(func_args) != 1:
@@ -214,6 +212,8 @@ def _wrap_graph_def_as_concrete_function(graph_def, func_ref):
 
 
 def _make_keras_model_savable(model, example_inputs):
+    if len(example_inputs) == 1:
+        example_inputs, = example_inputs
     # hack to propagate metadata for saving
     if hasattr(model, '_set_save_spec'):
         set_save_spec = model._set_save_spec
