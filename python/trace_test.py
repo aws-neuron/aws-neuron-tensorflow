@@ -209,6 +209,25 @@ class TestTraceFunction(TestV2Only):
         for res_neuron, res_ref in zip(result_func_neuron, result_func_ref):
             self.assertAllClose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
+    def test_attention_layer(self):
+        query = tf.random.uniform([1, 8, 32])
+        key = tf.random.uniform([1, 16, 32])
+        value = tf.random.uniform([1, 16, 32])
+        query_mask = tf.random.uniform([1, 8]) > 0.5
+        value_mask = tf.random.uniform([1, 16]) > 0.5
+        layer = tf.keras.layers.Attention(use_scale=False)
+        example_inputs = [query, key, value], [query_mask, value_mask]
+
+        def do_nothing(graph_def, *args, **kwargs):
+            return graph_def
+
+        with patch('tensorflow.neuron.python.graph_def_util.run_compiler_on_subgraphs', do_nothing):
+            layer_neuron = tfn.trace(layer, example_inputs)
+
+        result_layer = layer(*example_inputs)
+        result_layer_neuron = layer_neuron(*example_inputs)
+        self.assertAllClose(result_layer_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
     def test_prune_subgraphs(self):
 
         def func(tensor):

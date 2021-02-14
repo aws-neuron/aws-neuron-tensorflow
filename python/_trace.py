@@ -88,7 +88,8 @@ class AwsNeuronModel(Model):
             self._aws_neuron_output_type = type(structured_outputs)
 
     def call(self, inputs, *args):
-        outputs = self.aws_neuron_function(inputs, *args)
+        flat_inputs = nest.flatten((inputs, args))
+        outputs = self.aws_neuron_function(*flat_inputs)
         if self._aws_neuron_output_type is not None:
             outputs = self._aws_neuron_output_type(**outputs)
         return outputs
@@ -194,13 +195,6 @@ def _wrap_graph_def_as_concrete_function(graph_def, func_ref):
     input_names = _get_input_names(func_ref)
     output_names = _get_output_names(func_ref)
     cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
-
-    # some hacks to ensure the new ConcreteFunction will have the same calling signature
-    cfunc.graph.structured_input_signature = func_ref.graph.structured_input_signature
-    try:
-        cfunc._set_function_spec(func_ref._function_spec)
-    except AttributeError:
-        pass
 
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
     try:
