@@ -71,41 +71,12 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.set_execution_plan(graph_def)
 
     # wrap GraphDef as a WrappedFunction
-    # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
-    # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
-    input_names = _get_input_names(func)
-    output_names = _get_output_names(func)
-    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
-
-    # some hacks to ensure the new ConcreteFunction will have the same calling signature
-    cfunc.graph.structured_input_signature = func.graph.structured_input_signature
-    try:
-        cfunc._set_function_spec(func._function_spec)
-    except AttributeError:
-        pass
-
-    # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
-    try:
-        if cfunc._arg_keywords != func._arg_keywords:
-            cfunc._arg_keywords = func._arg_keywords
-    except AttributeError:
-        pass
+    cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
 
     # wrap ConcreteFunction as a keras model
     new_func = def_function.function(cfunc)
     model = AwsNeuronModel(new_func, func.structured_outputs)
-
-    # hack to propagate metadata for saving
-    if hasattr(model, '_set_save_spec'):
-        set_save_spec = model._set_save_spec
-    elif hasattr(model, '_set_input_attrs'):
-        set_save_spec = model._set_input_attrs
-    else:
-        set_save_spec = None
-        logging.warning('Not setting inputs for the traced model {}; you may need to run inference '
-                        'before trying to save it'.format(model))
-    if set_save_spec is not None:
-        set_save_spec(example_inputs)
+    _make_keras_model_savable(model, example_inputs)
     return model
 
 
@@ -214,3 +185,40 @@ def _get_output_names(func):
         return output.name
     else:
         return [ts.name for ts in outputs]
+
+
+def _wrap_graph_def_as_concrete_function(graph_def, func_ref):
+    # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
+    # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
+    input_names = _get_input_names(func_ref)
+    output_names = _get_output_names(func_ref)
+    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
+
+    # some hacks to ensure the new ConcreteFunction will have the same calling signature
+    cfunc.graph.structured_input_signature = func_ref.graph.structured_input_signature
+    try:
+        cfunc._set_function_spec(func_ref._function_spec)
+    except AttributeError:
+        pass
+
+    # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
+    try:
+        if cfunc._arg_keywords != func_ref._arg_keywords:
+            cfunc._arg_keywords = func_ref._arg_keywords
+    except AttributeError:
+        pass
+    return cfunc
+
+
+def _make_keras_model_savable(model, example_inputs):
+    # hack to propagate metadata for saving
+    if hasattr(model, '_set_save_spec'):
+        set_save_spec = model._set_save_spec
+    elif hasattr(model, '_set_input_attrs'):
+        set_save_spec = model._set_input_attrs
+    else:
+        set_save_spec = None
+        logging.warning('Not setting inputs for the traced model {}; you may need to run inference '
+                        'before trying to save it'.format(model))
+    if set_save_spec is not None:
+        set_save_spec(example_inputs)
