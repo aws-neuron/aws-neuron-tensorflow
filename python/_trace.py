@@ -49,12 +49,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         func_inputs = (example_inputs,) if is_single_input else example_inputs
         func = func.get_concrete_function(*func_inputs)
 
-    # Note: input_names is also used for constructing the output ConcreteFunction,
-    # where using a dictionary (such as `{ts.name: ts.name for ts in func_inputs}`) can cause
-    # the resulted ConcreteFunction to get feed tensors going to the wrong inputs occationally
-    captured_inputs = {ts.name for _, ts in func.graph.captures}
-    input_names = [ts.name for ts in func.inputs if ts.name not in captured_inputs]
-
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
         cfunc = convert_to_constants.convert_variables_to_constants_v2(func)
@@ -62,15 +56,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     original_graph_def = graph_def
 
     # encode known shapes
-    if isinstance(example_inputs, abc.Mapping):
-        func_args, func_kwargs = func.structured_input_signature
-        if len(func_args) != 1:
-            raise NotImplementedError('function with multiple dictionary inputs is not supported')
-        input_dict, = func_args
-        shape_feed_dict = {'{}:0'.format(spec.name): example_inputs[name].shape for name, spec in input_dict.items()}
-    else:
-        inputs_list = [example_inputs] if isinstance(example_inputs, ops.Tensor) else example_inputs
-        shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, inputs_list)}
+    shape_feed_dict = _get_shape_feed_dict(func, example_inputs)
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # call main-graph grappler passes
@@ -85,7 +71,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.set_execution_plan(graph_def)
 
     # wrap GraphDef as a WrappedFunction
-    output_names = _get_output_names(func.outputs, func.structured_outputs)
+    # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
+    # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
+    input_names = _get_input_names(func)
+    output_names = _get_output_names(func)
     cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
 
     # some hacks to ensure the new ConcreteFunction will have the same calling signature
@@ -134,6 +123,19 @@ class AwsNeuronModel(Model):
         if self._aws_neuron_output_type is not None:
             outputs = self._aws_neuron_output_type(**outputs)
         return outputs
+
+
+def _get_shape_feed_dict(func, inputs):
+    if isinstance(inputs, abc.Mapping):
+        func_args, func_kwargs = func.structured_input_signature
+        if len(func_args) != 1:
+            raise NotImplementedError('function with multiple dictionary inputs is not supported')
+        input_dict, = func_args
+        return {'{}:0'.format(spec.name): inputs[name].shape for name, spec in input_dict.items()}
+    else:
+        input_names = _get_input_names(func)
+        inputs_list = [inputs] if isinstance(inputs, ops.Tensor) else inputs
+        return {name: ts.shape for name, ts in zip(input_names, inputs_list)}
 
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
@@ -193,16 +195,22 @@ def _find_pad_ops_preceding_conv2d(graph):
     return no_fuse_ops
 
 
-def _get_output_names(tensors, structured_signature):
-    if isinstance(structured_signature, dict):
+def _get_input_names(func):
+    captured_inputs = {ts.name for _, ts in func.graph.captures}
+    return [ts.name for ts in func.inputs if ts.name not in captured_inputs]
+
+
+def _get_output_names(func):
+    outputs, structured_outputs = func.outputs, func.structured_outputs
+    if isinstance(structured_outputs, dict):
         # return a map from output argument name to symbolic tensor name
         # in order to let the WrappedFunction's return dictionary have the correct keys
-        tensor_specs = nest.flatten(structured_signature, expand_composites=True)
-        tensor_spec_name_map = {spec.name: name for name, spec in structured_signature.items()}
+        tensor_specs = nest.flatten(structured_outputs, expand_composites=True)
+        tensor_spec_name_map = {spec.name: name for name, spec in structured_outputs.items()}
         tensor_spec_names = [tensor_spec_name_map[spec.name] for spec in tensor_specs]
-        return {name: ts.name for ts, name in zip(tensors, tensor_spec_names)}
-    elif len(tensors) == 1 and isinstance(structured_signature, ops.Tensor):
-        tensor, = tensors
-        return tensor.name
+        return {name: ts.name for ts, name in zip(outputs, tensor_spec_names)}
+    elif len(outputs) == 1 and isinstance(structured_outputs, ops.Tensor):
+        output, = outputs
+        return output.name
     else:
-        return [ts.name for ts in tensors]
+        return [ts.name for ts in outputs]
