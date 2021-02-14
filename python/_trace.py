@@ -40,14 +40,14 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     Returns:
         A Neuron-optimized `keras.Model`.
     """
-    if isinstance(func, def_function.Function):
-        original_func = func
-        func = func.get_concrete_function(example_inputs)
-    elif isinstance(func, function.ConcreteFunction):
-        original_func = func
+    if not isinstance(func, (def_function.Function, function.ConcreteFunction)):
+        func = def_function.function(func)
+    if isinstance(func, function.ConcreteFunction):
+        pass
     else:
-        original_func = def_function.function(func)
-        func = original_func.get_concrete_function(example_inputs)
+        is_single_input = len(func.function_spec.fullargspec.args) == 1
+        func_inputs = (example_inputs,) if is_single_input else example_inputs
+        func = func.get_concrete_function(*func_inputs)
 
     # Note: input_names is also used for constructing the output ConcreteFunction,
     # where using a dictionary (such as `{ts.name: ts.name for ts in func_inputs}`) can cause
@@ -62,7 +62,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     original_graph_def = graph_def
 
     # encode known shapes
-    inputs_list = [example_inputs] if isinstance(example_inputs, ops.Tensor) else example_inputs
     if isinstance(example_inputs, abc.Mapping):
         func_args, func_kwargs = func.structured_input_signature
         if len(func_args) != 1:
@@ -70,6 +69,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         input_dict, = func_args
         shape_feed_dict = {'{}:0'.format(spec.name): example_inputs[name].shape for name, spec in input_dict.items()}
     else:
+        inputs_list = [example_inputs] if isinstance(example_inputs, ops.Tensor) else example_inputs
         shape_feed_dict = {name: ts.shape for name, ts in zip(input_names, inputs_list)}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
@@ -93,9 +93,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     try:
         cfunc._set_function_spec(func._function_spec)
     except AttributeError:
-        unroll_args = isinstance(example_inputs, list)
-    else:
-        unroll_args = False
+        pass
 
     # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
     try:
@@ -106,9 +104,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # wrap ConcreteFunction as a keras model
     new_func = def_function.function(cfunc)
-    struct_out = func.structured_outputs
-    output_type = type(struct_out) if isinstance(struct_out, abc.Mapping) else None
-    model = AwsNeuronModel(new_func, unroll_args, output_type)
+    model = AwsNeuronModel(new_func, func.structured_outputs)
 
     # hack to propagate metadata for saving
     if hasattr(model, '_set_save_spec'):
@@ -117,7 +113,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         set_save_spec = model._set_input_attrs
     else:
         set_save_spec = None
-        logging.warning('Not setting inputs for the traced model; it may not be savable before running inference')
+        logging.warning('Not setting inputs for the traced model {}; you may need to run inference '
+                        'before trying to save it'.format(model))
     if set_save_spec is not None:
         set_save_spec(example_inputs)
     return model
@@ -125,20 +122,18 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, aws_neuron_function, unroll_args, output_type):
+    def __init__(self, func, structured_outputs):
         super().__init__(trainable=False, autocast=False)
-        self.aws_neuron_function = aws_neuron_function
-        self._aws_neuron_unroll_args = unroll_args
-        self._aws_neuron_output_type = output_type
+        self.aws_neuron_function = func
+        self._aws_neuron_output_type = None
+        if isinstance(structured_outputs, abc.Mapping):
+            self._aws_neuron_output_type = type(structured_outputs)
 
-    def call(self, inputs):
-        if self._aws_neuron_unroll_args and not isinstance(inputs, ops.Tensor):
-            output = self.aws_neuron_function(*inputs)
-        else:
-            output = self.aws_neuron_function(inputs)
+    def call(self, inputs, *args):
+        outputs = self.aws_neuron_function(inputs, *args)
         if self._aws_neuron_output_type is not None:
-            output = self._aws_neuron_output_type(**output)
-        return output
+            outputs = self._aws_neuron_output_type(**outputs)
+        return outputs
 
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
