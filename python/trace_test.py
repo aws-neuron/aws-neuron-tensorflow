@@ -183,6 +183,32 @@ class TestTraceFunction(TestV2Only):
         for res_neuron, res_ref in zip(result_func_neuron, result_func_ref):
             self.assertAllClose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
+    def test_func_list_tensor_in_5out(self):
+
+        def func(tensor_list0, tensor2):
+            tensor0, tensor1 = tensor_list0
+            tensor01 = tensor0 + tensor1
+            tensor12 = tensor1 + tensor2
+            relu01 = tf.nn.relu(tensor01)
+            relu12 = tf.nn.relu(tensor12)
+            sigmoid01 = tf.nn.relu(tensor01)
+            sigmoid12 = tf.nn.relu(tensor12)
+            tensor0112 = tensor01 + tensor12
+            return relu01, relu12, sigmoid01, sigmoid12, tensor0112
+
+        input_tensor0 = tf.random.uniform([1, 8, 6])
+        input_tensor1 = tf.random.uniform([1, 8, 6])
+        input_tensor2 = tf.random.uniform([1, 8, 6])
+        func_neuron = tfn.trace(func, ([input_tensor0, input_tensor1], input_tensor2))
+        # TODO: cannot save for now
+        # func_neuron.save('neuron_func_list_tensor_in_5out_save')
+        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        result_func_ref = func([input_tensor0, input_tensor1], input_tensor2)
+        result_func_neuron = func_neuron([input_tensor0, input_tensor1], input_tensor2)
+        assert len(result_func_neuron) == len(result_func_ref)
+        for res_neuron, res_ref in zip(result_func_neuron, result_func_ref):
+            self.assertAllClose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
+
     def test_prune_subgraphs(self):
 
         def func(tensor):

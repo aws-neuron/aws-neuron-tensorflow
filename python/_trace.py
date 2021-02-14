@@ -46,6 +46,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         pass
     else:
         is_single_input = len(func.function_spec.fullargspec.args) == 1
+        if isinstance(example_inputs, tuple) and len(example_inputs) > 1:
+            is_single_input = False
         func_inputs = (example_inputs,) if is_single_input else example_inputs
         func = func.get_concrete_function(*func_inputs)
 
@@ -106,6 +108,7 @@ def _get_shape_feed_dict(func, inputs):
     else:
         input_names = _get_input_names(func)
         inputs_list = [inputs] if isinstance(inputs, ops.Tensor) else inputs
+        inputs_list = nest.flatten(inputs_list)
         return {name: ts.shape for name, ts in zip(input_names, inputs_list)}
 
 
