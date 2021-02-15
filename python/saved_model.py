@@ -391,16 +391,22 @@ def convert_constant_to_variables(
 
     with tf_session.Session(graph=compiled_graph) as session:
         _variables = {}
+        op_names = []
+        tensor_names = []
         # Getting all the Const nodes and their values. These const nodes will be removed from the graph
         for op in session.graph.get_operations():
             if "Const" in op.type:
                 for tensor in op.values():
-                    value = session.run(tensor)
-                    total_elements = 1
-                    for x in value.shape:
-                        total_elements *= x
-                    if total_elements > constant_size_to_exclude:
-                        _variables[op.name] = value
+                    op_names.append(op.name)
+                    tensor_names.append(tensor.name)
+        
+        tensor_values = session.run(tensor_names)
+        for name, value in zip(op_names, tensor_values):
+            total_elements = 1
+            for x in value.shape:
+                total_elements *= x
+            if total_elements > constant_size_to_exclude:
+                _variables[name] = value
 
         new_nodes = []
         old_nodes_names = []
