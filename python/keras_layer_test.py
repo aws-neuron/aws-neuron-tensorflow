@@ -243,12 +243,7 @@ def get_layer_generators():
             input_dtypes=[tf.float32],
             activation=activations,
         ),
-        ActivityRegularization=ProductGenerator(
-            input_shapes=[(1, 32)],
-            input_dtypes=float_types,
-            l1=[0.0, 0.1],
-            l2=[0.0, 0.1],
-        ),
+        ActivityRegularization=None,
         Add=reduce_gen,
         AdditiveAttention=attention_gen,
         AlphaDropout=None,
@@ -357,7 +352,8 @@ def get_layer_generators():
         ),
         Masking=ProductGenerator(
             input_shapes=[(1, 8, 32)],
-            input_dtypes=[tf.float32],
+            input_dtypes=float_types,
+            mask_value=[0.0, 0.5],
         ),
         MaxPool1D=pool1d_gen,
         MaxPool2D=pool2d_gen,
@@ -488,13 +484,11 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
-        'ActivityRegularization',
         'AdditiveAttention',
         'Attention',
         'AveragePooling1D',
         'AveragePooling2D',
         'AveragePooling3D',
-        'BatchNormalization',
         'Conv1DTranspose',
         'Conv2DTranspose',
         'Conv3D',
@@ -507,7 +501,6 @@ def not_implemented_layer_names():
         'LayerNormalization',
         'LocallyConnected1D',
         'LocallyConnected2D',
-        'Masking',
         'MaxPool3D',
         'MultiHeadAttention',
         'SeparableConv1D',
