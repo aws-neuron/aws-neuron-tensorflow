@@ -56,6 +56,8 @@ def list_operators():
         'Selu',
         'Sigmoid',
         'Softmax',
+        'Softplus',
+        'Softsign',
         'SquaredDifference',
         'Squeeze',
         'StridedSlice',
