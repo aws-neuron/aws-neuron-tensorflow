@@ -33,6 +33,8 @@ def list_operators():
         'BatchMatMulV2',
         'BiasAdd',
         'Cast',
+        'Concat',
+        'ConcatV2',
         'Const',
         'Conv2D',
         'Elu',
@@ -69,6 +71,7 @@ def list_operators():
         'Sub',
         'Sum',
         'Tanh',
+        'Tile',
         'Transpose',
     }
     return supported_operator_types
