@@ -498,7 +498,6 @@ def not_implemented_layer_names():
         'GlobalMaxPool1D',
         'GlobalMaxPool2D',
         'GlobalMaxPool3D',
-        'LayerNormalization',
         'LocallyConnected1D',
         'LocallyConnected2D',
         'MaxPool3D',
