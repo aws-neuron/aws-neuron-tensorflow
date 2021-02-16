@@ -129,6 +129,7 @@ class KerasLayerGenerator(RemoveTestSession):
             allowed_layer_kwargs = layer_gen.copy()
             input_shapes = allowed_layer_kwargs.pop('input_shapes')
             input_dtypes = allowed_layer_kwargs.pop('input_dtypes')
+            skipper = allowed_layer_kwargs.pop('skipper', lambda kwargs: False)
             for key, value in params.items():
                 value_default = value.default
                 if value_default is not empty_default and key not in allowed_layer_kwargs:
@@ -151,6 +152,8 @@ class KerasLayerGenerator(RemoveTestSession):
                 args_str = ','.join(legalize(value) for value in str(args).split(','))
                 test_name = name_format(layer_name, idx, in_dtype_repr, args_str)
                 layer_kwargs = dict(zip(keys, args))
+                if skipper(layer_kwargs):
+                    continue
                 test_func = gen_test(in_shape, in_dtype, layer_type, layer_kwargs)
                 if layer_name in skip_layer_names:
                     test_func = unittest.skip('Not implemented')(test_func)
@@ -167,6 +170,9 @@ def get_layer_generators():
         'elu', 'exponential', 'hard_sigmoid', 'relu',
         'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'tanh',
     ]
+
+    def skip_strides_and_dilation_rate(layer_kwargs):
+        return layer_kwargs['strides'] > 1 and layer_kwargs['dilation_rate'] > 1
 
     # some reusable generators
     reduce_gen = ProductGenerator(
@@ -212,11 +218,13 @@ def get_layer_generators():
         strides=[1, 2],
     )
     conv2d_gen = ProductGenerator(
-        input_shapes=[(1, 28, 28, 3), (1, 8, 8, 32)],
+        input_shapes=[(1, 28, 28, 3), (1, 9, 9, 32)],
         input_dtypes=float_types,
         filters=[16],
         kernel_size=[(1, 1), (3, 3)],
         strides=[1, 2],
+        dilation_rate=[1, 2],
+        skipper=skip_strides_and_dilation_rate,
     )
     conv3d_gen = ProductGenerator(
         input_shapes=[(1, 8, 8, 8, 4)],
