@@ -508,9 +508,7 @@ def not_implemented_layer_names():
         'LocallyConnected2D',
         'SeparableConv1D',
         'SeparableConv2D',
-        'UpSampling1D',
         'UpSampling2D',
-        'UpSampling3D',
     }
     return layer_names
 
