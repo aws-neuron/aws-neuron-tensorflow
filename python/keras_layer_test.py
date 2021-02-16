@@ -484,8 +484,6 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
-        'AdditiveAttention',
-        'Attention',
         'AveragePooling1D',
         'AveragePooling2D',
         'AveragePooling3D',
