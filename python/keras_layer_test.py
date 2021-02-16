@@ -194,7 +194,10 @@ def get_layer_generators():
     )
     pool3d_gen = ProductGenerator(
         input_shapes=[(1, 10, 10, 10, 8)],
-        **pooling_gen_common,
+        input_dtypes=[tf.float32],
+        pool_size=[2],  # 3 triggers 'SG-ERR: Runtime exception <Non-output memory location with no reader {arg0.1_transpose_10-t46_i7}@SB<64,3840>(8x512)#Internal DebugInfo: <arg0.1_transpose_10-t46_i7||float32||UNDEF||[8, 128, 1]>>'
+        strides=[1, 2],
+        padding=['valid'],  # 'same' triggers 'Assertion 'tensortensorWaveop->gSrcAXNumJSON() == tensortensorWaveop->gSrcBXNumJSON()' failed: When tensors for TensorTensor are in the same buffer, X count must be equal'
     )
     normalization_gen = ProductGenerator(
         input_shapes=[(1, 8, 8, 32)],
@@ -249,8 +252,20 @@ def get_layer_generators():
         AlphaDropout=None,
         Attention=attention_gen,
         Average=reduce_gen,
-        AveragePooling1D=pool1d_gen,
-        AveragePooling2D=pool2d_gen,
+        AveragePooling1D=ProductGenerator(
+            input_shapes=[(1, 28, 16)],
+            input_dtypes=[tf.float32],
+            pool_size=[2, 3],
+            strides=[1, 2],
+            padding=['valid'],
+        ),
+        AveragePooling2D=ProductGenerator(
+            input_shapes=[(1, 14, 14, 16)],
+            input_dtypes=[tf.float32],
+            pool_size=[2, 3],
+            strides=[1, 2],
+            padding=['valid'],  # 'same' triggers 'neuroncc/starfish/penguin/ir/Value.py:40: AssertionError'
+        ),
         AveragePooling3D=pool3d_gen,
         BatchNormalization=normalization_gen,
         Bidirectional=None,
@@ -484,22 +499,13 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
-        'AveragePooling1D',
-        'AveragePooling2D',
-        'AveragePooling3D',
         'Conv1DTranspose',
         'Conv2DTranspose',
-        'Conv3D',
         'Conv3DTranspose',
         'DepthwiseConv2D',
         'Embedding',
-        'GlobalMaxPool1D',
-        'GlobalMaxPool2D',
-        'GlobalMaxPool3D',
         'LocallyConnected1D',
         'LocallyConnected2D',
-        'MaxPool3D',
-        'MultiHeadAttention',
         'SeparableConv1D',
         'SeparableConv2D',
         'UpSampling1D',
