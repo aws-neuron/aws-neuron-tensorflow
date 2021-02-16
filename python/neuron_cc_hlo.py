@@ -77,6 +77,7 @@ def list_operators():
         'Softmax',
         'Softplus',
         'Softsign',
+        'Split',
         'Square',
         'SquaredDifference',
         'Squeeze',
