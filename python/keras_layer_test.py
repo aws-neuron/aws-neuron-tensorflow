@@ -284,7 +284,18 @@ def get_layer_generators():
         ),
         Conv1D=conv1d_gen,
         Conv2D=conv2d_gen,
-        Conv2DTranspose=conv2d_gen,
+        Conv2DTranspose=ProductGenerator(
+            input_shapes=[(1, 28, 28, 3), (1, 9, 9, 32)],
+            input_dtypes=[tf.float16],
+            filters=[16],
+            kernel_size=[(1, 1), (3, 3)],
+            strides=[1, 2],
+            padding=['valid'],
+            dilation_rate=[1, 2],
+            use_bias=[False],
+            data_format=['channels_last'],
+            skipper=skip_strides_and_dilation_rate,
+        ),
         Conv3D=conv3d_gen,
         Conv3DTranspose=conv3d_gen,
         ConvLSTM2D=None,
@@ -507,13 +518,8 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
-        'Conv1DTranspose',
-        'Conv2DTranspose',
-        'Conv3DTranspose',
         'DepthwiseConv2D',
         'Embedding',
-        'LocallyConnected1D',
-        'LocallyConnected2D',
         'SeparableConv1D',
         'SeparableConv2D',
         'UpSampling2D',
