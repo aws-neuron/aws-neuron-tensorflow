@@ -45,6 +45,7 @@ def list_operators():
         'Conv3D',
         'Conv3DBackpropInputV2',
         'Cumsum',
+        'DepthwiseConv2dNative',
         'Einsum',
         'Elu',
         'Erf',
