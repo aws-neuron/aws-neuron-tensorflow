@@ -319,6 +319,7 @@ def get_layer_generators():
             kernel_size=[(1, 1), (3, 3)],
             strides=[1, 2],
             depth_multiplier=[1, 2],
+            use_bias=[False],
         ),
         Dot=ZipLongestGenerator(
             input_shapes=[[(1, 5, 2), (1, 2, 5)], [(5, 2), (5, 2)]],
@@ -423,6 +424,7 @@ def get_layer_generators():
             kernel_size=[3],
             strides=[1, 2],
             depth_multiplier=[1, 2],
+            use_bias=[False],
         ),
         SeparableConv2D=ProductGenerator(
             input_shapes=[(1, 20, 20, 32)],
@@ -431,6 +433,7 @@ def get_layer_generators():
             kernel_size=[(3, 3)],
             strides=[1, 2],
             depth_multiplier=[1, 2],
+            use_bias=[False],
         ),
         SimpleRNN=None,
         SimpleRNNCell=None,
@@ -511,10 +514,7 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
-        'DepthwiseConv2D',
         'Embedding',
-        'SeparableConv1D',
-        'SeparableConv2D',
         'UpSampling2D',
     }
     return layer_names
