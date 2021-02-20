@@ -174,6 +174,13 @@ def get_layer_generators():
     def skip_strides_and_dilation_rate(layer_kwargs):
         return layer_kwargs['strides'] > 1 and layer_kwargs['dilation_rate'] > 1
 
+    def skip_pool_3d(layer_kwargs):
+        # 'same' triggers 'Assertion 'tensortensorWaveop->gSrcAXNumJSON() == tensortensorWaveop->gSrcBXNumJSON()' failed: When tensors for TensorTensor are in the same buffer, X count must be equal'
+        if layer_kwargs['padding'] == 'same':
+            return True
+        # 3 triggers 'SG-ERR: Runtime exception <Non-output memory location with no reader {arg0.1_transpose_10-t46_i7}@SB<64,3840>(8x512)#Internal DebugInfo: <arg0.1_transpose_10-t46_i7||float32||UNDEF||[8, 128, 1]>>'
+        return layer_kwargs['pool_size'] == 3 and layer_kwargs['data_format'] == 'channels_last'
+
     # some reusable generators
     reduce_gen = ProductGenerator(
         input_shapes=[[(1, 3, 32), (1, 3, 32), (1, 3, 32)]],
@@ -200,10 +207,8 @@ def get_layer_generators():
     )
     pool3d_gen = ProductGenerator(
         input_shapes=[(1, 10, 10, 10, 8)],
-        input_dtypes=[tf.float32],
-        pool_size=[2],  # 3 triggers 'SG-ERR: Runtime exception <Non-output memory location with no reader {arg0.1_transpose_10-t46_i7}@SB<64,3840>(8x512)#Internal DebugInfo: <arg0.1_transpose_10-t46_i7||float32||UNDEF||[8, 128, 1]>>'
-        strides=[1, 2],
-        padding=['valid'],  # 'same' triggers 'Assertion 'tensortensorWaveop->gSrcAXNumJSON() == tensortensorWaveop->gSrcBXNumJSON()' failed: When tensors for TensorTensor are in the same buffer, X count must be equal'
+        **pooling_gen_common,
+        skipper=skip_pool_3d,
     )
     normalization_gen = ProductGenerator(
         input_shapes=[(1, 8, 8, 32)],
