@@ -480,7 +480,7 @@ def get_layer_generators():
         Wrapper=None,
         ZeroPadding1D=ProductGenerator(
             input_shapes=[(1, 8, 6)],
-            input_dtypes=[tf.float32],
+            input_dtypes=float_types,
             padding=[1, 2],
         ),
         ZeroPadding2D=ProductGenerator(
@@ -490,7 +490,7 @@ def get_layer_generators():
         ),
         ZeroPadding3D=ProductGenerator(
             input_shapes=[(1, 8, 8, 8, 6)],
-            input_dtypes=[tf.float32],
+            input_dtypes=float_types,
             padding=[1, 2],
         ),
     )
