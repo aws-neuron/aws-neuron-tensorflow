@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 import unittest
 import numpy as np
 import tensorflow as tf  # supposed to be tf2
 import tensorflow.neuron as tfn
 import random
 from itertools import product
-import shutil
 from tensorflow.neuron.python.unittest_base import TestV2Only
 
 # each number represents the number of random
@@ -89,7 +89,7 @@ class TestSequentialKeras(TestV2Only):
                     ]
                 )
 
-                model_dir = './keras_flatten_dense_dropout'
+                model_dir = os.path.join(self.get_temp_dir(), 'keras_flatten_dense_dropout')
 
                 test_input = tf.random.uniform((1, 28, 28))
                 trace_compile_and_infer(model, test_input)
@@ -118,7 +118,7 @@ class TestSequentialKeras(TestV2Only):
                 )
 
                 # Export SavedModel
-                model_dir = './keras_conv2d_conv2d_flatten_dense'
+                model_dir = os.path.join(self.get_temp_dir(), 'keras_conv2d_conv2d_flatten_dense')
 
                 test_input = tf.random.uniform((1, 28, 28, 1))
 
@@ -144,7 +144,7 @@ class TestSequentialKeras(TestV2Only):
                 )
 
                 # Export SavedModel
-                model_dir = './keras_lstm_lstm_dense_dense'
+                model_dir = os.path.join(self.get_temp_dir(), 'keras_lstm_lstm_dense_dense')
 
                 test_input = tf.random.uniform((1, 28, 28))
                 trace_compile_and_infer(model, test_input)
@@ -173,7 +173,7 @@ class TestSequentialKeras(TestV2Only):
                 )
 
                 # Export SavedModel
-                model_dir = './keras_maxpool2d'
+                model_dir = os.path.join(self.get_temp_dir(), 'keras_maxpool2d')
 
                 test_input = tf.random.uniform((1, inu, inu, 1))
                 trace_compile_and_infer(model, test_input)
@@ -204,7 +204,7 @@ class TestFunctionalKeras(TestV2Only):
         outputs = tf.keras.layers.Dense(10)(x)
 
         model = tf.keras.Model(inputs, outputs, name="toy_resnet")
-        model_dir = './keras_toy_resnet'
+        model_dir = os.path.join(self.get_temp_dir(), 'keras_toy_resnet')
 
         test_input = tf.random.uniform((1, 32, 32, 3))
         trace_compile_and_infer(model, test_input)
@@ -246,8 +246,7 @@ class TestFunctionalKeras(TestV2Only):
             outputs=[priority_pred, department_pred],
         )
 
-        model_dir = './keras_multiple_io'
-        shutil.rmtree(model_dir, ignore_errors=True)
+        model_dir = os.path.join(self.get_temp_dir(), 'keras_multiple_io')
 
 
         # Dummy input data
@@ -278,7 +277,7 @@ class TestGraphUtil(TestV2Only):
         test_input1 = tf.random.uniform([1, 2, 2, 3])
         test_input2 = tf.random.uniform([1, 2, 2, 3])
 
-        model_dir = './multiple_io'
+        model_dir = os.path.join(self.get_temp_dir(), 'multiple_io')
 
         trace_compile_and_infer(model1, [test_input1, test_input2])
 
@@ -294,7 +293,7 @@ class TestGraphUtil(TestV2Only):
         model1 = tf.keras.models.Model(inputs=input1, outputs=[relu1, added], name='model1')
 
         test_input = tf.random.uniform([1, 2, 2, 3])
-        model_dir = './branch_merge'
+        model_dir = os.path.join(self.get_temp_dir(), 'branch_merge')
 
 
         trace_compile_and_infer(model1, test_input)
@@ -319,7 +318,7 @@ class TestGraphUtil(TestV2Only):
 
         model1 = tf.keras.models.Model(inputs=input1, outputs=[relu1, relu2, relu3], name='model1')
         test_input = tf.random.uniform([1, 2, 2, 3])
-        model_dir = './no_fuse'
+        model_dir = os.path.join(self.get_temp_dir(), 'no_fuse')
 
         trace_compile_and_infer(model1, test_input)
   
@@ -337,7 +336,7 @@ class TestGraphUtil(TestV2Only):
         sig1 = tf.keras.layers.Activation('sigmoid', name='sig1')(add1)
 
         model1 = tf.keras.Model(inputs=[input1, input2], outputs=[sig1, relu3])
-        model_dir = './inputs_short_long'
+        model_dir = os.path.join(self.get_temp_dir(), 'inputs_short_long')
 
         test_input1 = tf.random.uniform([1,3,5])
         test_input2 = tf.random.uniform([1,3,5])
@@ -362,7 +361,7 @@ class TestGraphUtil(TestV2Only):
         sig1 = tf.keras.layers.Activation('sigmoid', name='sig1')(add1)
 
         model1 = tf.keras.Model(inputs=[input1, input2, input3, input4], outputs=[sig1, relu3, identity4])
-        model_dir = './inputs_short_long_mid'
+        model_dir = os.path.join(self.get_temp_dir(), 'inputs_short_long_mid')
 
         test_input1 = tf.random.uniform([2,3,5])
         test_input2 = tf.random.uniform([1,3,5])
@@ -375,7 +374,6 @@ class TestGraphUtil(TestV2Only):
         run_inference(model_dir, [test_input1, test_input2, test_input3, test_input4], feed_dict)
 
 def tf2_compile(model, model_dir, example_inputs=None):
-    shutil.rmtree(model_dir, ignore_errors=True)
     tf.keras.models.save_model(model, model_dir)
     model_feed_dict={} 
     if example_inputs is not None:
