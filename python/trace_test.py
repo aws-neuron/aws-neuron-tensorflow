@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 from unittest.mock import patch
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
@@ -55,7 +56,8 @@ class TestTraceKerasModel(TestV2Only):
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
         input0_tensor = tf.random.uniform([1, 3])
         model_neuron = tfn.trace(model, input0_tensor)
-        model_neuron.save('neuron_keras_model_1in_1out_save')
+        model_dir = os.path.join(self.get_temp_dir(), 'neuron_keras_model_1in_1out_save')
+        model_neuron.save(model_dir)
         _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
         result_model_ref = model(input0_tensor)
         result_model_neuron = model_neuron(input0_tensor)
@@ -74,11 +76,12 @@ class TestTraceFunction(TestV2Only):
 
         input_tensor = tf.random.uniform([1, 28, 28, 3])
         func_neuron = tfn.trace(func, input_tensor)
-        func_neuron.save('neuron_func_1conv_save')
+        model_dir = os.path.join(self.get_temp_dir(), 'neuron_func_1conv_save')
+        func_neuron.save(model_dir)
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
-        func_neuron_reloaded = tf.keras.models.load_model('neuron_func_1conv_save')
+        func_neuron_reloaded = tf.keras.models.load_model(model_dir)
         result_func_neuron_reloaded = func_neuron_reloaded(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
         self.assertAllClose(result_func_neuron_reloaded, result_func_ref, rtol=1e-2, atol=1e-2)
@@ -92,7 +95,8 @@ class TestTraceFunction(TestV2Only):
 
         input_tensor = tf.random.uniform([1, 28, 28, 3])
         func_neuron = tfn.trace(func, [input_tensor])
-        func_neuron.save('neuron_func_input_list_len_1_save')
+        model_dir = os.path.join(self.get_temp_dir(), 'neuron_func_input_list_len_1_save')
+        func_neuron.save(model_dir)
         _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
         result_func_ref = func([input_tensor])
         result_func_neuron = func_neuron([input_tensor])
