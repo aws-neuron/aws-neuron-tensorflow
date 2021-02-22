@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 import os
-import shutil
 from unittest.mock import patch
 import numpy as np
 import tensorflow as tf
@@ -29,8 +28,8 @@ class TestCompileV1SavedModel(TestV2Only):
 
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_v1_0'
-        new_model_dir = './neuron_saved_model_v1_to_v2_0'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_v1_0')
+        new_model_dir = os.path.join(self.get_temp_dir(), './neuron_saved_model_v1_to_v2_0')
         with tf.compat.v1.Session(graph=tf.compat.v1.Graph()) as sess:
             input0 = tf.compat.v1.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
             input1 = tf.compat.v1.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
@@ -46,14 +45,12 @@ class TestCompileV1SavedModel(TestV2Only):
             relu1 = tf.nn.relu(conv2d2, name='relu1')
             inputs = {'x0': input0, 'x1': input1}
             outputs = {'y0': relu0, 'y1': relu1}
-            shutil.rmtree(model_dir, ignore_errors=True)
             tf.compat.v1.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
         tf.random.set_seed(_RANDOM_SEED)
         feeds = {
             'x0': tf.random.uniform([1, 2, 2, 3], dtype=tf.float16),
             'x1': tf.random.uniform([1, 2, 2, 3], dtype=tf.float16),
         }
-        shutil.rmtree(new_model_dir, ignore_errors=True)
         result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
         assert result_compile['OnNeuronRatio'] > 0.05
         model_ref = tf.saved_model.load(model_dir)
@@ -69,8 +66,8 @@ class TestCompileV1SavedModel(TestV2Only):
 
     def test_single_conv(self):
         np.random.seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_v1_1conv'
-        new_model_dir = './neuron_saved_model_v1_to_v2_1conv'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_v1_1conv')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_v1_to_v2_1conv')
         tf_dtype = tf.float16
         with tf.compat.v1.Session(graph=tf.compat.v1.Graph()) as sess:
             input0 = tf.compat.v1.placeholder(tf_dtype, [1, 2, 2, 3], name='input0')
@@ -78,12 +75,10 @@ class TestCompileV1SavedModel(TestV2Only):
                                    strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
             inputs = {'x0': input0}
             outputs = {'y0': conv2d0}
-            shutil.rmtree(model_dir, ignore_errors=True)
             tf.compat.v1.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
         feeds = {
             'x0': tf.convert_to_tensor(np.random.uniform(-1, 1, size=input0.shape).astype(tf_dtype.as_numpy_dtype)),
         }
-        shutil.rmtree(new_model_dir, ignore_errors=True)
         result_compile = tfn.saved_model.compile(
             model_dir, new_model_dir, model_feed_dict=feeds,
         )
@@ -99,8 +94,8 @@ class TestCompileV1SavedModel(TestV2Only):
 
     def test_3segments(self):
         np.random.seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_v1_1'
-        new_model_dir = './neuron_saved_model_v1_to_v2_1'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_v1_1')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_v1_to_v2_1')
         with tf.compat.v1.Session(graph=tf.compat.v1.Graph()) as sess:
             input0 = tf.compat.v1.placeholder(tf.float16, [None, 2, 2, 3], name='input0')
             input1 = tf.compat.v1.placeholder(tf.float16, [None, 2, 2, 3], name='input1')
@@ -116,13 +111,11 @@ class TestCompileV1SavedModel(TestV2Only):
             relu1 = tf.nn.relu(conv2d2, name='relu1')
             inputs = {'x0': input0, 'x1': input1}
             outputs = {'y0': relu0, 'y1': relu1}
-            shutil.rmtree(model_dir, ignore_errors=True)
             tf.compat.v1.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
         feeds = {
             'x0': tf.convert_to_tensor(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)),
             'x1': tf.convert_to_tensor(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float16)),
         }
-        shutil.rmtree(new_model_dir, ignore_errors=True)
 
         def fake_list_operators():
             return {'Conv2D', 'Const'}
@@ -143,8 +136,8 @@ class TestCompileV1SavedModel(TestV2Only):
 
     def test_shape_related_foldable(self):
         np.random.seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_v1_2'
-        new_model_dir = './neuron_saved_model_v1_to_v2_2'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_v1_2')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_v1_to_v2_2')
         with tf.compat.v1.Session(graph=tf.compat.v1.Graph()) as sess:
             input0 = tf.compat.v1.placeholder(tf.float32, [None, 2, 2, 3], name='input0')
             conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float32),
@@ -155,12 +148,10 @@ class TestCompileV1SavedModel(TestV2Only):
             relu0 = tf.nn.relu(add0, name='relu0')
             inputs = {'x0': input0}
             outputs = {'y0': relu0}
-            shutil.rmtree(model_dir, ignore_errors=True)
             tf.compat.v1.saved_model.simple_save(sess, export_dir=model_dir, inputs=inputs, outputs=outputs)
         feeds = {
             'x0': tf.convert_to_tensor(np.random.uniform(-1, 1, size=[1, 2, 2, 3]).astype(np.float32)),
         }
-        shutil.rmtree(new_model_dir, ignore_errors=True)
 
         def fake_list_operators():
             return {'Conv2D', 'Const', 'Add', 'Relu'}
@@ -184,19 +175,17 @@ class TestCompileKerasSavedModel(TestV2Only):
 
     def test_keras_models_save_model_single_input_single_output(self):
         tf.random.set_seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_keras_v2_1'
-        new_model_dir = './neuron_saved_model_keras_v2_1'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_keras_v2_1')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_keras_v2_1')
         model = tf.keras.models.Sequential([
             tf.keras.layers.Input(28),
             tf.keras.layers.Dense(10, activation='relu'),
         ])
-        shutil.rmtree(model_dir, ignore_errors=True)
         tf.keras.models.save_model(model, model_dir)
         model_ref = tf.saved_model.load(model_dir)
         wfunc_ref = model_ref.signatures['serving_default']
         input_tensor = tf.random.uniform([2, 28])
         feeds = {wfunc_ref.function_def.signature.input_arg[0].name: input_tensor}
-        shutil.rmtree(new_model_dir, ignore_errors=True)
         result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
         assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
@@ -218,19 +207,17 @@ class TestCompileKerasSavedModel(TestV2Only):
 
     def test_keras_save_single_input_single_output(self):
         tf.random.set_seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_keras_v2_0'
-        new_model_dir = './neuron_saved_model_keras_v2_0'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_keras_v2_0')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_keras_v2_0')
         model = tf.keras.models.Sequential([
             tf.keras.layers.Input(28),
             tf.keras.layers.Dense(10, activation='relu'),
         ])
-        shutil.rmtree(model_dir, ignore_errors=True)
         model.save(model_dir)
         model_ref = tf.saved_model.load(model_dir)
         wfunc_ref = model_ref.signatures['serving_default']
         input_tensor = tf.random.uniform([2, 28])
         feeds = {wfunc_ref.function_def.signature.input_arg[0].name: input_tensor}
-        shutil.rmtree(new_model_dir, ignore_errors=True)
         result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feeds)
         assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
@@ -252,8 +239,8 @@ class TestCompileKerasSavedModel(TestV2Only):
 
     def test_keras_models_save_model_3in_5out_stateful(self):
         tf.random.set_seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_keras_v2_2'
-        new_model_dir = './neuron_saved_model_keras_v2_2'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_keras_v2_2')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_keras_v2_2')
         input0 = tf.keras.layers.Input(28)
         input1 = tf.keras.layers.Input(28)
         input2 = tf.keras.layers.Input(28)
@@ -268,7 +255,6 @@ class TestCompileKerasSavedModel(TestV2Only):
         inputs = [input0, input1, input2]
         outputs = [sigmoid01, add01, add02, tanh02, sigmoid02]
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
-        shutil.rmtree(model_dir, ignore_errors=True)
         tf.keras.models.save_model(model, model_dir)
         model_ref = tf.saved_model.load(model_dir)
         wfunc_ref = model_ref.signatures['serving_default']
@@ -280,7 +266,6 @@ class TestCompileKerasSavedModel(TestV2Only):
             wfunc_ref.function_def.signature.input_arg[1].name: input1_tensor,
             wfunc_ref.function_def.signature.input_arg[2].name: input2_tensor,
         }
-        shutil.rmtree(new_model_dir, ignore_errors=True)
         result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
         assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
@@ -299,8 +284,8 @@ class TestCompileKerasSavedModel(TestV2Only):
 
     def test_keras_models_save_model_3in_5out_stateless(self):
         tf.random.set_seed(_RANDOM_SEED)
-        model_dir = './original_saved_model_keras_v2_3'
-        new_model_dir = './neuron_saved_model_keras_v2_3'
+        model_dir = os.path.join(self.get_temp_dir(), 'original_saved_model_keras_v2_3')
+        new_model_dir = os.path.join(self.get_temp_dir(), 'neuron_saved_model_keras_v2_3')
         input0 = tf.keras.layers.Input(28)
         input1 = tf.keras.layers.Input(28)
         input2 = tf.keras.layers.Input(28)
@@ -312,7 +297,6 @@ class TestCompileKerasSavedModel(TestV2Only):
         inputs = [input0, input1, input2]
         outputs = [sigmoid01, add01, add02, tanh02, sigmoid02]
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
-        shutil.rmtree(model_dir, ignore_errors=True)
         tf.keras.models.save_model(model, model_dir)
         model_ref = tf.saved_model.load(model_dir)
         wfunc_ref = model_ref.signatures['serving_default']
@@ -324,7 +308,6 @@ class TestCompileKerasSavedModel(TestV2Only):
             wfunc_ref.function_def.signature.input_arg[1].name: input1_tensor,
             wfunc_ref.function_def.signature.input_arg[2].name: input2_tensor,
         }
-        shutil.rmtree(new_model_dir, ignore_errors=True)
         result_compile = tfn.saved_model.compile(model_dir, new_model_dir, model_feed_dict=feed_dict)
         assert result_compile['OnNeuronRatio'] > 0.05
         model_neuron = tf.saved_model.load(new_model_dir)
