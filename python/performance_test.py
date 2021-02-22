@@ -23,6 +23,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.core.framework.tensor_pb2 import TensorProto
 import tensorflow.neuron as tfn
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
 def can_import_serving():
@@ -37,7 +38,7 @@ def find_model_server():
     return spawn.find_executable('tensorflow_model_server') or spawn.find_executable('tensorflow_model_server_neuron')
 
 
-class TestMeasurePerformance(unittest.TestCase):
+class TestMeasurePerformance(TestV1Only):
 
     def test_simple(self):
         export_dir_test = './simple_save_performance_measurement'
@@ -83,7 +84,7 @@ class TestMeasurePerformance(unittest.TestCase):
             one_thread(pred, model_feed_dict)
 
 
-class TestMeasurePerformanceServing(unittest.TestCase):
+class TestMeasurePerformanceServing(TestV1Only):
 
     def setUp(self):
         self.export_dir_base = os.path.realpath('./simple_save_performance_measurement_serving')
