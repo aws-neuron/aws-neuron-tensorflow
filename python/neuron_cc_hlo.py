@@ -24,75 +24,79 @@ from tensorflow.neuron.python import utils
 from hlo2neuron.driver import hlo2neff
 
 
+_SUPPORTED_OPERATOR_TYPES = '''
+Add
+AddN
+AddV2
+Any
+AvgPool
+AvgPool3D
+BatchMatMul
+BatchMatMulV2
+BatchToSpaceND
+BiasAdd
+Cast
+Concat
+ConcatV2
+Const
+Conv2D
+Conv2DBackpropInput
+Conv3D
+Conv3DBackpropInputV2
+Cumsum
+DepthwiseConv2dNative
+Einsum
+Elu
+Erf
+Exp
+ExpandDims
+FusedBatchNorm
+FusedBatchNormV2
+FusedBatchNormV3
+Greater
+Identity
+LeakyRelu
+LogicalAnd
+LogicalNot
+MatMul
+Max
+MaxPool
+MaxPool3D
+Maximum
+Minimum
+Mean
+Mul
+Neg
+NotEqual
+Pad
+Pow
+RealDiv
+Relu
+Reshape
+Rsqrt
+SelectV2
+Selu
+Sigmoid
+Softmax
+Softplus
+Softsign
+SpaceToBatchND
+Split
+Square
+SquaredDifference
+Squeeze
+StridedSlice
+Sub
+Sum
+Tanh
+Tile
+Transpose
+'''
+
+
 def list_operators():
-    supported_operator_types = {
-        'Add',
-        'AddN',
-        'AddV2',
-        'Any',
-        'AvgPool',
-        'AvgPool3D',
-        'BatchMatMul',
-        'BatchMatMulV2',
-        'BatchToSpaceND',
-        'BiasAdd',
-        'Cast',
-        'Concat',
-        'ConcatV2',
-        'Const',
-        'Conv2D',
-        'Conv2DBackpropInput',
-        'Conv3D',
-        'Conv3DBackpropInputV2',
-        'Cumsum',
-        'DepthwiseConv2dNative',
-        'Einsum',
-        'Elu',
-        'Erf',
-        'Exp',
-        'ExpandDims',
-        'FusedBatchNorm',
-        'FusedBatchNormV2',
-        'FusedBatchNormV3',
-        'Greater',
-        'Identity',
-        'LeakyRelu',
-        'LogicalAnd',
-        'LogicalNot',
-        'MatMul',
-        'Max',
-        'MaxPool',
-        'MaxPool3D',
-        'Maximum',
-        'Minimum',
-        'Mean',
-        'Mul',
-        'Neg',
-        'NotEqual',
-        'Pad',
-        'Pow',
-        'RealDiv',
-        'Relu',
-        'Reshape',
-        'Rsqrt',
-        'SelectV2',
-        'Selu',
-        'Sigmoid',
-        'Softmax',
-        'Softplus',
-        'Softsign',
-        'SpaceToBatchND',
-        'Split',
-        'Square',
-        'SquaredDifference',
-        'Squeeze',
-        'StridedSlice',
-        'Sub',
-        'Sum',
-        'Tanh',
-        'Tile',
-        'Transpose',
-    }
+    supported_operator_types = set(_SUPPORTED_OPERATOR_TYPES.split('\n'))
+    supported_operator_types.remove('')
     return supported_operator_types
 
 
