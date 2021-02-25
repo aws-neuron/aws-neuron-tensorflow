@@ -45,7 +45,7 @@ class ZipLongestGenerator(dict):
     etc.
     This mode is useful for cases where a blind cartesian product of arguments
     may lead to incompatible arguments. For example, the "Concatenate" layer
-    with input_shapes=[(2, 5, 3), (1, 8, 3)] can only work with axis=2.
+    with input_shapes=[(1, 5, 3), (1, 8, 3)] can only work with axis=1.
     """
 
 
