@@ -67,6 +67,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)
+    graph_def = gdu.maybe_relax_placeholder_shapes(graph_def)
 
     # wrap GraphDef as a WrappedFunction
     cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)

@@ -37,6 +37,7 @@ knInputDtypes = 'input_dtypes'
 knOutputDtypes = 'output_dtypes'
 knInputShapes = 'input_shapes'
 knOutputShapes = 'output_shapes'
+vInvalidAxis = -1
 
 
 def normalize_operators(graph_def):
@@ -246,12 +247,24 @@ def run_compiler_on_subgraphs(graph_def):
             try:
                 input_shuffles = [inp.shuffle for inp in inputs]
             except AttributeError:
+                input_shuffles = [None for inp in inputs]
+            do_input_shuffles = any(shuffle is not None for shuffle in input_shuffles)
+            if do_input_shuffles:
+                for shuffle in input_shuffles:
+                    idx_ts = node.attr['_input_shuffles'].list.tensor.add()
+                    idx_ts.int64_val.extend(shuffle)
+            try:
+                input_batch_axis = [ts.batch_axis for ts in inputs]
+                output_batch_axis = [ts.batch_axis for ts in outputs]
+            except AttributeError:
                 pass
             else:
-                if any(shuffle is not None for shuffle in input_shuffles):
-                    for shuffle in input_shuffles:
-                        idx_ts = node.attr['_input_shuffles'].list.tensor.add()
-                        idx_ts.int64_val.extend(shuffle)
+                input_batch_axis = [vInvalidAxis if ax is None else ax for ax in input_batch_axis]
+                output_batch_axis = [vInvalidAxis if ax is None else ax for ax in output_batch_axis]
+                # TODO: remove when input shuffle and dynamic batch size are compatible
+                if not do_input_shuffles:
+                    node.attr['input_batch_axis'].list.i[:] = input_batch_axis
+                    node.attr['output_batch_axis'].list.i[:] = output_batch_axis
     return graph_def
 
 
@@ -415,6 +428,21 @@ def erase_large_constants(graph_def):
             tensor.string_val[:] = []
             tensor.uint32_val[:] = []
             tensor.uint64_val[:] = []
+    return graph_def
+
+
+def maybe_relax_placeholder_shapes(graph_def):
+    need_relaxation = False
+    for node in graph_def.node:
+        if node.op == tNeuronOp:
+            if any(ax != vInvalidAxis for ax in node.attr['input_batch_axis'].list.i):
+                need_relaxation = True
+    if need_relaxation:
+        for node in graph_def.node:
+            if node.op == tPlaceholder:
+                dims = node.attr['shape'].shape.dim
+                if dims:
+                    dims[0].size = -1
     return graph_def
 
 

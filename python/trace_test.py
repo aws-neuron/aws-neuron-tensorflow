@@ -23,6 +23,35 @@ from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_version
 class TestTraceKerasModel(TestV2Only):
 
     def test_keras_model_3in_5out_stateful(self):
+        model = self._model_3in_5out()
+        input0_tensor = tf.random.uniform([1, 3])
+        input1_tensor = tf.random.uniform([1, 3])
+        input2_tensor = tf.random.uniform([1, 3])
+        model_neuron = tfn.trace(model, [input0_tensor, input1_tensor, input2_tensor])
+        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
+        result_model_ref = model([input0_tensor, input1_tensor, input2_tensor])
+        result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
+        assert len(result_model_ref) == len(result_model_neuron)
+        for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
+            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+
+    def test_keras_model_3in_5out_dynamic_batch_size(self):
+        model = self._model_3in_5out()
+        input0_tensor = tf.random.uniform([3, 3])
+        input1_tensor = tf.random.uniform([3, 3])
+        input2_tensor = tf.random.uniform([3, 3])
+        model_neuron = tfn.trace(model, [input0_tensor, input1_tensor, input2_tensor])
+        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
+        input0_tensor = tf.random.uniform([5, 3])
+        input1_tensor = tf.random.uniform([5, 3])
+        input2_tensor = tf.random.uniform([5, 3])
+        result_model_ref = model([input0_tensor, input1_tensor, input2_tensor])
+        result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
+        assert len(result_model_ref) == len(result_model_neuron)
+        for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
+            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+
+    def _model_3in_5out(self):
         input0 = tf.keras.layers.Input(3)
         input1 = tf.keras.layers.Input(3)
         input2 = tf.keras.layers.Input(3)
@@ -37,16 +66,7 @@ class TestTraceKerasModel(TestV2Only):
         inputs = [input0, input1, input2]
         outputs = [sigmoid01, add01, add02, tanh02, sigmoid02]
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
-        input0_tensor = tf.random.uniform([1, 3])
-        input1_tensor = tf.random.uniform([1, 3])
-        input2_tensor = tf.random.uniform([1, 3])
-        model_neuron = tfn.trace(model, [input0_tensor, input1_tensor, input2_tensor])
-        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
-        result_model_ref = model([input0_tensor, input1_tensor, input2_tensor])
-        result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
-        assert len(result_model_ref) == len(result_model_neuron)
-        for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
-            self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
+        return model
 
     def test_keras_model_1in_1out_save(self):
         input0 = tf.keras.layers.Input(3)
@@ -124,6 +144,8 @@ class TestTraceFunction(TestV2Only):
         graph_def = cfunc.graph.as_graph_def()
         for node in graph_def.node:
             if node.op == 'NeuronOp':
+                node.attr['input_batch_axis'].list.Clear()
+                node.attr['output_batch_axis'].list.Clear()
                 idx_ts = node.attr['_input_shuffles'].list.tensor.add()
                 indices = tf.range(input_tensor.shape.num_elements())
                 indices = tf.reshape(indices, input_tensor.shape)
