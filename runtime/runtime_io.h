@@ -28,7 +28,6 @@ class ScopedRuntimeIO {
 public:
     ScopedRuntimeIO() {}
     Status setup(AttrList &input_names,
-                 const std::vector<size_t> &input_tensor_sizes,
                  const std::vector<const Tensor*> &input_tensors,
                  AttrList &output_names,
                  const std::vector<size_t> &output_tensor_sizes,
@@ -40,7 +39,8 @@ public:
         SharedMemory *shm = nullptr;
         if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
             bool allocation_ok = true;
-            for (size_t buf_size : input_tensor_sizes) {
+            for (const Tensor* tensor : input_tensors) {
+                size_t buf_size = tensor->tensor_data().size();
                 SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(1, buf_size);
                 if (nullptr == shm_buf) {
                     allocation_ok = false;

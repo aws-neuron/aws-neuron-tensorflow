@@ -385,7 +385,6 @@ void NeuronDevice::unload(const uint32_t nn_id) {
 
 Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
                                              AttrList &input_names,
-                                             const std::vector<size_t> &input_tensor_sizes,
                                              const std::vector<const Tensor*> &input_tensors,
                                              AttrList &output_names,
                                              const std::vector<size_t> &output_tensor_sizes,
@@ -396,8 +395,7 @@ Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
         return errors::Internal("bad ScopedRuntimeIO pointer");
     }
     return scoped_io->setup(
-        input_names, input_tensor_sizes, input_tensors,
-        output_names, output_tensor_sizes, output_tensors,
+        input_names, input_tensors, output_names, output_tensor_sizes, output_tensors,
         nn_id, thread_pool, shm_buf_mgr_);
 }
 

@@ -44,7 +44,6 @@ public:
                 const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
     Status setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
                                    AttrList &input_names,
-                                   const std::vector<size_t> &input_tensor_sizes,
                                    const std::vector<const Tensor*> &input_tensors,
                                    AttrList &output_names,
                                    const std::vector<size_t> &output_tensor_sizes,

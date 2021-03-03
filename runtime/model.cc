@@ -45,42 +45,28 @@ static size_t get_tensor_size(const DataType dype, const TensorShapeProto &shape
     return dtype_size * num_elements;
 }
 
-static Status get_io_tensor_sizes(std::vector<size_t> *input_tensor_sizes,
-                                  std::vector<size_t> *output_tensor_sizes,
-                                  const NodeDef &node_def) {
+static Status get_io_tensor_sizes(std::vector<size_t> *tensor_sizes,
+                                  const NodeDef &node_def,
+                                  const std::string &io_type) {
+    if (TF_PREDICT_FALSE(io_type != "input" && io_type != "output")) {
+        return errors::InvalidArgument("io_type must be one of {input, output}; got ", io_type);
+    }
     const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
-    AttrList &input_names = attr.at("input_names").list();
-    AttrList &input_dtypes = attr.at("input_dtypes").list();
-    AttrList &input_shapes = attr.at("input_shapes").list();
-    AttrList &output_names = attr.at("output_names").list();
-    AttrList &output_dtypes = attr.at("output_dtypes").list();
-    AttrList &output_shapes = attr.at("output_shapes").list();
-    if (input_names.s_size() != input_dtypes.type_size()
-            || input_names.s_size() != input_shapes.shape_size()) {
+    AttrList &names = attr.at(io_type + "_names").list();
+    AttrList &dtypes = attr.at(io_type + "_dtypes").list();
+    AttrList &shapes = attr.at(io_type + "_shapes").list();
+    if (TF_PREDICT_FALSE(
+            names.s_size() != dtypes.type_size() || names.s_size() != shapes.shape_size())) {
         return errors::FailedPrecondition(
-            "incorrect number of inputs: input_names size ", input_names.s_size(),
-            ", input_dtypes size ", input_dtypes.type_size(),
-            ", input_shapes size ", input_shapes.shape_size());
+            "incorrect number of tensors: ", io_type, "_names size ", names.s_size(),
+            ", ", io_type, "_dtypes size ", dtypes.type_size(),
+            ", ", io_type, "_shapes size ", shapes.shape_size());
     }
-    if (output_names.s_size() != output_dtypes.type_size()
-            || output_names.s_size() != output_shapes.shape_size()) {
-        return errors::FailedPrecondition(
-            "incorrect number of outputs: output_names size ", output_names.s_size(),
-            ", output_dtypes size ", output_dtypes.type_size(),
-            ", output_shapes size ", output_shapes.shape_size());
-    }
-    if (input_tensor_sizes != nullptr) {
-        input_tensor_sizes->clear();
-        for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
-            size_t tensor_size = get_tensor_size(input_dtypes.type(idx), input_shapes.shape(idx));
-            input_tensor_sizes->push_back(tensor_size);
-        }
-    }
-    if (output_tensor_sizes != nullptr) {
-        output_tensor_sizes->clear();
-        for (auto idx = 0; idx < output_dtypes.type_size(); ++idx) {
-            size_t tensor_size = get_tensor_size(output_dtypes.type(idx), output_shapes.shape(idx));
-            output_tensor_sizes->push_back(tensor_size);
+    if (tensor_sizes != nullptr) {
+        tensor_sizes->clear();
+        for (auto idx = 0; idx < dtypes.type_size(); ++idx) {
+            size_t tensor_size = get_tensor_size(dtypes.type(idx), shapes.shape(idx));
+            tensor_sizes->push_back(tensor_size);
         }
     }
     return Status::OK();
@@ -90,7 +76,7 @@ static Status check_input_tensors(const std::vector<const Tensor*> &input_tensor
                                   const NodeDef &node_def) {
     AttrList &input_names = node_def.attr().at("input_names").list();
     std::vector<size_t> input_tensor_sizes;
-    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&input_tensor_sizes, nullptr, node_def));
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&input_tensor_sizes, node_def, "input"));
     if ((int)input_tensors.size() != input_names.s_size()) {
         return errors::Internal(
             "incorrect number of input tensors, input_tensors size ",
@@ -142,7 +128,8 @@ Status NeuronModel::initialize(const NodeDef &node_def, const std::string &sessi
             << "; number of NEFFs: " << neuron_device_->num_executable();
 
     // check argument sizes
-    TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, nullptr, node_def));
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "input"));
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "output"));
 
     max_num_infers_ = model_config.max_num_infers_;
     max_num_infers_ *= neuron_device_->semaphore_factor();
@@ -165,9 +152,8 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
     AttrList &output_shapes = attr.at("output_shapes").list();
     TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
                 errors::InvalidArgument("incorrect number of input tensors"));
-    std::vector<size_t> input_tensor_sizes;
     std::vector<size_t> output_tensor_sizes;
-    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&input_tensor_sizes, &output_tensor_sizes, node_def));
+    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
 
     int64_t batch_size = UNINIT_BATCH_SIZE;
     int64_t k_batch_size = UNINIT_BATCH_SIZE;
@@ -293,7 +279,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         }
         auto ShardFunc = [
                 this, &shared_status, &node_def, &run_profiler_in_shard, &timestamps,
-                &input_tensors, &is_batch_inputs, &input_names, &input_tensor_sizes, 
+                &input_tensors, &is_batch_inputs, &input_names,
                 &output_tensors, &is_batch_outputs, &output_names, &output_tensor_sizes,
                 &batch_size, &k_batch_size, &end_start](int64 dim0_start, int64 dim0_limit) {
             if (TF_PREDICT_FALSE(dim0_limit - dim0_start != k_batch_size)) {
@@ -338,7 +324,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             }
             ScopedRuntimeIO scoped_io;
             SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->setup_scoped_runtime_io(
-                &scoped_io, input_names, input_tensor_sizes, input_ptrs,
+                &scoped_io, input_names, input_ptrs,
                 output_names, output_tensor_sizes, output_ptrs, nn_id_, nullptr));
             if (TF_PREDICT_FALSE(run_profiler_in_shard)) {
                 VLOG(1) << "enabling profiler in shard";
@@ -371,7 +357,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
         ScopedRuntimeIO scoped_io;
         RIE_IGNORE_ABORTED(neuron_device_->setup_scoped_runtime_io(
-            &scoped_io, input_names, input_tensor_sizes, input_tensors,
+            &scoped_io, input_names, input_tensors,
             output_names, output_tensor_sizes, output_tensors, nn_id_, thread_pool));
         if (profile_.enabled_) {
             VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
