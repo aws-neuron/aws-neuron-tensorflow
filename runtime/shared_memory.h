@@ -50,20 +50,29 @@ private:
 
 typedef std::shared_ptr<SharedMemoryBuffer> SharedMemoryPtr;
 
-class SharedMemoryBufferManager {
+class SharedMemoryBufferManager : public Allocator {
 public:
     SharedMemoryBufferManager(const uint64_t session_id, const std::string &nrtd_address);
+    ~SharedMemoryBufferManager() override {}
     bool is_valid() { return is_valid_; }
     SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
     void free_shm(SharedMemoryPtr shm);
     void clear();
+    std::string Name() override { return "AwsNeuronSharedMemory"; }
+    void *AllocateRaw(size_t alignment, size_t num_bytes) override;
+    void DeallocateRaw(void *ptr) override;
+    size_t AllocatedSizeSlow(const void *ptr) const override;
+    SharedMemoryPtr get_shm_ptr_from_ptr(const void *ptr);
 private:
+    void free_shm_unsafe(SharedMemoryPtr shm);
     tensorflow::mutex mutex_;
     uint64_t session_id_ = RuntimeSession::INVALID_ID;
     std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
     bool is_valid_ = false;
     std::vector<SharedMemoryPtr> buffer_vec_;
     std::unordered_map<size_t, std::unordered_set<size_t> > size_to_free_buffer_id_;
+    std::unordered_map<const void*, size_t> ptr_to_id_;
+    std::atomic<int> single_allocation_warning_count_;
     TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBufferManager);
 };
 

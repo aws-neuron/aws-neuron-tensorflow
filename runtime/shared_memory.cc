@@ -118,7 +118,8 @@ SharedMemoryBuffer::~SharedMemoryBuffer() {
 
 SharedMemoryBufferManager::SharedMemoryBufferManager(const uint64_t session_id,
                                                      const std::string &nrtd_address)
-                                                     : session_id_(session_id) {
+                                                     : session_id_(session_id),
+                                                       single_allocation_warning_count_(0) {
     runtime_ = std::make_shared<RuntimeGRPC>();
     TF_LOG_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
     is_valid_ = true;
@@ -146,24 +147,30 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment, 
     }
     VLOG(1) << "allocating a new shm buffer";
     size_t id = buffer_vec_.size();
-    buffer_vec_.push_back(std::make_shared<SharedMemoryBuffer>(id, session_id_, alignment, size, runtime_));
-    if (!buffer_vec_.back()->is_valid()) {
-        if (buffer_vec_.back()->unsupported_by_runtime()) {
+    SharedMemoryPtr shm_ptr = std::make_shared<SharedMemoryBuffer>(
+        id, session_id_, alignment, size, runtime_);
+    if (!shm_ptr->is_valid()) {
+        if (shm_ptr->unsupported_by_runtime()) {
             LOG(INFO) << "The current Neuron runtime configuration does not support "
                          "shared memory data transfer. Please refer to "
                          "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/neuron-guide/neuron-runtime/nrt-theory-of-operation.html#shared-memory-for-inference-ifmaps-and-ofmaps "
                          "if you encounter performance problem caused by high CPU usage on inf1 instances.";
             is_valid_ = false;
         }
-        buffer_vec_.pop_back();
         VLOG(1) << "SharedMemoryBufferManager created an invalid buffer";
         return nullptr;
     }
+    buffer_vec_.push_back(shm_ptr);
+    ptr_to_id_[shm_ptr->get_ptr()] = id;
     return buffer_vec_.back();
 }
 
 void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {
     tensorflow::mutex_lock lock(mutex_);
+    free_shm_unsafe(shm);
+}
+
+void SharedMemoryBufferManager::free_shm_unsafe(SharedMemoryPtr shm) {
     if (!shm->is_valid()) {
         LOG(ERROR) << "SharedMemoryBufferManager cannot free an invalid shared memory buffer";
         return;
@@ -180,8 +187,66 @@ void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {
 void SharedMemoryBufferManager::clear() {
     tensorflow::mutex_lock lock(mutex_);
     size_to_free_buffer_id_.clear();
+    ptr_to_id_.clear();
     buffer_vec_.clear();
     is_valid_ = false;
+}
+
+// Individual allocations large than this amount will trigger a warning.
+static const double kLargeAllocationWarningThreshold = 0.1;
+static const int kMaxSingleAllocationWarnings = 5;
+
+// Cache first invocation to port::AvailableRam, as it can be expensive.
+static int64_t LargeAllocationWarningBytes() {
+    static int64_t value = static_cast<int64>(port::AvailableRam() * kLargeAllocationWarningThreshold);
+    return value;
+}
+
+void *SharedMemoryBufferManager::AllocateRaw(size_t alignment, size_t num_bytes) {
+    if (num_bytes > LargeAllocationWarningBytes() &&
+            single_allocation_warning_count_ < kMaxSingleAllocationWarnings) {
+        ++single_allocation_warning_count_;
+        LOG(WARNING) << "Allocation of " << num_bytes << " exceeds "
+                     << 100 * kLargeAllocationWarningThreshold
+                     << "% of system memory.";
+    }
+    SharedMemoryPtr shm_ptr = allocate_shm(alignment, num_bytes);
+    if (TF_PREDICT_FALSE(nullptr == shm_ptr)) {
+        VLOG(1) << "allocate_shm failed; falling back to non-shared-memory allocation";
+        return port::AlignedMalloc(num_bytes, alignment);
+    } else {
+        return shm_ptr->get_ptr();
+    }
+}
+
+void SharedMemoryBufferManager::DeallocateRaw(void *ptr) {
+    tensorflow::mutex_lock lock(mutex_);
+    if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+        VLOG(1) << "freeing a non-shared-memory pointer";
+        port::AlignedFree(ptr);
+        return;
+    }
+    size_t id = ptr_to_id_[ptr];
+    SharedMemoryPtr shm = buffer_vec_[id];
+    free_shm_unsafe(shm);
+}
+
+size_t SharedMemoryBufferManager::AllocatedSizeSlow(const void *ptr) const {
+    if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+        return port::MallocExtension_GetAllocatedSize(ptr);
+    }
+    size_t id = ptr_to_id_.at(ptr);
+    SharedMemoryPtr shm = buffer_vec_[id];
+    return shm->get_size();
+}
+
+SharedMemoryPtr SharedMemoryBufferManager::get_shm_ptr_from_ptr(const void *ptr) {
+    tensorflow::mutex_lock lock(mutex_);
+    if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+        return nullptr;
+    }
+    size_t id = ptr_to_id_.at(ptr);
+    return buffer_vec_[id];
 }
 
 
