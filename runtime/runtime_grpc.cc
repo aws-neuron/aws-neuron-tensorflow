@@ -28,8 +28,8 @@ Status RuntimeIO::setup(
         AttrList &output_names, const std::vector<Tensor*> &output_tensors,
         const uint32_t nn_id, thread::ThreadPool *thread_pool, SharedMemory *shm) {
     thread_pool_ = thread_pool;
-    if (nullptr != shm) {
-        if (input_names.s_size() > (int64)shm->input_ptrs_.size()) {
+    if (TF_PREDICT_TRUE(nullptr != shm)) {
+        if (TF_PREDICT_FALSE(input_names.s_size() > (int64)shm->input_ptrs_.size())) {
             return errors::Aborted("shared memory is invalid");
         }
         use_shm_ = true;
@@ -39,14 +39,14 @@ Status RuntimeIO::setup(
         nrt::infer_io *infer_io = request_.add_ifmap();
         infer_io->set_name(input_names.s(idx));
         StringPiece tensor_data(input_tensors[idx]->tensor_data());
-        if (use_shm_) {
+        if (TF_PREDICT_TRUE(use_shm_)) {
             infer_io->mutable_buf_shm()->set_path(*shm->input_paths_[idx]);
             fast_memcpy(thread_pool_, shm->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
         } else {
             infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
-    if (use_shm_) {
+    if (TF_PREDICT_TRUE(use_shm_)) {
         for (int idx = 0; idx < output_names.s_size(); ++idx) {
             nrt::infer_io *infer_io = request_.add_shm_ofmap();
             infer_io->set_name(output_names.s(idx));
@@ -66,12 +66,7 @@ Status RuntimeIO::setup(
 
 Status RuntimeIO::finish() {
     std::vector<StringPiece> raw_output_tensors;
-    if (use_shm_) {
-        if (output_names_->s_size() > (int64)output_ptrs_.size()) {
-            return errors::Aborted("shared memory is invalid");
-        }
-    }
-    if (!use_shm_) {
+    if (TF_PREDICT_FALSE(!use_shm_)) {
         std::unordered_map<std::string, StringPiece> map_name_raw;
         for (const auto &infer_io : response_.ofmap()) {
             map_name_raw.emplace(infer_io.name(), infer_io.buf());
@@ -83,25 +78,22 @@ Status RuntimeIO::finish() {
             }
             raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
         }
-        for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
-            StringPiece out_tensor_raw = raw_output_tensors[idx];
-            Tensor *out_tensor = output_tensors_[idx];
-            TF_RETURN_WITH_CONTEXT_IF_ERROR(
-                tensor_memcpy(thread_pool_, out_tensor, out_tensor_raw),
-                "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
+    } else {
+        if (TF_PREDICT_FALSE(output_names_->s_size() > (int64)output_ptrs_.size())) {
+            return errors::Aborted("shared memory is invalid");
         }
-        return Status::OK();
     }
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
         StringPiece out_tensor_raw;
-        if (use_shm_) {
-            size_t size = output_tensors_[idx]->tensor_data().size();
+        Tensor *out_tensor = output_tensors_[idx];
+        if (TF_PREDICT_TRUE(use_shm_)) {
+            size_t size = out_tensor->tensor_data().size();
             out_tensor_raw = StringPiece(static_cast<char*>(output_ptrs_[idx]), size);
         } else {
             out_tensor_raw = raw_output_tensors[idx];
         }
         TF_RETURN_WITH_CONTEXT_IF_ERROR(
-            tensor_memcpy(thread_pool_, output_tensors_[idx], out_tensor_raw),
+            tensor_memcpy(thread_pool_, out_tensor, out_tensor_raw),
             "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
     }
     return Status::OK();
