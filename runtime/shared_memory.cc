@@ -64,11 +64,17 @@ static std::string gen_shm_path() {
 }
 
 
-SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const size_t size, const uint64_t session_id,
+SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const uint64_t session_id,
+                                       const size_t alignment, const size_t size,
                                        std::shared_ptr<RuntimeGRPC> runtime) : id_(id) {
     VLOG(1) << "entering SharedMemoryBuffer constructor";
     if (nullptr == runtime) {
         LOG(ERROR) << "runtime is not initialized";
+        return;
+    }
+    bool alignment_is_power_of_two = (alignment != 0) && (alignment & (alignment - 1)) == 0;
+    if (!alignment_is_power_of_two) {
+        LOG(ERROR) << "alignment is not power of 2";
         return;
     }
     runtime_ = runtime;
@@ -77,12 +83,19 @@ SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const size_t size, const
         LOG(ERROR) << "cannot generate unique file name for shared memory";
         return;
     }
+    size_ = size;
+    physical_size_ = size;
+    if (alignment > 1) {
+        physical_size_ += alignment;
+    }
     ShmFile shm_file(path);
     SYS_FAIL_LOG_RETURN(shm_file.shm_fd_ < 0, "shm_open");
-    SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, size) < 0, "ftruncate");
-    ptr_ = static_cast<char*>(::mmap(0, size, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0));
-    size_ = size;
-    SYS_FAIL_LOG_RETURN(nullptr == ptr_, "mmap");
+    SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, physical_size_) < 0, "ftruncate");
+    physical_ptr_ = ::mmap(0, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
+    SYS_FAIL_LOG_RETURN(nullptr == physical_ptr_, "mmap");
+    size_t space = physical_size_;
+    ptr_ = static_cast<char*>(std::align(alignment, size, physical_ptr_, space));
+    SYS_FAIL_LOG_RETURN(nullptr == ptr_, "std::align");
     if (!runtime_->shm_map(path, PROT_READ | PROT_WRITE, session_id).ok()) {
         VLOG(1) << "neuron-rtd shm_map failed";
         unsupported_by_runtime_ = true;
@@ -97,8 +110,8 @@ SharedMemoryBuffer::~SharedMemoryBuffer() {
     if (!path_.empty()) {
         TF_LOG_IF_ERROR(runtime_->shm_unmap(path_, PROT_READ | PROT_WRITE));
     }
-    if (nullptr != ptr_) {
-        SYS_FAIL_LOG(munmap(ptr_, size_) < 0, "munmap");
+    if (nullptr != physical_ptr_) {
+        SYS_FAIL_LOG(munmap(physical_ptr_, physical_size_) < 0, "munmap");
     }
 }
 
@@ -112,7 +125,7 @@ SharedMemoryBufferManager::SharedMemoryBufferManager(const uint64_t session_id,
 }
 
 
-SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t size) {
+SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment, const size_t size) {
     if (!is_valid_) {
         VLOG(1) << "SharedMemoryBufferManager is invalid";
         return nullptr;
@@ -133,7 +146,7 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t size) {
     }
     VLOG(1) << "allocating a new shm buffer";
     size_t id = buffer_vec_.size();
-    buffer_vec_.push_back(std::make_shared<SharedMemoryBuffer>(id, size, session_id_, runtime_));
+    buffer_vec_.push_back(std::make_shared<SharedMemoryBuffer>(id, session_id_, alignment, size, runtime_));
     if (!buffer_vec_.back()->is_valid()) {
         if (buffer_vec_.back()->unsupported_by_runtime()) {
             LOG(INFO) << "The current Neuron runtime configuration does not support "

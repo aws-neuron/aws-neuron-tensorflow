@@ -41,7 +41,7 @@ public:
         if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
             bool allocation_ok = true;
             for (size_t buf_size : input_tensor_sizes) {
-                SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(buf_size);
+                SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(1, buf_size);
                 if (nullptr == shm_buf) {
                     allocation_ok = false;
                     break;
@@ -49,7 +49,7 @@ public:
                 input_shm_bufs_.push_back(shm_buf);
             }
             for (size_t buf_size : output_tensor_sizes) {
-                SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(buf_size);
+                SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(1, buf_size);
                 if (nullptr == shm_buf) {
                     allocation_ok = false;
                     break;

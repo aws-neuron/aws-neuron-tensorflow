@@ -25,7 +25,8 @@ namespace neuron {
 
 class SharedMemoryBuffer {
 public:
-    SharedMemoryBuffer(const size_t id, const size_t size, const uint64_t session_id,
+    SharedMemoryBuffer(const size_t id, const uint64_t session_id,
+                       const size_t alignment, const size_t size,
                        std::shared_ptr<RuntimeGRPC> runtime);
     ~SharedMemoryBuffer();
     // path_ is assigned when rtd shm_map has returned success
@@ -39,7 +40,9 @@ private:
     const size_t id_;
     std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
     char *ptr_ = nullptr;
+    void *physical_ptr_ = nullptr;
     size_t size_ = 0;
+    size_t physical_size_ = 0;
     bool unsupported_by_runtime_ = false;
     std::string path_ = "";
     TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBuffer);
@@ -51,7 +54,7 @@ class SharedMemoryBufferManager {
 public:
     SharedMemoryBufferManager(const uint64_t session_id, const std::string &nrtd_address);
     bool is_valid() { return is_valid_; }
-    SharedMemoryPtr allocate_shm(const size_t size);
+    SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
     void free_shm(SharedMemoryPtr shm);
     void clear();
 private:
