@@ -94,7 +94,7 @@ SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const uint64_t session_i
     physical_ptr_ = ::mmap(0, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
     SYS_FAIL_LOG_RETURN(nullptr == physical_ptr_, "mmap");
     size_t space = physical_size_;
-    ptr_ = static_cast<char*>(std::align(alignment, size, physical_ptr_, space));
+    ptr_ = std::align(alignment, size, physical_ptr_, space);
     SYS_FAIL_LOG_RETURN(nullptr == ptr_, "std::align");
     if (!runtime_->shm_map(path, PROT_READ | PROT_WRITE, session_id).ok()) {
         VLOG(1) << "neuron-rtd shm_map failed";

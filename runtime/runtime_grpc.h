@@ -98,7 +98,7 @@ private:
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
     bool use_shm_ = false;
-    std::vector<char*> output_ptrs_;
+    std::vector<void*> output_ptrs_;
     TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };
 

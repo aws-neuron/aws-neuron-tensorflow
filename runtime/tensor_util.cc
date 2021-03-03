@@ -41,7 +41,9 @@ static void *memcpy_uint32(void *dst, const void *src, size_t size) {
 
 typedef std::function<void*(void*, const void*, size_t)> MemcpyFunc;
 
-void fast_memcpy(thread::ThreadPool *thread_pool, char *char_dst, const char *char_src, int64 total_size) {
+void fast_memcpy(thread::ThreadPool *thread_pool, void *dst, const void *src, int64 total_size) {
+    char *char_dst = static_cast<char*>(dst);
+    const char *char_src = static_cast<const char*>(src);
     MemcpyFunc memcpy_func = std::memcpy;
     if (total_size < 1024) {
         std::copy_n(char_src, total_size, char_dst);

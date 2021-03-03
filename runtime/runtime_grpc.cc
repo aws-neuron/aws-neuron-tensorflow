@@ -96,7 +96,7 @@ Status RuntimeIO::finish() {
         StringPiece out_tensor_raw;
         if (use_shm_) {
             size_t size = output_tensors_[idx]->tensor_data().size();
-            out_tensor_raw = StringPiece(output_ptrs_[idx], size);
+            out_tensor_raw = StringPiece(static_cast<char*>(output_ptrs_[idx]), size);
         } else {
             out_tensor_raw = raw_output_tensors[idx];
         }

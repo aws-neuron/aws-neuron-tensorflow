@@ -21,9 +21,9 @@ namespace neuron {
 
 typedef struct SharedMemory {
     std::vector<std::string*> input_paths_;
-    std::vector<char*> input_ptrs_;
+    std::vector<void*> input_ptrs_;
     std::vector<std::string*> output_paths_;
-    std::vector<char*> output_ptrs_;
+    std::vector<void*> output_ptrs_;
 } SharedMemory;
 
 }  // namespace neuron

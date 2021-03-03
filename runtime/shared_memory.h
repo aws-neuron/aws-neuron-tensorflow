@@ -33,13 +33,13 @@ public:
     bool is_valid() { return !path_.empty(); }
     bool unsupported_by_runtime() { return unsupported_by_runtime_; }
     size_t get_id() { return id_; }
-    char *get_ptr() { return ptr_; }
+    void *get_ptr() { return ptr_; }
     size_t get_size() { return size_; }
     std::string *get_path() { return &path_; }
 private:
     const size_t id_;
     std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
-    char *ptr_ = nullptr;
+    void *ptr_ = nullptr;
     void *physical_ptr_ = nullptr;
     size_t size_ = 0;
     size_t physical_size_ = 0;
