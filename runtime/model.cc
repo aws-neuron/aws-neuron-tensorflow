@@ -326,6 +326,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->setup_scoped_runtime_io(
                 &scoped_io, input_names, input_ptrs,
                 output_names, output_tensor_sizes, output_ptrs, nn_id_, nullptr));
+            SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.copy_input_tensors(input_ptrs));
             if (TF_PREDICT_FALSE(run_profiler_in_shard)) {
                 VLOG(1) << "enabling profiler in shard";
                 SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer_with_profiling(
@@ -359,6 +360,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         RIE_IGNORE_ABORTED(neuron_device_->setup_scoped_runtime_io(
             &scoped_io, input_names, input_tensors,
             output_names, output_tensor_sizes, output_tensors, nn_id_, thread_pool));
+        RIE_IGNORE_ABORTED(scoped_io.copy_input_tensors(input_tensors));
         if (profile_.enabled_) {
             VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
             RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(

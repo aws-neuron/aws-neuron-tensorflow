@@ -24,8 +24,7 @@ namespace neuron {
 
 
 Status RuntimeIO::setup(
-        AttrList &input_names, const std::vector<const Tensor*> &input_tensors,
-        AttrList &output_names, const std::vector<Tensor*> &output_tensors,
+        AttrList &input_names, AttrList &output_names, const std::vector<Tensor*> &output_tensors,
         const uint32_t nn_id, thread::ThreadPool *thread_pool, SharedMemory *shm) {
     thread_pool_ = thread_pool;
     if (TF_PREDICT_TRUE(nullptr != shm)) {
@@ -33,17 +32,14 @@ Status RuntimeIO::setup(
             return errors::Aborted("shared memory is invalid");
         }
         use_shm_ = true;
+        input_ptrs_ = shm->input_ptrs_;
         output_ptrs_ = shm->output_ptrs_;
     }
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
         nrt::infer_io *infer_io = request_.add_ifmap();
         infer_io->set_name(input_names.s(idx));
-        StringPiece tensor_data(input_tensors[idx]->tensor_data());
         if (TF_PREDICT_TRUE(use_shm_)) {
             infer_io->mutable_buf_shm()->set_path(*shm->input_paths_[idx]);
-            fast_memcpy(thread_pool_, shm->input_ptrs_[idx], tensor_data.data(), tensor_data.size());
-        } else {
-            infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
     if (TF_PREDICT_TRUE(use_shm_)) {
@@ -61,6 +57,22 @@ Status RuntimeIO::setup(
     request_.mutable_h_nn()->set_id(nn_id);
     output_names_ = &output_names;
     output_tensors_ = output_tensors;
+    return Status::OK();
+}
+
+Status RuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &input_tensors) {
+    if (TF_PREDICT_FALSE(request_.ifmap_size() != (int64)input_tensors.size())) {
+        return errors::InvalidArgument("size mismatch between input_tensors and request_.ifmap()");
+    }
+    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+        nrt::infer_io *infer_io = request_.mutable_ifmap(idx);
+        StringPiece tensor_data(input_tensors[idx]->tensor_data());
+        if (TF_PREDICT_TRUE(use_shm_)) {
+            fast_memcpy(thread_pool_, input_ptrs_[idx], tensor_data.data(), tensor_data.size());
+        } else {
+            infer_io->set_buf(tensor_data.data(), tensor_data.size());
+        }
+    }
     return Status::OK();
 }
 

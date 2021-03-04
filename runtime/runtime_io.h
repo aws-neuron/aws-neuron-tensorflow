@@ -68,8 +68,10 @@ public:
                 shm = &scoped_shm;
             }
         }
-        return runtime_io_.setup(
-            input_names, input_tensors, output_names, output_tensors, nn_id, thread_pool, shm);
+        return runtime_io_.setup(input_names, output_names, output_tensors, nn_id, thread_pool, shm);
+    }
+    Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors) {
+        return runtime_io_.copy_input_tensors(input_tensors);
     }
     Status finish() {
         return runtime_io_.finish();
