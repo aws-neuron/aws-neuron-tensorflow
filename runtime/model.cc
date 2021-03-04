@@ -62,7 +62,7 @@ static Status get_io_tensor_sizes(std::vector<size_t> *tensor_sizes,
             ", ", io_type, "_dtypes size ", dtypes.type_size(),
             ", ", io_type, "_shapes size ", shapes.shape_size());
     }
-    if (tensor_sizes != nullptr) {
+    if (TF_PREDICT_TRUE(tensor_sizes != nullptr)) {
         tensor_sizes->clear();
         for (auto idx = 0; idx < dtypes.type_size(); ++idx) {
             size_t tensor_size = get_tensor_size(dtypes.type(idx), shapes.shape(idx));
@@ -75,20 +75,31 @@ static Status get_io_tensor_sizes(std::vector<size_t> *tensor_sizes,
 static Status check_input_tensors(const std::vector<const Tensor*> &input_tensors,
                                   const NodeDef &node_def) {
     AttrList &input_names = node_def.attr().at("input_names").list();
-    std::vector<size_t> input_tensor_sizes;
-    TF_RETURN_IF_ERROR(get_io_tensor_sizes(&input_tensor_sizes, node_def, "input"));
-    if ((int)input_tensors.size() != input_names.s_size()) {
-        return errors::Internal(
-            "incorrect number of input tensors, input_tensors size ",
-            input_tensors.size(), ", input_names size", input_names.s_size());
-    }
-    for (auto idx = 0; idx < input_names.s_size(); ++idx) {
-        size_t tensor_data_size = input_tensors[idx]->tensor_data().size();
-        if (tensor_data_size != input_tensor_sizes[idx]) {
-            return errors::Internal(
-                "incorrect input tensor size ", tensor_data_size, " found on ",
-                input_names.s(idx), " (", input_tensor_sizes[idx], ")");
-        }
+    AttrList &input_dtypes = node_def.attr().at("input_dtypes").list();
+    AttrList &input_shapes = node_def.attr().at("input_shapes").list();
+    TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
+                errors::Internal(
+                    "incorrect number of input tensors, input_tensors size ",
+                    input_tensors.size(), ", input_names size", input_names.s_size()));
+    TFNN_ASSERT(input_dtypes.type_size() == input_names.s_size(),
+                errors::Internal(
+                    "incorrect input metadata, input_dtypes size ",
+                    input_dtypes.type_size(), ", input_names size", input_names.s_size()));
+    TFNN_ASSERT(input_shapes.shape_size() == input_names.s_size(),
+                errors::Internal(
+                    "incorrect input metadata, input_shapes size ",
+                    input_shapes.shape_size(), ", input_names size", input_names.s_size()));
+    for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
+        DataType dtype = input_tensors[idx]->dtype();
+        TensorShape shape = input_tensors[idx]->shape();
+        DataType dtype_expected = input_dtypes.type(idx);
+        TensorShape shape_expected = input_shapes.shape(idx);
+        TFNN_ASSERT(dtype == dtype_expected,
+                    errors::Internal(
+                        "incorrect input tensor dtype ", dtype, ", expected ", dtype_expected));
+        TFNN_ASSERT(shape == shape_expected,
+                    errors::Internal(
+                        "incorrect input tensor shape ", shape, ", expected ", shape_expected));
     }
     return Status::OK();
 }

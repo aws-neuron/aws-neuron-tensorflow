@@ -144,8 +144,6 @@ class TestTraceFunction(TestV2Only):
         graph_def = cfunc.graph.as_graph_def()
         for node in graph_def.node:
             if node.op == 'NeuronOp':
-                node.attr['input_batch_axis'].list.Clear()
-                node.attr['output_batch_axis'].list.Clear()
                 idx_ts = node.attr['_input_shuffles'].list.tensor.add()
                 indices = tf.range(input_tensor.shape.num_elements())
                 indices = tf.reshape(indices, input_tensor.shape)
@@ -157,7 +155,7 @@ class TestTraceFunction(TestV2Only):
         cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
         _assert_compiler_success_func(cfunc)
         result_func_ref = func_ref(input_tensor)
-        result_func_neuron = cfunc(input_tensor)
+        result_func_neuron = cfunc(tf.reshape(input_tensor, input_tensor_tracing.shape))
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     def test_func_pad_conv(self):
