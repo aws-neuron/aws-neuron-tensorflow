@@ -115,6 +115,16 @@ SharedMemoryBuffer::~SharedMemoryBuffer() {
     }
 }
 
+std::string SharedMemoryBuffer::debug_string() {
+    return errors::Internal(
+        "SharedMemoryBuffer("
+            "ptr=", ptr_, ", "
+            "size=", size_, ", "
+            "physical_ptr=", physical_ptr_, ", "
+            "physical_size=", physical_size_,
+        ")").error_message();
+}
+
 
 SharedMemoryBufferManager::SharedMemoryBufferManager(const uint64_t session_id,
                                                      const std::string &nrtd_address)
@@ -138,12 +148,13 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment, 
     }
     if (size_to_free_buffer_id_.count(size) && size_to_free_buffer_id_[size].size()) {
         // get one from the free buffer set
-        VLOG(1) << "getting an already allocated shm buffer";
         std::unordered_set<size_t> *free_buffer_id_set = &size_to_free_buffer_id_[size];
         auto iter = free_buffer_id_set->begin();
         size_t free_buffer_id = *iter;
         free_buffer_id_set->erase(iter);
-        return buffer_vec_[free_buffer_id];
+        SharedMemoryPtr shm_ptr = buffer_vec_[free_buffer_id];
+        VLOG(1) << "reusing already allocated shm buffer " << shm_ptr->debug_string();
+        return shm_ptr;
     }
     VLOG(1) << "allocating a new shm buffer";
     size_t id = buffer_vec_.size();
@@ -162,7 +173,8 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment, 
     }
     buffer_vec_.push_back(shm_ptr);
     ptr_to_id_[shm_ptr->get_ptr()] = id;
-    return buffer_vec_.back();
+    VLOG(1) << "successfully allocated shm buffer " << shm_ptr->debug_string();
+    return shm_ptr;
 }
 
 void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {

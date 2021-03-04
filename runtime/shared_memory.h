@@ -36,6 +36,7 @@ public:
     void *get_ptr() { return ptr_; }
     size_t get_size() { return size_; }
     std::string *get_path() { return &path_; }
+    std::string debug_string();
 private:
     const size_t id_;
     std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
