@@ -141,6 +141,36 @@ Status NeuronModel::initialize(const NodeDef &node_def, const std::string &sessi
     return Status::OK();
 }
 
+static Status allocate_shuffle_buffers(OpKernelContext *ctx,
+                                       std::vector<Tensor> *shuffle_buffers,
+                                       const std::vector<const Tensor*> &input_tensors) {
+    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+        const Tensor *src = input_tensors[idx];
+        Tensor *dst = &shuffle_buffers->at(idx);
+        TF_RETURN_IF_ERROR(ctx->allocate_temp(src->dtype(), src->shape(), dst));
+    }
+    return Status::OK();
+}
+
+static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDef &node_def,
+                                              const std::vector<const Tensor*> &input_tensors,
+                                              ScopedRuntimeIO *scoped_io) {
+    const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
+    if (attr.count("_input_shuffles")) {
+        AttrList &input_shuffles = attr.at("_input_shuffles").list();
+        if (TF_PREDICT_FALSE(input_shuffles.tensor_size() != (int64)input_tensors.size())) {
+            return errors::InvalidArgument("illegal _input_shuffles attribute");
+        }
+        std::vector<Tensor> shuffle_buffers(input_tensors.size());
+        TF_RETURN_IF_ERROR(allocate_shuffle_buffers(ctx, &shuffle_buffers, input_tensors));
+        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(
+            input_tensors, input_shuffles, &shuffle_buffers));
+    } else {
+        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors));
+    }
+    return Status::OK();
+}
+
 Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                             const std::vector<const Tensor*> &input_tensors) {
     thread::ThreadPool *thread_pool = ctx->device()->tensorflow_cpu_worker_threads()->workers;
@@ -278,7 +308,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             }                                                                               \
         }
         auto ShardFunc = [
-                this, &shared_status, &node_def, &run_profiler_in_shard, &timestamps,
+                this, &shared_status, &ctx, &node_def, &run_profiler_in_shard, &timestamps,
                 &input_tensors, &is_batch_inputs, &input_names,
                 &output_tensors, &is_batch_outputs, &output_names, &output_tensor_sizes,
                 &batch_size, &k_batch_size, &end_start](int64 dim0_start, int64 dim0_limit) {
@@ -326,7 +356,12 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->setup_scoped_runtime_io(
                 &scoped_io, input_names, input_ptrs,
                 output_names, output_tensor_sizes, output_ptrs, nn_id_, nullptr));
-            SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.copy_input_tensors(input_ptrs));
+
+            // copy input tensors with optional input_shuffles
+            SHARD_LOG_IGNORE_ABORTED(shared_status, copy_input_tensors_with_shuffle(
+                ctx, node_def, input_ptrs, &scoped_io));
+
+            // run inference
             if (TF_PREDICT_FALSE(run_profiler_in_shard)) {
                 VLOG(1) << "enabling profiler in shard";
                 SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer_with_profiling(
@@ -360,7 +395,11 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         RIE_IGNORE_ABORTED(neuron_device_->setup_scoped_runtime_io(
             &scoped_io, input_names, input_tensors,
             output_names, output_tensor_sizes, output_tensors, nn_id_, thread_pool));
-        RIE_IGNORE_ABORTED(scoped_io.copy_input_tensors(input_tensors));
+
+        // copy input tensors with optional input_shuffles
+        RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(ctx, node_def, input_tensors, &scoped_io));
+
+        // run inference
         if (profile_.enabled_) {
             VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
             RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(

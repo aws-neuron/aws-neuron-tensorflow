@@ -49,26 +49,6 @@ void NeuronOp::Compute(OpKernelContext *ctx) {
     for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
         input_tensors[idx] = &ctx->input(idx);
     }
-    std::vector<Tensor> temp_tensors(ctx->num_inputs());
-    if (def().attr().count("_input_shuffles")) {
-        const auto &input_shuffles = def().attr().at("_input_shuffles").list();
-        VLOG(1) << input_shuffles.tensor_size() << " input shuffle indices";
-        for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
-            uint64 start_timestamp = Env::Default()->NowMicros();
-            const Tensor &src = ctx->input(idx);
-            Tensor *dst = &temp_tensors[idx];
-            OP_REQUIRES_OK(ctx, ctx->allocate_temp(src.dtype(), src.shape(), dst));
-            const TensorProto &shuffle = input_shuffles.tensor(idx);
-            if (shuffle.int64_val_size() != src.NumElements()) {
-                VLOG(1) << "skipping shuffle at input " << idx;
-                continue;
-            }
-            OP_REQUIRES_OK(ctx, tensor_shuffle(dst, src, shuffle));
-            input_tensors[idx] = dst;
-            uint64 elapsed = Env::Default()->NowMicros() - start_timestamp;
-            VLOG(1) << "input shuffle at " << idx << " took " << elapsed << " us";
-        }
-    }
     OP_REQUIRES_OK(ctx, model_.compute(ctx, def(), input_tensors));
 }
 
