@@ -85,13 +85,17 @@ SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const uint64_t session_i
     }
     size_ = size;
     physical_size_ = size;
-    if (alignment > 1) {
+    size_t page_size = ::getpagesize();
+    if (alignment > page_size) {
         physical_size_ += alignment;
+    } else {
+        VLOG(1) << "no need for padding as alignment requirement " << alignment
+                << " is less than page size " << page_size;
     }
     ShmFile shm_file(path);
     SYS_FAIL_LOG_RETURN(shm_file.shm_fd_ < 0, "shm_open");
     SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, physical_size_) < 0, "ftruncate");
-    physical_ptr_ = ::mmap(0, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
+    physical_ptr_ = ::mmap(NULL, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
     SYS_FAIL_LOG_RETURN(nullptr == physical_ptr_, "mmap");
     size_t space = physical_size_;
     ptr_ = std::align(alignment, size, physical_ptr_, space);
