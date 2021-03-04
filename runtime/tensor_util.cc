@@ -13,6 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "tensorflow/core/framework/register_types.h"
+#include "tensorflow/core/framework/tensor.pb.h"
 #include "tensor_util.h"
 
 namespace tensorflow {
@@ -114,6 +116,36 @@ Status tensor_memcpy(thread::ThreadPool *thread_pool, Tensor *tensor, StringPiec
 Status tensor_memset(Tensor *tensor, int ch) {
     std::fill_n(const_cast<char*>(tensor->tensor_data().data()),
                 tensor->tensor_data().size(), ch);
+    return Status::OK();
+}
+
+template <typename T>
+static Status tensor_shuffle_impl(Tensor *dst, const Tensor &src, const TensorProto &shuffle) {
+    const T *src_ptr = reinterpret_cast<const T*>(src.tensor_data().data());
+    T *dst_ptr = reinterpret_cast<T*>(const_cast<char*>((dst->tensor_data().data())));
+    for (auto ii = 0; ii < src.NumElements(); ++ii) {
+        int iii = shuffle.int64_val(ii);
+        if (!TF_PREDICT_TRUE(0 <= iii && iii < src.NumElements())) {
+            return errors::InvalidArgument("invalid shuffle index ", iii);
+        }
+        dst_ptr[ii] = src_ptr[iii];
+    }
+    return Status::OK();
+}
+
+Status tensor_shuffle(Tensor *dst, const Tensor &src, const TensorProto &shuffle) {
+    switch (src.dtype()) {
+#define CASE(type)                                              \
+    case DataTypeToEnum<type>::value: {                         \
+        return tensor_shuffle_impl<type>(dst, src, shuffle);    \
+        break;                                                  \
+    }
+        TF_CALL_REAL_NUMBER_TYPES(CASE);
+        TF_CALL_bool(CASE);
+#undef CASE
+        default:
+            return errors::InvalidArgument("invalid data type ", src.dtype());
+    }
     return Status::OK();
 }
 
