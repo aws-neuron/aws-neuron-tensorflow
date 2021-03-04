@@ -82,6 +82,7 @@ public:
                  const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, thread::ThreadPool *thread_pool=nullptr,
                  SharedMemory *shm=nullptr);
+    bool use_shm() { return use_shm_; }
     Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors);
     void set_nn_id(const uint32_t nn_id) { request_.mutable_h_nn()->set_id(nn_id); }
     uint32_t get_nn_id() { return request_.mutable_h_nn()->id(); }
@@ -99,7 +100,6 @@ private:
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
     bool use_shm_ = false;
-    std::vector<void*> input_ptrs_;
     std::vector<void*> output_ptrs_;
     TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };

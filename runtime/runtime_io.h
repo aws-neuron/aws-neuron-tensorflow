@@ -35,6 +35,7 @@ public:
                  const uint32_t nn_id, thread::ThreadPool *thread_pool,
                  std::shared_ptr<SharedMemoryBufferManager> shm_mgr) {
         shm_mgr_ = shm_mgr;
+        thread_pool_ = thread_pool;
         SharedMemory scoped_shm;
         SharedMemory *shm = nullptr;
         if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
@@ -65,7 +66,6 @@ public:
             if (allocation_ok) {
                 for (auto shm_buf : input_shm_bufs) {
                     scoped_shm.input_paths_.push_back(shm_buf->get_path());
-                    scoped_shm.input_ptrs_.push_back(shm_buf->get_ptr());
                 }
                 for (auto shm_buf : output_shm_bufs_) {
                     scoped_shm.output_paths_.push_back(shm_buf->get_path());
@@ -77,6 +77,16 @@ public:
         return runtime_io_.setup(input_names, output_names, output_tensors, nn_id, thread_pool, shm);
     }
     Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors) {
+        if (TF_PREDICT_TRUE(runtime_io_.use_shm())) {
+            if (TF_PREDICT_FALSE(input_shm_tensors_.size() != input_tensors.size())) {
+                return errors::InvalidArgument(
+                    "size mismatch between input_shm_tensors_ and input_tensors");
+            }
+            for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+                StringPiece tensor_data(input_tensors[idx]->tensor_data());
+                TF_RETURN_IF_ERROR(tensor_memcpy(thread_pool_, &input_shm_tensors_[idx], tensor_data));
+            }
+        }
         return runtime_io_.copy_input_tensors(input_tensors);
     }
     Status finish() {
@@ -94,6 +104,7 @@ private:
     std::shared_ptr<SharedMemoryBufferManager> shm_mgr_ = nullptr;
     std::vector<Tensor> input_shm_tensors_;
     std::vector<SharedMemoryPtr> output_shm_bufs_;
+    thread::ThreadPool *thread_pool_;
     TFN_DISALLOW_COPY_MOVE_ASSIGN(ScopedRuntimeIO);
 };
 

@@ -28,11 +28,7 @@ Status RuntimeIO::setup(
         const uint32_t nn_id, thread::ThreadPool *thread_pool, SharedMemory *shm) {
     thread_pool_ = thread_pool;
     if (TF_PREDICT_TRUE(nullptr != shm)) {
-        if (TF_PREDICT_FALSE(input_names.s_size() > (int64)shm->input_ptrs_.size())) {
-            return errors::Aborted("shared memory is invalid");
-        }
         use_shm_ = true;
-        input_ptrs_ = shm->input_ptrs_;
         output_ptrs_ = shm->output_ptrs_;
     }
     for (auto idx = 0; idx < input_names.s_size(); ++idx) {
@@ -64,12 +60,10 @@ Status RuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &input_ten
     if (TF_PREDICT_FALSE(request_.ifmap_size() != (int64)input_tensors.size())) {
         return errors::InvalidArgument("size mismatch between input_tensors and request_.ifmap()");
     }
-    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-        nrt::infer_io *infer_io = request_.mutable_ifmap(idx);
-        StringPiece tensor_data(input_tensors[idx]->tensor_data());
-        if (TF_PREDICT_TRUE(use_shm_)) {
-            fast_memcpy(thread_pool_, input_ptrs_[idx], tensor_data.data(), tensor_data.size());
-        } else {
+    if (TF_PREDICT_FALSE(!use_shm_)) {
+        for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+            nrt::infer_io *infer_io = request_.mutable_ifmap(idx);
+            StringPiece tensor_data(input_tensors[idx]->tensor_data());
             infer_io->set_buf(tensor_data.data(), tensor_data.size());
         }
     }
