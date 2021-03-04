@@ -184,6 +184,13 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
+        # test dynamic batch size inference
+        input_tensor = tf.random.uniform([16, 3, 224, 224])
+        input_tensor = tf.cast(input_tensor, tf.float16)
+        result_func_ref = func_ref(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
+
     def test_func_3in_5out(self):
 
         def func(tensor0, tensor1, tensor2):

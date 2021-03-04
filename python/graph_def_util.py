@@ -261,10 +261,8 @@ def run_compiler_on_subgraphs(graph_def):
             else:
                 input_batch_axis = [vInvalidAxis if ax is None else ax for ax in input_batch_axis]
                 output_batch_axis = [vInvalidAxis if ax is None else ax for ax in output_batch_axis]
-                # TODO: remove when input shuffle and dynamic batch size are compatible
-                if not do_input_shuffles:
-                    node.attr['input_batch_axis'].list.i[:] = input_batch_axis
-                    node.attr['output_batch_axis'].list.i[:] = output_batch_axis
+                node.attr['input_batch_axis'].list.i[:] = input_batch_axis
+                node.attr['output_batch_axis'].list.i[:] = output_batch_axis
     return graph_def
 
 
