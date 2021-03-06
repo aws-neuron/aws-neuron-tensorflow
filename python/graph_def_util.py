@@ -263,6 +263,13 @@ def run_compiler_on_subgraphs(graph_def):
                 output_batch_axis = [vInvalidAxis if ax is None else ax for ax in output_batch_axis]
                 node.attr['input_batch_axis'].list.i[:] = input_batch_axis
                 node.attr['output_batch_axis'].list.i[:] = output_batch_axis
+                input_args = node.attr[knInputShapes].list.shape, inputs
+                output_args = node.attr[knOutputShapes].list.shape, outputs
+                for args in input_args, output_args:
+                    for shape, ts in zip(*args):
+                        if [dim.size for dim in shape.dim] != ts.shape:
+                            for dim, size in zip(shape.dim, ts.shape):
+                                dim.size = size
     return graph_def
 
 
