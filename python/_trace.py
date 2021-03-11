@@ -161,11 +161,17 @@ def _find_pad_ops_preceding_conv2d(graph):
     no_fuse_ops = []
     supported_op_types = list_operators()
     for op in graph.get_operations():
-        if op.type == 'Pad' and op.inputs[0].op.type not in supported_op_types:
+        if op.type == 'Pad':
             consumers = op.outputs[0].consumers()
-            if len(consumers) == 1 and consumers[0].type == 'Conv2D':
-                no_fuse_ops.append(op.name)
-                no_fuse_ops.append(op.inputs[1].op.name)
+            if consumers[0].type == 'Conv2D':
+                curr_op = op
+                pad_input_ops = [curr_op]
+                while curr_op.inputs and curr_op.type in supported_op_types:
+                    curr_op = curr_op.inputs[0].op
+                    pad_input_ops.append(curr_op)
+                if len(pad_input_ops) <= 3:
+                    no_fuse_ops.append(op.inputs[1].op.name)
+                    no_fuse_ops.extend(piop.name for piop in pad_input_ops)
     return no_fuse_ops
 
 
