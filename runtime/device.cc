@@ -352,6 +352,11 @@ Status NeuronDevice::load(
     }
     nn_id_to_all_nn_ids_[first_nn_id] = all_nn_ids;
     nn_id_to_active_idx_[first_nn_id] = 0;
+    std::vector<std::shared_ptr<xla::Semaphore> > &sems = nn_id_to_sems_[first_nn_id];
+    for (const auto &nn_id : all_nn_ids) {
+        VLOG(1) << "model " << nn_id << " infer semaphore capacity " << ninfer;
+        sems.push_back(std::make_shared<xla::Semaphore>(ninfer));
+    }
     *nn_id = first_nn_id;
     VLOG(1) << "successfully loaded " << first_nn_id;
     return Status::OK();
@@ -399,18 +404,18 @@ Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
         nn_id, thread_pool, shm_buf_mgr_);
 }
 
-Status NeuronDevice::infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
-                           Timestamps *timestamps) {
+Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps) {
     uint32_t nn_id = runtime_io->get_nn_id();
     SemResQueue sem_res_queue;
     {
         tensorflow::mutex_lock lock(mutex_eg_);
-        sem_res_queue.push(infer_sem->ScopedAcquire(1));
         TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
         if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
         uint32_t active_nn_id = NRT_INVALID_NN_ID;
-        TF_RETURN_IF_ERROR(get_active(&active_nn_id, nn_id));
+        std::shared_ptr<xla::Semaphore> sem;
+        TF_RETURN_IF_ERROR(get_active(&active_nn_id, &sem, nn_id));
         runtime_io->set_nn_id(active_nn_id);
+        sem_res_queue.push(sem->ScopedAcquire(1));
         TF_RETURN_IF_ERROR(runtime_.infer_post(runtime_io));
     }
     Status status_wait = runtime_.infer_wait(runtime_io);
@@ -519,13 +524,15 @@ void NeuronDevice::set_running(uint32_t nn_id) {
     running_nn_id_ = nn_id;
 }
 
-Status NeuronDevice::get_active(uint32_t *active_nn_id, const uint32_t nn_id) {
+Status NeuronDevice::get_active(uint32_t *active_nn_id, std::shared_ptr<xla::Semaphore> *sem,
+                                const uint32_t nn_id) {
     if (!nn_id_to_all_nn_ids_.count(nn_id)) {
         return errors::InvalidArgument("no active id can be found from nn id ", nn_id);
     }
     size_t idx = nn_id_to_active_idx_[nn_id];
     nn_id_to_active_idx_[nn_id] = (idx + 1) % nn_id_to_all_nn_ids_[nn_id].size();
     *active_nn_id = nn_id_to_all_nn_ids_[nn_id][idx];
+    *sem = nn_id_to_sems_[nn_id][idx];
     return Status::OK();
 }
 

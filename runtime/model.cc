@@ -142,14 +142,6 @@ Status NeuronModel::initialize(const NodeDef &node_def, const std::string &sessi
     // check argument sizes
     TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "input"));
     TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "output"));
-
-    max_num_infers_ = model_config.max_num_infers_;
-    max_num_infers_ *= neuron_device_->semaphore_factor();
-    std::string unlimited_threads = env_get("NEURON_UNLIMITED_THREADS", "");
-    if (!infer_sem_ && "yes" != unlimited_threads) {
-        infer_sem_ = std::make_shared<xla::Semaphore>(max_num_infers_);
-        VLOG(1) << "infer semaphore capacity " << max_num_infers_;
-    }
     return Status::OK();
 }
 
@@ -390,7 +382,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                     &scoped_io.runtime_io_, &timestamps, &profile_));
             } else {
                 SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer(
-                    &scoped_io.runtime_io_, infer_sem_, &timestamps));
+                    &scoped_io.runtime_io_, &timestamps));
             }
             SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.finish());
         };
@@ -427,8 +419,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(
                 &scoped_io.runtime_io_, &timestamps, &profile_));
         } else {
-            RIE_IGNORE_ABORTED(neuron_device_->infer(
-                &scoped_io.runtime_io_, infer_sem_, &timestamps));
+            RIE_IGNORE_ABORTED(neuron_device_->infer(&scoped_io.runtime_io_, &timestamps));
         }
         RIE_IGNORE_ABORTED(scoped_io.finish());
     }

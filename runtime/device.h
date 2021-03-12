@@ -50,8 +50,7 @@ public:
                                    const std::vector<Tensor*> &output_tensors,
                                    const uint32_t nn_id,
                                    thread::ThreadPool *thread_pool);
-    Status infer(RuntimeIO *runtime_io, std::shared_ptr<xla::Semaphore> infer_sem,
-                 Timestamps *timestamps);
+    Status infer(RuntimeIO *runtime_io, Timestamps *timestamps);
     Status infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
                                 ProfilerInterface *profile);
     void unload(const uint32_t nn_id);
@@ -59,14 +58,14 @@ public:
     size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
     uint32_t num_cores() { return num_cores_; };
     Status start_model_unsafe(const uint32_t nn_id);
-    size_t semaphore_factor() { return vec_eg_id_.size(); }
     std::shared_ptr<RuntimeSession> get_session() { return session_; }
 private:
     bool is_busy();
     bool running(uint32_t nn_id);
     void set_running(uint32_t nn_id);
     uint32_t nn_get_current_running();
-    Status get_active(uint32_t *active_nn_id, const uint32_t nn_id);
+    Status get_active(uint32_t *active_nn_id, std::shared_ptr<xla::Semaphore> *sem,
+                      const uint32_t nn_id);
     tensorflow::mutex mutex_eg_;
     bool closed_ = false;
     RuntimeGRPC runtime_;
@@ -80,6 +79,7 @@ private:
     std::string nrtd_address_ = "";
     std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;
     std::unordered_map<uint32_t, size_t> nn_id_to_active_idx_;
+    std::unordered_map<uint32_t, std::vector<std::shared_ptr<xla::Semaphore> > > nn_id_to_sems_;
     TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDevice);
 };
 

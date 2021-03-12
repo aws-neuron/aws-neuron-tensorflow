@@ -34,8 +34,6 @@ private:
     NeuronDevice *neuron_device_ = nullptr;
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
     int64 estimated_cost_ = 0;
-    uint32_t max_num_infers_ = 5;
-    std::shared_ptr<xla::Semaphore> infer_sem_ = nullptr;
     ProfilerInterface profile_;
 };
 
