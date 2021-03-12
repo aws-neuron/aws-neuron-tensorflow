@@ -321,11 +321,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 return;                                                                     \
             }                                                                               \
         }
-        auto ShardFunc = [
-                this, &shared_status, &ctx, &node_def, &run_profiler_in_shard, &timestamps,
-                &input_tensors, &is_batch_inputs, &input_names,
-                &output_tensors, &is_batch_outputs, &output_names, &output_tensor_sizes,
-                &batch_size, &k_batch_size, &end_start](int64 dim0_start, int64 dim0_limit) {
+        auto ShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
             if (TF_PREDICT_FALSE(dim0_limit - dim0_start != k_batch_size)) {
                 shared_status = errors::Internal("illegal shard ", dim0_start, ":", dim0_limit);
                 return;
