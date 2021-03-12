@@ -337,7 +337,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 shared_status = errors::Internal("illegal shard ", dim0_start, ":", dim0_limit);
                 return;
             }
-            VLOG(1) << "Sharding " << dim0_start << " to " << dim0_limit;
+            VLOG(2) << "Sharding " << dim0_start << " to " << dim0_limit;
             std::vector<Tensor> sliced_inputs(input_tensors.size());
             for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
                 if (is_batch_inputs[idx]) {
