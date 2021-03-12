@@ -352,7 +352,7 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
 def set_execution_plan(compiled_graph_def):
     # scan to get num neuroncores and total number of bytes of input and output tensors
     default_io_buffer_size = 128 * 1024 * 1024
-    cpu_extra_ninfer = 3
+    cpu_extra_ninfer = 1
     num_cores_tuple_map = {}
     mis_config = False
     neuron_nodes = list(get_neuron_nodes(compiled_graph_def))

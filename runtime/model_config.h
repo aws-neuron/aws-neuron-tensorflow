@@ -66,7 +66,6 @@ public:
             }
         }
         std::string ninfer_str = env_get("NEURON_MAX_NUM_INFERS", "");
-        bool num_infer_is_negative = false;
         if (!ninfer_str.empty()) {
             int64 env_ninfer = (int64)stoi_no_throw(ninfer_str);
             if (env_ninfer < -HARD_MAX_NUM_THREADS || env_ninfer > HARD_MAX_NUM_THREADS) {
@@ -74,7 +73,6 @@ public:
                              << " is invalid; using default value "
                              << max_num_threads  << " instead.";
             } else if (env_ninfer < 0) {
-                num_infer_is_negative = true;
                 max_num_threads = -env_ninfer;
             } else if (0 == env_ninfer) {
                 LOG(WARNING) << "NEURON_MAX_NUM_INFERS=0 is invalid; using 1 instead.";
@@ -97,8 +95,7 @@ public:
         }
         max_num_threads = max_num_threads > 1 ? max_num_threads : 1;
         max_num_threads = std::min(max_num_threads, HARD_MAX_NUM_THREADS);
-        max_num_infers_ = (uint32_t)max_num_threads;
-        ninfer_ = num_infer_is_negative ? max_num_infers_ : max_num_infers_ + 1;
+        ninfer_ = (uint32_t)max_num_threads;
     }
 
     void parse_device_index(AttrList &model_config) {
@@ -107,7 +104,6 @@ public:
 
     int64_t opt_device_size_ = -1;
     int64_t max_num_duplicates_ = 1;
-    uint32_t max_num_infers_ = 4;
     uint32_t timeout_ = 2;
     uint32_t ninfer_ = 5;
     int64_t device_index_ = -1;
@@ -135,9 +131,9 @@ private:
         }
     }
 
-    static const int64 DEFAULT_MAX_NUM_INFER = 4;
+    static const int64 DEFAULT_MAX_NUM_INFER = 2;
     static const int64 NRTD_INSUFFICIENT_NUM_INFER = 1;
-    static const int64 NRTD_NUM_CPU_THREADS = 3;
+    static const int64 NRTD_NUM_CPU_THREADS = 1;
     static const int64 HARD_MAX_NUM_THREADS = 1024;
 
     TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronModelConfig);
