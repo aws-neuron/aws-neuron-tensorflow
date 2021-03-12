@@ -133,6 +133,7 @@ Status NeuronModel::initialize(const NodeDef &node_def, const std::string &sessi
         model_config_attr, neuron_device_->num_cores(),
         NeuronDeviceManager::MIN_NUM_CORES, NeuronDeviceManager::MAX_NUM_CORES);
     StringPiece executable(attr.at("executable").s());
+    estimated_cost_ = executable.size();
     TF_RETURN_IF_ERROR(neuron_device_->load(&nn_id_, executable, model_config.timeout_,
                                             model_config.ninfer_, profile_.enabled_));
     VLOG(1) << "loaded " << node_def.name() << " as " << nn_id_
@@ -401,7 +402,14 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             run_profiler_in_shard = false;
             RIE_IGNORE_ABORTED(shared_status);
         }
+        #if TF_VERSION_LESS_THAN(2, 0)
         thread_pool->TransformRangeConcurrently(k_batch_size, pad_batch_size, std::move(ShardFunc));
+        #else
+        auto strategy = thread::ThreadPool::SchedulingStrategy::kFixedBlockSize;
+        int64 cost_per_unit = estimated_cost_;
+        auto params = thread::ThreadPool::SchedulingParams(strategy, cost_per_unit, k_batch_size);
+        thread_pool->ParallelFor(pad_batch_size, params, std::move(ShardFunc));
+        #endif
         RIE_IGNORE_ABORTED(shared_status);
     } else {
         TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
