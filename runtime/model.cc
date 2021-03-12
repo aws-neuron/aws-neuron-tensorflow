@@ -274,15 +274,14 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
     TFNN_ASSERT(ctx->num_outputs() == output_names.s_size(),
                 errors::InvalidArgument("incorrect number of output tensors"));
 
-    // keep a shared pointer so that RuntimeSession outlives shared memory buffers
-    std::shared_ptr<RuntimeSession> session_alive;
-
+    // allocate output tensors
+    std::vector<Tensor*> output_tensors(ctx->num_outputs());
+    int64_t pad_batch_size = 0;
     if (use_dynamic_batch_size) {
-        int64_t pad_batch_size = ((batch_size - 1) / k_batch_size + 1) * k_batch_size;
+        pad_batch_size = ((batch_size - 1) / k_batch_size + 1) * k_batch_size;
         VLOG(1) << "batch_size=" << batch_size;
         VLOG(1) << "k_batch_size=" << k_batch_size;
         VLOG(1) << "pad_batch_size=" << pad_batch_size;
-        std::vector<Tensor*> output_tensors(ctx->num_outputs());
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             Tensor *batch_out_tensor = nullptr;
             TensorShape shape(output_shapes.shape(idx));
@@ -292,10 +291,21 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             TF_RETURN_IF_ERROR(ctx->allocate_output(idx, shape, &batch_out_tensor));
             output_tensors[idx] = batch_out_tensor;
         }
+    } else {
+        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+            TF_RETURN_IF_ERROR(
+                ctx->allocate_output(idx, output_shapes.shape(idx), &output_tensors[idx]));
+        }
+    }
 
-        RIE_IGNORE_ABORTED(initialize(node_def, ctx->session_handle()));
-        session_alive = neuron_device_->get_session();
+    // initialize the model
+    RIE_IGNORE_ABORTED(initialize(node_def, ctx->session_handle()));
 
+    // keep a shared pointer so that RuntimeSession outlives shared memory buffers
+    std::shared_ptr<RuntimeSession> session_alive = neuron_device_->get_session();
+
+    // run inference
+    if (use_dynamic_batch_size) {
         int64 end_start = k_batch_size - (pad_batch_size - batch_size);
         bool run_profiler_in_shard = false;
         Status shared_status;
@@ -394,13 +404,6 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         thread_pool->TransformRangeConcurrently(k_batch_size, pad_batch_size, std::move(ShardFunc));
         RIE_IGNORE_ABORTED(shared_status);
     } else {
-        std::vector<Tensor*> output_tensors(ctx->num_outputs());
-        for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-            TF_RETURN_IF_ERROR(
-                ctx->allocate_output(idx, output_shapes.shape(idx), &output_tensors[idx]));
-        }
-        RIE_IGNORE_ABORTED(initialize(node_def, ctx->session_handle()));
-        session_alive = neuron_device_->get_session();
         TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
         ScopedRuntimeIO scoped_io;
         RIE_IGNORE_ABORTED(neuron_device_->setup_scoped_runtime_io(
