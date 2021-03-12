@@ -54,8 +54,7 @@ def get_install_requires():
     major, minor, *_ = LooseVersion(get_version()).version
     tf_compat_version = '{}.{}.0'.format(major, minor)
     install_requires = ['tensorflow ~= {}'.format(tf_compat_version)]
-    if major < 2:
-        install_requires.append('tensorboard-neuron ~= {}'.format(tf_compat_version))
+    install_requires.append('tensorboard-plugin-neuron')
     return install_requires
 
 
