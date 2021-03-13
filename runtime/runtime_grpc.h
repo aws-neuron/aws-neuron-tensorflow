@@ -28,7 +28,7 @@ namespace tensorflow {
 namespace neuron {
 
 #define NRT_INVALID_COOKIE 0
-#define INFER_POST_INVALID_TAG -1
+#define ASYNC_GRPC_INVALID_TAG -1
 
 #define NRT_GRPC(func, request, response) ({                    \
     grpc::Status status;                                        \
@@ -68,7 +68,7 @@ public:
     grpc::ClientContext context_;
     grpc::CompletionQueue cq_;
     std::unique_ptr<grpc::ClientAsyncResponseReader<T_response> > rpc_ = nullptr;
-    int64_t post_tag_ = -1;
+    int64_t post_tag_ = ASYNC_GRPC_INVALID_TAG;
 private:
     TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeSwitcher);
 };
@@ -89,14 +89,18 @@ public:
     Status finish();
 private:
     friend class RuntimeGRPC;
-    uint64_t cookie = NRT_INVALID_COOKIE;
     thread::ThreadPool *thread_pool_;
+    grpc::ClientContext post_context_;
+    grpc::CompletionQueue cq_;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> > post_rpc_ = nullptr;
     nrt::infer_request request_;
     nrt::infer_post_response post_response_;
     grpc::Status post_status_;
-    int64_t post_tag_ = INFER_POST_INVALID_TAG;
+    grpc::ClientContext wait_context_;
+    std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_response> > wait_rpc_ = nullptr;
     nrt::infer_wait_request wait_request_;
     nrt::infer_response response_;
+    grpc::Status wait_status_;
     AttrList *output_names_;
     std::vector<Tensor*> output_tensors_;
     bool use_shm_ = false;

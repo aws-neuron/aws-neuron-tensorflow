@@ -226,14 +226,16 @@ Status RuntimeGRPC::load(
     return Status::OK();
 }
 
-static Status wait_grpc_cq(void **got_tag, bool *ok, grpc::CompletionQueue *cq, const int64_t post_tag) {
-    if (!cq->Next(got_tag, ok)) {
+static Status wait_grpc_cq(grpc::CompletionQueue *cq, const int64_t post_tag) {
+    void *got_tag;
+    bool ok = false;
+    if (TF_PREDICT_FALSE(!cq->Next(&got_tag, &ok))) {
         return errors::Internal("CompletionQueue::Next failed");
     }
-    if (*got_tag != (void*)post_tag) {
+    if (TF_PREDICT_FALSE(got_tag != (void*)post_tag)) {
         return errors::Internal("CompletionQueue::Next did not return the correct tag");
     }
-    if (!ok) {
+    if (TF_PREDICT_FALSE(!ok)) {
         return errors::Internal("CompletionQueue::Next did not return OK");
     }
     return Status::OK();
@@ -241,43 +243,40 @@ static Status wait_grpc_cq(void **got_tag, bool *ok, grpc::CompletionQueue *cq, 
 
 Status RuntimeGRPC::post_start(RuntimeStarter *starter, const uint32_t nn_id) {
     starter->request_.mutable_h_nn()->set_id(nn_id);
-    starter->rpc_ = stub_->PrepareAsyncstart(
-        &starter->context_, starter->request_, &starter->cq_);
+    starter->rpc_ = stub_->Asyncstart(&starter->context_, starter->request_, &starter->cq_);
     starter->post_tag_ = (int64_t)nn_id;
-    starter->rpc_->StartCall();
     starter->rpc_->Finish(&starter->response_, &starter->status_, (void*)starter->post_tag_);
     return Status::OK();
 }
 
 Status RuntimeGRPC::wait_start(RuntimeStarter *starter) {
-    void *got_tag;
-    bool ok = false;
-    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &starter->cq_, starter->post_tag_));
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&starter->cq_, starter->post_tag_));
     NRT_CHECK_RETURN("start", starter->status_, starter->response_);
     return Status::OK();
 }
 
-Status RuntimeGRPC::infer_post(RuntimeIO *runtime_io) {
-    nrt::infer_post_response response;
-    grpc::Status status = NRT_GRPC(stub_->infer_post, runtime_io->request_, &response);
-    NRT_CHECK_RETURN("infer_post", status, response);
-    runtime_io->cookie = response.cookie();
-    return Status::OK();
+Status RuntimeGRPC::infer_post(RuntimeIO *io) {
+    io->post_rpc_ = stub_->Asyncinfer_post(&io->post_context_, io->request_, &io->cq_);
+    int64_t post_tag = 1;
+    io->post_rpc_->Finish(&io->post_response_, &io->post_status_, (void*)post_tag);
+    return wait_grpc_cq(&io->cq_, post_tag);
 }
 
-Status RuntimeGRPC::infer_wait(RuntimeIO *runtime_io) {
-    runtime_io->wait_request_.set_cookie(runtime_io->cookie);
-    nrt::infer_response *response = &runtime_io->response_;
-
-    // infer_wait
-    grpc::Status status = NRT_GRPC(stub_->infer_wait, runtime_io->wait_request_, response);
-    if (status.ok()) {
+Status RuntimeGRPC::infer_wait(RuntimeIO *io) {
+    NRT_CHECK_RETURN("infer_post", io->post_status_, io->post_response_);
+    io->wait_request_.set_cookie(io->post_response_.cookie());
+    int64_t wait_tag = 2;
+    io->wait_rpc_ = stub_->Asyncinfer_wait(&io->wait_context_, io->wait_request_, &io->cq_);
+    io->wait_rpc_->Finish(&io->response_, &io->wait_status_, (void*)wait_tag);
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&io->cq_, wait_tag));
+    if (TF_PREDICT_TRUE(io->wait_status_.ok())) {
         // ignore inf/nan errors
-        if (nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == response->status().code()) {
-            response->mutable_status()->set_code(nrt::nerr::NERR_OK);
+        const int code = io->response_.status().code();
+        if (TF_PREDICT_FALSE(nrt::nerr::NERR_INFER_COMPLETED_WITH_NUM_ERR == code)) {
+            io->response_.mutable_status()->set_code(nrt::nerr::NERR_OK);
         }
     }
-    NRT_CHECK_RETURN("infer_wait", status, *response);
+    NRT_CHECK_RETURN("infer_wait", io->wait_status_, io->response_);
     return Status::OK();
 }
 
@@ -292,18 +291,14 @@ Status RuntimeGRPC::stop(const uint32_t nn_id) {
 
 Status RuntimeGRPC::post_stop(RuntimeStopper *stopper, const uint32_t nn_id) {
     stopper->request_.mutable_h_nn()->set_id(nn_id);
-    stopper->rpc_ = stub_->PrepareAsyncstop(
-        &stopper->context_, stopper->request_, &stopper->cq_);
+    stopper->rpc_ = stub_->Asyncstop(&stopper->context_, stopper->request_, &stopper->cq_);
     stopper->post_tag_ = (int64_t)nn_id;
-    stopper->rpc_->StartCall();
     stopper->rpc_->Finish(&stopper->response_, &stopper->status_, (void*)stopper->post_tag_);
     return Status::OK();
 }
 
 Status RuntimeGRPC::wait_stop(RuntimeStopper *stopper) {
-    void *got_tag;
-    bool ok = false;
-    TF_RETURN_IF_ERROR(wait_grpc_cq(&got_tag, &ok, &stopper->cq_, stopper->post_tag_));
+    TF_RETURN_IF_ERROR(wait_grpc_cq(&stopper->cq_, stopper->post_tag_));
     NRT_CHECK_RETURN("stop", stopper->status_, stopper->response_);
     return Status::OK();
 }
