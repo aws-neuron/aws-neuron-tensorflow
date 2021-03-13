@@ -68,5 +68,8 @@ typedef const AttrValue_ListValue AttrList;
 #define TF_VERSION_LESS_THAN(MAJOR, MINOR) \
     (TF_MAJOR_VERSION < (MAJOR) || (TF_MAJOR_VERSION == (MAJOR) && TF_MINOR_VERSION < (MINOR)))
 
+#define VLOG_TIME_BASE(start, lvl, msg) \
+    VLOG(lvl) << msg << " " << Env::Default()->NowMicros() - start;
+
 }  // neuron
 }  // tensorflow

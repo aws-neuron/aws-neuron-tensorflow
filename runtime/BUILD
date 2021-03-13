@@ -64,7 +64,6 @@ cc_library(
 cc_library(
     name = "utils",
     srcs = [
-        "timestamps.h",
         "profiler.h",
         "profiler.cc",
         "tensor_util.h",
@@ -75,7 +74,6 @@ cc_library(
         "env.cc",
     ],
     hdrs = [
-        "timestamps.h",
         "profiler.h",
         "tensor_util.h",
         "semaphore.h",

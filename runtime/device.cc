@@ -404,13 +404,13 @@ Status NeuronDevice::setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
         nn_id, thread_pool, shm_buf_mgr_);
 }
 
-Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps) {
+Status NeuronDevice::infer(ScopedRuntimeIO *scoped_io) {
+    RuntimeIO *runtime_io = &scoped_io->runtime_io_;
     uint32_t nn_id = runtime_io->get_nn_id();
     SemResQueue sem_res_queue;
     {
         tensorflow::mutex_lock lock(mutex_eg_);
         TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
-        if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
         uint32_t active_nn_id = NRT_INVALID_NN_ID;
         std::shared_ptr<xla::Semaphore> sem;
         TF_RETURN_IF_ERROR(get_active(&active_nn_id, &sem, nn_id));
@@ -418,21 +418,17 @@ Status NeuronDevice::infer(RuntimeIO *runtime_io, Timestamps *timestamps) {
         sem_res_queue.push(sem->ScopedAcquire(1));
         TF_RETURN_IF_ERROR(runtime_.infer_post(runtime_io));
     }
-    Status status_wait = runtime_.infer_wait(runtime_io);
-    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
-    return status_wait;
+    return runtime_.infer_wait(runtime_io);
 }
 
-Status NeuronDevice::infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
-                                          ProfilerInterface *profile) {
+Status NeuronDevice::infer_with_profiling(ScopedRuntimeIO *scoped_io, ProfilerInterface *profile) {
+    RuntimeIO *runtime_io = &scoped_io->runtime_io_;
     uint32_t nn_id = runtime_io->get_nn_id();
     tensorflow::mutex_lock lock(mutex_eg_);
     TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));
     if (profile->enabled_) profile->start_session(nrtd_address_, nn_id);
-    if (nullptr != timestamps) timestamps->mark_above_nrtd_infer();
     Status status_post = runtime_.infer_post(runtime_io);
     Status status_wait = runtime_.infer_wait(runtime_io);
-    if (nullptr != timestamps) timestamps->mark_below_nrtd_infer();
     if (profile->enabled_) profile->stop_session();
     TF_RETURN_IF_ERROR(status_post);
     return status_wait;
@@ -474,10 +470,10 @@ void NeuronDevice::clear(bool from_global_state) {
 }
 
 Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
-    if (closed_) {
+    if (TF_PREDICT_FALSE(closed_)) {
         return errors::Aborted("neuron_device is closed");
     }
-    if (!running(nn_id) && is_busy()) {
+    if (TF_PREDICT_FALSE(!running(nn_id) && is_busy())) {
         // if nn_id is not running, stop the current running model
         std::queue<RuntimeStopper> stopper_queue;
         for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_get_current_running()]) {
@@ -491,7 +487,7 @@ Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
         }
         set_running(NRT_INVALID_NN_ID);
     }
-    if (!is_busy()) {
+    if (TF_PREDICT_FALSE(!is_busy())) {
         // if no model is running, start nn_id
         std::queue<RuntimeStarter> starter_queue;
         for (const uint32_t nid : nn_id_to_all_nn_ids_[nn_id]) {
@@ -508,25 +504,25 @@ Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
     return Status::OK();
 }
 
-bool NeuronDevice::is_busy() {
+inline bool NeuronDevice::is_busy() {
     return running_nn_id_ != NRT_INVALID_NN_ID;
 }
 
-bool NeuronDevice::running(uint32_t nn_id) {
+inline bool NeuronDevice::running(uint32_t nn_id) {
     return running_nn_id_ == nn_id && NRT_INVALID_NN_ID != running_nn_id_;
 }
 
-uint32_t NeuronDevice::nn_get_current_running() {
+inline uint32_t NeuronDevice::nn_get_current_running() {
     return running_nn_id_;
 }
 
-void NeuronDevice::set_running(uint32_t nn_id) {
+inline void NeuronDevice::set_running(uint32_t nn_id) {
     running_nn_id_ = nn_id;
 }
 
 Status NeuronDevice::get_active(uint32_t *active_nn_id, std::shared_ptr<xla::Semaphore> *sem,
                                 const uint32_t nn_id) {
-    if (!nn_id_to_all_nn_ids_.count(nn_id)) {
+    if (TF_PREDICT_FALSE(!nn_id_to_all_nn_ids_.count(nn_id))) {
         return errors::InvalidArgument("no active id can be found from nn id ", nn_id);
     }
     size_t idx = nn_id_to_active_idx_[nn_id];

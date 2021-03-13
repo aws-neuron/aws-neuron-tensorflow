@@ -19,7 +19,6 @@ limitations under the License.
 #include <queue>
 #include "tensorflow/core/platform/mutex.h"
 #include "semaphore.h"
-#include "timestamps.h"
 #include "profiler.h"
 #include "tensor_util.h"
 #include "shared_memory.h"
@@ -50,9 +49,8 @@ public:
                                    const std::vector<Tensor*> &output_tensors,
                                    const uint32_t nn_id,
                                    thread::ThreadPool *thread_pool);
-    Status infer(RuntimeIO *runtime_io, Timestamps *timestamps);
-    Status infer_with_profiling(RuntimeIO *runtime_io, Timestamps *timestamps,
-                                ProfilerInterface *profile);
+    Status infer(ScopedRuntimeIO *scoped_io);
+    Status infer_with_profiling(ScopedRuntimeIO *scoped_io, ProfilerInterface *profile);
     void unload(const uint32_t nn_id);
     void clear(bool from_global_state=false);
     size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };

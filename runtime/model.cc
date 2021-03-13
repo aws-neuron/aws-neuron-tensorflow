@@ -177,10 +177,9 @@ static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDe
 
 Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                             const std::vector<const Tensor*> &input_tensors) {
+    uint64 start_time = Env::Default()->NowMicros();
+    #define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
     thread::ThreadPool *thread_pool = ctx->device()->tensorflow_cpu_worker_threads()->workers;
-    Timestamps timestamps;
-    timestamps.mark_enter();
-
     const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
     AttrList &input_names = attr.at("input_names").list();
     AttrList &output_shapes = attr.at("output_shapes").list();
@@ -322,6 +321,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             }                                                                               \
         }
         auto ShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
+            VLOG_TIME("entering shard");
             if (TF_PREDICT_FALSE(dim0_limit - dim0_start != k_batch_size)) {
                 shared_status = errors::Internal("illegal shard ", dim0_start, ":", dim0_limit);
                 return;
@@ -368,19 +368,22 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 output_names, output_tensor_sizes, output_ptrs, nn_id_, nullptr));
 
             // copy input tensors with optional input_shuffles
+            VLOG_TIME("in shard before input copy");
             SHARD_LOG_IGNORE_ABORTED(shared_status, copy_input_tensors_with_shuffle(
                 ctx, node_def, input_ptrs, &scoped_io));
 
             // run inference
+            VLOG_TIME("in shard before infer");
             if (TF_PREDICT_FALSE(run_profiler_in_shard)) {
                 VLOG(1) << "enabling profiler in shard";
                 SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer_with_profiling(
-                    &scoped_io.runtime_io_, &timestamps, &profile_));
+                    &scoped_io, &profile_));
             } else {
-                SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer(
-                    &scoped_io.runtime_io_, &timestamps));
+                SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer(&scoped_io));
             }
+            VLOG_TIME("in shard after infer");
             SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.finish());
+            VLOG_TIME("in shard exit");
         };
         #undef SHARD_LOG_IGNORE_ABORTED
         #undef SHARD_LOG_RETURN_IF_ERROR
@@ -390,6 +393,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             run_profiler_in_shard = false;
             RIE_IGNORE_ABORTED(shared_status);
         }
+        VLOG_TIME("before sharding");
         #if TF_VERSION_LESS_THAN(2, 0)
         thread_pool->TransformRangeConcurrently(k_batch_size, pad_batch_size, std::move(ShardFunc));
         #else
@@ -410,17 +414,18 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(ctx, node_def, input_tensors, &scoped_io));
 
         // run inference
+        VLOG_TIME("before infer");
         if (profile_.enabled_) {
             VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
-            RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(
-                &scoped_io.runtime_io_, &timestamps, &profile_));
+            RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(&scoped_io, &profile_));
         } else {
-            RIE_IGNORE_ABORTED(neuron_device_->infer(&scoped_io.runtime_io_, &timestamps));
+            RIE_IGNORE_ABORTED(neuron_device_->infer(&scoped_io));
         }
+        VLOG_TIME("after infer");
         RIE_IGNORE_ABORTED(scoped_io.finish());
     }
-    timestamps.mark_exit();
-    VLOG(1) << timestamps.timing_string();
+    VLOG_TIME("exiting compute");
+    #undef VLOG_TIME
     return Status::OK();
 }
 
