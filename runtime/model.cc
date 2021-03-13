@@ -183,8 +183,11 @@ static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDe
     const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
     if (attr.count("_input_shuffles")) {
         AttrList &input_shuffles = attr.at("_input_shuffles").list();
-        std::vector<Tensor> buffers(input_tensors.size());
-        TF_RETURN_IF_ERROR(allocate_shuffle_buffers(ctx, &buffers, input_tensors));
+        std::vector<Tensor> buffers;
+        if (TF_PREDICT_FALSE(!scoped_io->runtime_io_.use_shm())) {
+            buffers.resize(input_tensors.size());
+            TF_RETURN_IF_ERROR(allocate_shuffle_buffers(ctx, &buffers, input_tensors));
+        }
         RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors, input_shuffles, &buffers));
     } else {
         RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors));
