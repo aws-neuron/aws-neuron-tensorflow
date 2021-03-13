@@ -112,6 +112,27 @@ Status NeuronModel::initialize(const NodeDef &node_def, const std::string &sessi
         return Status::OK();
     }
     const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
+
+    // validate input shuffles
+    if (attr.count("_input_shuffles")) {
+        AttrList &input_shuffles = attr.at("_input_shuffles").list();
+        AttrList &input_shapes = attr.at("input_shapes").list();
+        if (input_shuffles.tensor_size() != input_shapes.shape_size()) {
+            return errors::InvalidArgument("_input_shuffles size does not agree with input_shapes");
+        }
+        for (auto input_idx = 0; input_idx < input_shuffles.tensor_size(); ++input_idx) {
+            int64 num_elements = TensorShape(input_shapes.shape(input_idx)).num_elements();
+            const TensorProto &shuffle = input_shuffles.tensor(input_idx);
+            for (auto idx = 0; idx < num_elements; ++idx) {
+                int shuffle_idx = shuffle.int64_val(idx);
+                if (!(0 <= shuffle_idx && shuffle_idx < num_elements)) {
+                    return errors::InvalidArgument("invalid shuffle index ", shuffle_idx);
+                }
+            }
+        }
+    }
+
+    // validate executable
     if (0 == attr.at("executable").s().size()) {
         return errors::InvalidArgument("Neuron executable (neff) is empty.");
     }
@@ -162,13 +183,9 @@ static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDe
     const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
     if (attr.count("_input_shuffles")) {
         AttrList &input_shuffles = attr.at("_input_shuffles").list();
-        if (TF_PREDICT_FALSE(input_shuffles.tensor_size() != (int64)input_tensors.size())) {
-            return errors::InvalidArgument("illegal _input_shuffles attribute");
-        }
-        std::vector<Tensor> shuffle_buffers(input_tensors.size());
-        TF_RETURN_IF_ERROR(allocate_shuffle_buffers(ctx, &shuffle_buffers, input_tensors));
-        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(
-            input_tensors, input_shuffles, &shuffle_buffers));
+        std::vector<Tensor> buffers(input_tensors.size());
+        TF_RETURN_IF_ERROR(allocate_shuffle_buffers(ctx, &buffers, input_tensors));
+        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors, input_shuffles, &buffers));
     } else {
         RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors));
     }
@@ -185,9 +202,15 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
     AttrList &output_shapes = attr.at("output_shapes").list();
     TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
                 errors::InvalidArgument("incorrect number of input tensors"));
+    if (attr.count("_input_shuffles")) {
+        AttrList &input_shuffles = attr.at("_input_shuffles").list();
+        TFNN_ASSERT(input_shuffles.tensor_size() == (int64)input_tensors.size(),
+                    errors::InvalidArgument("illegal _input_shuffles attribute"));
+    }
     std::vector<size_t> output_tensor_sizes;
     TF_RETURN_IF_ERROR(get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
 
+    // enable/disable dynamic batch size
     int64_t batch_size = UNINIT_BATCH_SIZE;
     int64_t k_batch_size = UNINIT_BATCH_SIZE;
     std::vector<bool> is_batch_inputs(input_tensors.size());

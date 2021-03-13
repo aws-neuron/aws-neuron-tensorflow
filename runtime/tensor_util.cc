@@ -95,14 +95,14 @@ void fast_memcpy(thread::ThreadPool *thread_pool, void *dst, const void *src, in
 }
 
 Status tensor_memcpy(thread::ThreadPool *thread_pool, Tensor *tensor, StringPiece &source, int64 memcpy_size) {
-    if (!DataTypeCanUseMemcpy(tensor->dtype())) {
+    if (TF_PREDICT_FALSE(!DataTypeCanUseMemcpy(tensor->dtype()))) {
         return errors::Unimplemented("tensor_memcpy on data type ", tensor->dtype(), " is not allowed");
     }
     int64 dst_size = tensor->tensor_data().size();
     if (memcpy_size < 0) {
         memcpy_size = dst_size;
     }
-    if (memcpy_size > (int64)source.size() || memcpy_size > dst_size) {
+    if (TF_PREDICT_FALSE(memcpy_size > (int64)source.size() || memcpy_size > dst_size)) {
         return errors::OutOfRange(
             "unexpected tensor size in tensor_memcpy, source size: ",
             source.size(), ", target size: ", tensor->tensor_data().size());
@@ -123,12 +123,8 @@ template <typename T>
 static Status tensor_shuffle_impl(Tensor *dst, const Tensor &src, const TensorProto &shuffle) {
     const T *src_ptr = reinterpret_cast<const T*>(src.tensor_data().data());
     T *dst_ptr = reinterpret_cast<T*>(const_cast<char*>((dst->tensor_data().data())));
-    for (auto ii = 0; ii < src.NumElements(); ++ii) {
-        int iii = shuffle.int64_val(ii);
-        if (!TF_PREDICT_TRUE(0 <= iii && iii < src.NumElements())) {
-            return errors::InvalidArgument("invalid shuffle index ", iii);
-        }
-        dst_ptr[ii] = src_ptr[iii];
+    for (auto idx = 0; idx < src.NumElements(); ++idx) {
+        dst_ptr[idx] = src_ptr[shuffle.int64_val(idx)];
     }
     return Status::OK();
 }
