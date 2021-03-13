@@ -204,20 +204,25 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             break;
         }
     }
-    if (enable_dynamic_batch_size && input_names.s_size() == input_batch_axis.i_size() &&
-            output_names.s_size() == output_batch_axis.i_size()) {
+    if (TF_PREDICT_FALSE(input_names.s_size() != input_batch_axis.i_size())) {
+        enable_dynamic_batch_size = false;
+    }
+    if (TF_PREDICT_FALSE(output_names.s_size() != output_batch_axis.i_size())) {
+        enable_dynamic_batch_size = false;
+    }
+    if (enable_dynamic_batch_size) {
         AttrList &input_shapes = attr.at("input_shapes").list();
         for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
             bool is_batch_tensor = false;
             const Tensor *tptr = input_tensors[idx];
             TensorShape shape(tptr->shape());
             TensorShape k_shape(input_shapes.shape(idx));
-            if (0 == input_batch_axis.i(idx)) {
+            if (TF_PREDICT_TRUE(0 == input_batch_axis.i(idx))) {
                 TFNN_ASSERT(shape.dims() > 0,
                             errors::InvalidArgument(
                                 "no batch-dimension found on input tensor ",
                                 input_names.s(idx), " with shape ", shape.DebugString()));
-                if (UNINIT_BATCH_SIZE == batch_size) {
+                if (TF_PREDICT_TRUE(UNINIT_BATCH_SIZE == batch_size)) {
                     batch_size = shape.dim_size(0);
                     k_batch_size = k_shape.dim_size(0);
                     TFNN_ASSERT(batch_size > 0,
@@ -245,7 +250,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         }
         for (auto idx = 0; idx < output_names.s_size(); ++idx) {
             bool is_batch_tensor = false;
-            if (0 == output_batch_axis.i(idx)) {
+            if (TF_PREDICT_TRUE(0 == output_batch_axis.i(idx))) {
                 TensorShape k_shape(output_shapes.shape(idx));
                 TFNN_ASSERT(k_shape.dims() > 0,
                             errors::InvalidArgument(
@@ -271,13 +276,13 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
     int64_t pad_batch_size = 0;
     if (use_dynamic_batch_size) {
         pad_batch_size = ((batch_size - 1) / k_batch_size + 1) * k_batch_size;
-        VLOG(1) << "batch_size=" << batch_size;
-        VLOG(1) << "k_batch_size=" << k_batch_size;
-        VLOG(1) << "pad_batch_size=" << pad_batch_size;
+        VLOG(1) << "batch_size=" << batch_size
+                << ", k_batch_size=" << k_batch_size
+                << ", pad_batch_size=" << pad_batch_size;
         for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
             Tensor *batch_out_tensor = nullptr;
             TensorShape shape(output_shapes.shape(idx));
-            if (is_batch_outputs[idx]) {
+            if (TF_PREDICT_TRUE(is_batch_outputs[idx])) {
                 shape.set_dim(0, batch_size);
             }
             TF_RETURN_IF_ERROR(ctx->allocate_output(idx, shape, &batch_out_tensor));
@@ -329,8 +334,8 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             VLOG(2) << "Sharding " << dim0_start << " to " << dim0_limit;
             std::vector<Tensor> sliced_inputs(input_tensors.size());
             for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-                if (is_batch_inputs[idx]) {
-                    if (dim0_limit > batch_size) {
+                if (TF_PREDICT_TRUE(is_batch_inputs[idx])) {
+                    if (TF_PREDICT_FALSE(dim0_limit > batch_size)) {
                         TensorShape ps_shape(input_tensors[idx]->shape());
                         ps_shape.set_dim(0, k_batch_size);
                         Tensor pad_end_slice(input_tensors[idx]->dtype(), ps_shape);
@@ -348,19 +353,27 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             }
             std::vector<const Tensor*> input_ptrs(input_tensors.size());
             for (auto i = 0; i < input_tensors.size(); ++i) {
-                input_ptrs[i] = is_batch_inputs[i] ? &sliced_inputs[i] : input_tensors[i];
+                if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
+                    input_ptrs[i] = &sliced_inputs[i];
+                } else {
+                    input_ptrs[i] = input_tensors[i];
+                }
             }
             SHARD_LOG_RETURN_IF_ERROR(shared_status, check_input_tensors(input_ptrs, node_def));
             int64 end_limit = dim0_limit < batch_size ? dim0_limit : batch_size;
             std::vector<Tensor> sliced_outputs(output_tensors.size());
             for (auto i = 0; i < output_tensors.size(); ++i) {
-                if (is_batch_outputs[i]) {
+                if (TF_PREDICT_TRUE(is_batch_outputs[i])) {
                     sliced_outputs[i] = output_tensors[i]->Slice(dim0_start, end_limit);
                 }
             }
             std::vector<Tensor*> output_ptrs(output_tensors.size());
             for (auto i = 0; i < output_tensors.size(); ++i) {
-                output_ptrs[i] = is_batch_outputs[i] ? &sliced_outputs[i] : output_tensors[i];
+                if (TF_PREDICT_TRUE(is_batch_outputs[i])) {
+                    output_ptrs[i] = &sliced_outputs[i];
+                } else {
+                    output_ptrs[i] = output_tensors[i];
+                }
             }
             ScopedRuntimeIO scoped_io;
             SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->setup_scoped_runtime_io(
@@ -387,7 +400,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
         };
         #undef SHARD_LOG_IGNORE_ABORTED
         #undef SHARD_LOG_RETURN_IF_ERROR
-        if (profile_.enabled_) {
+        if (TF_PREDICT_FALSE(profile_.enabled_)) {
             run_profiler_in_shard = true;
             ShardFunc(0, k_batch_size);
             run_profiler_in_shard = false;
@@ -415,7 +428,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
 
         // run inference
         VLOG_TIME("before infer");
-        if (profile_.enabled_) {
+        if (TF_PREDICT_FALSE(profile_.enabled_)) {
             VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
             RIE_IGNORE_ABORTED(neuron_device_->infer_with_profiling(&scoped_io, &profile_));
         } else {
