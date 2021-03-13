@@ -38,6 +38,7 @@ namespace neuron {
 
 
 static const int64 UNINIT_BATCH_SIZE = -8;  // magic number for uninitialized batch size
+static const int64 H2D_POOL_SIZE = 8;
 
 static size_t get_tensor_size(const DataType dype, const TensorShapeProto &shape_proto) {
     size_t dtype_size = (size_t)DataTypeSize(dype);
@@ -104,6 +105,9 @@ static Status check_input_tensors(const std::vector<const Tensor*> &input_tensor
     return Status::OK();
 }
 
+
+NeuronModel::NeuronModel() : h2d_transfer_pool_(Env::Default(), "neuron_h2d", H2D_POOL_SIZE) {
+}
 
 Status NeuronModel::initialize(const NodeDef &node_def, const std::string &session_handle) {
     tensorflow::mutex_lock lock(mutex_model_);
@@ -179,7 +183,8 @@ static Status allocate_shuffle_buffers(OpKernelContext *ctx,
 
 static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDef &node_def,
                                               const std::vector<const Tensor*> &input_tensors,
-                                              ScopedRuntimeIO *scoped_io) {
+                                              ScopedRuntimeIO *scoped_io,
+                                              std::vector<Tensor*> *input_shm_tensors=nullptr) {
     const google::protobuf::Map<std::string, AttrValue> &attr = node_def.attr();
     if (attr.count("_input_shuffles")) {
         AttrList &input_shuffles = attr.at("_input_shuffles").list();
@@ -188,7 +193,8 @@ static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDe
             buffers.resize(input_tensors.size());
             TF_RETURN_IF_ERROR(allocate_shuffle_buffers(ctx, &buffers, input_tensors));
         }
-        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors, input_shuffles, &buffers));
+        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors, input_shuffles, &buffers,
+                                                         input_shm_tensors));
     } else {
         RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors));
     }
@@ -236,6 +242,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
     if (TF_PREDICT_FALSE(output_names.s_size() != output_batch_axis.i_size())) {
         enable_dynamic_batch_size = false;
     }
+    int64 input_copy_cost_per_unit = 0;
     if (enable_dynamic_batch_size) {
         AttrList &input_shapes = attr.at("input_shapes").list();
         for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
@@ -243,6 +250,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             const Tensor *tptr = input_tensors[idx];
             TensorShape shape(tptr->shape());
             TensorShape k_shape(input_shapes.shape(idx));
+            input_copy_cost_per_unit += k_shape.num_elements();
             if (TF_PREDICT_TRUE(0 == input_batch_axis.i(idx))) {
                 TFNN_ASSERT(shape.dims() > 0,
                             errors::InvalidArgument(
@@ -404,12 +412,49 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             ScopedRuntimeIO scoped_io;
             SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->setup_scoped_runtime_io(
                 &scoped_io, input_names, input_ptrs,
-                output_names, output_tensor_sizes, output_ptrs, nn_id_, nullptr));
+                output_names, output_tensor_sizes, output_ptrs, nn_id_, &h2d_transfer_pool_));
 
             // copy input tensors with optional input_shuffles
             VLOG_TIME("in shard before input copy");
-            SHARD_LOG_IGNORE_ABORTED(shared_status, copy_input_tensors_with_shuffle(
-                ctx, node_def, input_ptrs, &scoped_io));
+            if (k_batch_size > 1 && scoped_io.runtime_io_.use_shm()) {
+                auto CopyInputShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
+                    std::vector<Tensor> input_slices(sliced_inputs.size());
+                    for (auto i = 0; i < input_slices.size(); ++i) {
+                        if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
+                            input_slices[i] = sliced_inputs[i].Slice(dim0_start, dim0_limit);
+                        }
+                    }
+                    std::vector<const Tensor*> input_slice_ptrs(sliced_inputs.size());
+                    for (auto i = 0; i < input_slice_ptrs.size(); ++i) {
+                        if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
+                            input_slice_ptrs[i] = &input_slices[i];
+                        } else {
+                            input_slice_ptrs[i] = input_tensors[i];
+                        }
+                    }
+                    std::vector<Tensor> *input_shm_tensors = scoped_io.get_input_shm_tensors();
+                    std::vector<Tensor> input_shm_slices(sliced_inputs.size());
+                    for (auto i = 0; i < input_shm_slices.size(); ++i) {
+                        if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
+                            input_shm_slices[i] = input_shm_tensors->at(i).Slice(dim0_start, dim0_limit);
+                        }
+                    }
+                    std::vector<Tensor*> input_shm_slice_ptrs(sliced_inputs.size());
+                    for (auto i = 0; i < input_shm_slice_ptrs.size(); ++i) {
+                        if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
+                            input_shm_slice_ptrs[i] = &input_shm_slices[i];
+                        } else {
+                            input_shm_slice_ptrs[i] = &input_shm_tensors->at(i);
+                        }
+                    }
+                    SHARD_LOG_IGNORE_ABORTED(shared_status, copy_input_tensors_with_shuffle(
+                        ctx, node_def, input_slice_ptrs, &scoped_io, &input_shm_slice_ptrs));
+                };
+                h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit, std::move(CopyInputShardFunc));
+            } else {
+                SHARD_LOG_IGNORE_ABORTED(shared_status, copy_input_tensors_with_shuffle(
+                    ctx, node_def, input_ptrs, &scoped_io));
+            }
 
             // run inference
             VLOG_TIME("in shard before infer");

@@ -24,7 +24,7 @@ namespace neuron {
 
 class NeuronModel {
 public:
-    NeuronModel() {}
+    NeuronModel();
     Status compute(OpKernelContext *ctx, const NodeDef &node_def,
                    const std::vector<const Tensor*> &input_tensors);
     ~NeuronModel();
@@ -35,6 +35,7 @@ private:
     uint32_t nn_id_ = NRT_INVALID_NN_ID;
     int64 estimated_cost_ = 0;
     ProfilerInterface profile_;
+    thread::ThreadPool h2d_transfer_pool_;
 };
 
 }  // namespace neuron

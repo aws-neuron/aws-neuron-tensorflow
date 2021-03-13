@@ -34,7 +34,9 @@ public:
                  std::shared_ptr<SharedMemoryBufferManager> shm_mgr);
     Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors);
     Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
-                              AttrList &input_shuffles, std::vector<Tensor> *shuffle_buffers);
+                              AttrList &input_shuffles, std::vector<Tensor> *shuffle_buffers,
+                              std::vector<Tensor*> *input_shm_tensors=nullptr);
+    std::vector<Tensor> *get_input_shm_tensors() { return &input_shm_tensors_; }
     Status finish();
     ~ScopedRuntimeIO();
     RuntimeIO runtime_io_;

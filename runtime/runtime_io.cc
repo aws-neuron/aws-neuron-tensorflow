@@ -86,20 +86,28 @@ Status ScopedRuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &inp
 
 Status ScopedRuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
                                            AttrList &input_shuffles,
-                                           std::vector<Tensor> *shuffle_buffers) {
+                                           std::vector<Tensor> *shuffle_buffers,
+                                           std::vector<Tensor*> *input_shm_tensors) {
     uint64 start_timestamp = Env::Default()->NowMicros();
+    std::vector<Tensor*> input_shm_ptrs;
+    if (nullptr == input_shm_tensors) {
+        for (Tensor &shm_tensor : input_shm_tensors_) {
+            input_shm_ptrs.push_back(&shm_tensor);
+        }
+        input_shm_tensors = &input_shm_ptrs;
+    }
     int64 num_shuffles = input_shuffles.tensor_size();
     int64 num_tensors = input_tensors.size();
     if (TF_PREDICT_FALSE(num_shuffles != num_tensors)) {
         return errors::InvalidArgument(num_shuffles, " shuffles and ", num_tensors, " tensors ");
     }
     if (TF_PREDICT_TRUE(runtime_io_.use_shm())) {
-        if (TF_PREDICT_FALSE(input_shm_tensors_.size() != input_tensors.size())) {
+        if (TF_PREDICT_FALSE(input_shm_tensors->size() != input_tensors.size())) {
             return errors::InvalidArgument(
-                "size mismatch between input_shm_tensors_ and input_tensors");
+                "size mismatch between input_shm_tensors and input_tensors");
         }
         for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-            Tensor *dst = &input_shm_tensors_[idx];
+            Tensor *dst = input_shm_tensors->at(idx);
             const TensorProto &shuffle = input_shuffles.tensor(idx);
             TF_RETURN_IF_ERROR(tensor_shuffle(dst, *input_tensors[idx], shuffle));
         }
