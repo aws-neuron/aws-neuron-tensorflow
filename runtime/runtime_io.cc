@@ -14,7 +14,6 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensor_util.h"
-#include "shared_memory_io.h"
 #include "runtime_io.h"
 
 namespace tensorflow {
@@ -29,8 +28,10 @@ Status ScopedRuntimeIO::setup(AttrList &input_names,
                               std::shared_ptr<SharedMemoryBufferManager> shm_mgr) {
     shm_mgr_ = shm_mgr;
     thread_pool_ = thread_pool;
-    SharedMemory scoped_shm;
-    SharedMemory *shm = nullptr;
+    bool use_shm = false;
+    std::vector<std::string*> input_paths;
+    std::vector<std::string*> output_paths;
+    std::vector<void*> output_ptrs;
     if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
         bool allocation_ok = true;
         input_shm_tensors_.reserve(input_tensors.size());
@@ -58,16 +59,17 @@ Status ScopedRuntimeIO::setup(AttrList &input_names,
         }
         if (allocation_ok) {
             for (auto shm_buf : input_shm_bufs) {
-                scoped_shm.input_paths_.push_back(shm_buf->get_path());
+                input_paths.push_back(shm_buf->get_path());
             }
             for (auto shm_buf : output_shm_bufs_) {
-                scoped_shm.output_paths_.push_back(shm_buf->get_path());
-                scoped_shm.output_ptrs_.push_back(shm_buf->get_ptr());
+                output_paths.push_back(shm_buf->get_path());
+                output_ptrs.push_back(shm_buf->get_ptr());
             }
-            shm = &scoped_shm;
+            use_shm = true;
         }
     }
-    return runtime_io_.setup(input_names, output_names, output_tensors, nn_id, thread_pool, shm);
+    return runtime_io_.setup(input_names, output_names, output_tensors, nn_id,
+                             use_shm, input_paths, output_paths, output_ptrs, thread_pool);
 }
 
 Status ScopedRuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &input_tensors) {

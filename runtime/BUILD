@@ -46,7 +46,6 @@ cc_library(
     srcs = [
         "device.cc",
         "device.h",
-        "shared_memory_io.h",
         "shared_memory.h",
         "shared_memory.cc",
         "runtime_grpc.h",

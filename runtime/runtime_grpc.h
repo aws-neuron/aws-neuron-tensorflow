@@ -18,7 +18,6 @@ limitations under the License.
 
 #include "macros.h"
 #include "tensor_util.h"
-#include "shared_memory_io.h"
 #include "nmgr_service.grpc.pb.h"
 #include "nmgr_session_service.grpc.pb.h"
 #include "nerr.pb.h"
@@ -78,10 +77,11 @@ typedef RuntimeSwitcher<nrt::stop_request, nrt::stop_response> RuntimeStopper;
 class RuntimeIO {
 public:
     RuntimeIO() {}
-    Status setup(AttrList &input_names, AttrList &output_names,
-                 const std::vector<Tensor*> &output_tensors,
-                 const uint32_t nn_id, thread::ThreadPool *thread_pool=nullptr,
-                 SharedMemory *shm=nullptr);
+    Status setup(
+        AttrList &input_names, AttrList &output_names, const std::vector<Tensor*> &output_tensors,
+        const uint32_t nn_id, bool use_shm, const std::vector<std::string*> &input_paths,
+        const std::vector<std::string*> &output_paths, const std::vector<void*> &output_ptrs,
+        thread::ThreadPool *thread_pool=nullptr);
     bool use_shm() { return use_shm_; }
     Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors);
     void set_nn_id(const uint32_t nn_id) { request_.mutable_h_nn()->set_id(nn_id); }
