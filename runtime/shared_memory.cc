@@ -96,7 +96,7 @@ SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const uint64_t session_i
     SYS_FAIL_LOG_RETURN(shm_file.shm_fd_ < 0, "shm_open");
     SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, physical_size_) < 0, "ftruncate");
     physical_ptr_ = ::mmap(NULL, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
-    SYS_FAIL_LOG_RETURN(nullptr == physical_ptr_, "mmap");
+    SYS_FAIL_LOG_RETURN(MAP_FAILED == physical_ptr_, "mmap");
     size_t space = physical_size_;
     ptr_ = std::align(alignment, size, physical_ptr_, space);
     SYS_FAIL_LOG_RETURN(nullptr == ptr_, "std::align");
@@ -114,7 +114,7 @@ SharedMemoryBuffer::~SharedMemoryBuffer() {
     if (!path_.empty()) {
         TF_LOG_IF_ERROR(runtime_->shm_unmap(path_, PROT_READ | PROT_WRITE));
     }
-    if (nullptr != physical_ptr_) {
+    if (MAP_FAILED != physical_ptr_) {
         SYS_FAIL_LOG(munmap(physical_ptr_, physical_size_) < 0, "munmap");
     }
 }
