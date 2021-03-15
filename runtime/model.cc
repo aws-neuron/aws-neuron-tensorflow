@@ -107,6 +107,7 @@ static Status check_input_tensors(const std::vector<const Tensor*> &input_tensor
 
 
 NeuronModel::NeuronModel() : h2d_transfer_pool_(Env::Default(), "neuron_h2d", H2D_POOL_SIZE) {
+    VLOG(1) << "NeuronModel contructor " << this;
 }
 
 Status NeuronModel::initialize(const NodeDef &node_def, const std::string &session_handle) {

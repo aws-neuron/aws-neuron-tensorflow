@@ -73,8 +73,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
 
     # wrap ConcreteFunction as a keras model
-    new_func = def_function.function(cfunc)
-    model = AwsNeuronModel(new_func, func.structured_outputs)
+    model = AwsNeuronModel(cfunc, func.structured_outputs)
     _make_keras_model_savable(model, example_inputs)
     return model
 

@@ -107,7 +107,7 @@ class KerasLayerGenerator(RemoveTestSession):
                 print('output shape:', output.shape)
                 layer_neuron = tfn.trace(layer, example_inputs)
                 # assert everything is on Neuron
-                graph = layer_neuron.aws_neuron_function.python_function.graph
+                graph = layer_neuron.aws_neuron_function.graph
                 op_type_set = {op.type for op in graph.get_operations()}
                 assert op_type_set == {'Placeholder', 'IdentityN', 'NeuronOp'}
                 output_neuron = layer_neuron(*inputs)

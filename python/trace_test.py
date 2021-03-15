@@ -28,7 +28,7 @@ class TestTraceKerasModel(TestV2Only):
         input1_tensor = tf.random.uniform([1, 3])
         input2_tensor = tf.random.uniform([1, 3])
         model_neuron = tfn.trace(model, [input0_tensor, input1_tensor, input2_tensor])
-        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(model_neuron.aws_neuron_function)
         result_model_ref = model([input0_tensor, input1_tensor, input2_tensor])
         result_model_neuron = model_neuron([input0_tensor, input1_tensor, input2_tensor])
         assert len(result_model_ref) == len(result_model_neuron)
@@ -41,7 +41,7 @@ class TestTraceKerasModel(TestV2Only):
         input1_tensor = tf.random.uniform([3, 3])
         input2_tensor = tf.random.uniform([3, 3])
         model_neuron = tfn.trace(model, [input0_tensor, input1_tensor, input2_tensor])
-        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(model_neuron.aws_neuron_function)
         input0_tensor = tf.random.uniform([5, 3])
         input1_tensor = tf.random.uniform([5, 3])
         input2_tensor = tf.random.uniform([5, 3])
@@ -78,7 +78,7 @@ class TestTraceKerasModel(TestV2Only):
         model_neuron = tfn.trace(model, input0_tensor)
         model_dir = os.path.join(self.get_temp_dir(), 'neuron_keras_model_1in_1out_save')
         model_neuron.save(model_dir)
-        _assert_compiler_success_func(model_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(model_neuron.aws_neuron_function)
         result_model_ref = model(input0_tensor)
         result_model_neuron = model_neuron(input0_tensor)
         assert len(result_model_ref) == len(result_model_neuron)
@@ -98,7 +98,7 @@ class TestTraceFunction(TestV2Only):
         func_neuron = tfn.trace(func, input_tensor)
         model_dir = os.path.join(self.get_temp_dir(), 'neuron_func_1conv_save')
         func_neuron.save(model_dir)
-        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(func_neuron.aws_neuron_function)
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
         func_neuron_reloaded = tf.keras.models.load_model(model_dir)
@@ -117,7 +117,7 @@ class TestTraceFunction(TestV2Only):
         func_neuron = tfn.trace(func, [input_tensor])
         model_dir = os.path.join(self.get_temp_dir(), 'neuron_func_input_list_len_1_save')
         func_neuron.save(model_dir)
-        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(func_neuron.aws_neuron_function)
         result_func_ref = func([input_tensor])
         result_func_neuron = func_neuron([input_tensor])
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
@@ -140,7 +140,7 @@ class TestTraceFunction(TestV2Only):
         input_tensor = tf.random.uniform([1, 4, 4, 3])
         input_tensor_tracing = tf.transpose(input_tensor, [0, 3, 1, 2])
         func_neuron = tfn.trace(func, input_tensor_tracing)
-        cfunc = func_neuron.aws_neuron_function.python_function
+        cfunc = func_neuron.aws_neuron_function
         graph_def = cfunc.graph.as_graph_def()
         for node in graph_def.node:
             if node.op == 'NeuronOp':
@@ -175,7 +175,7 @@ class TestTraceFunction(TestV2Only):
         input_tensor = tf.random.uniform([1, 3, 224, 224])
         input_tensor = tf.cast(input_tensor, tf.float16)
         func_neuron = tfn.trace(func, input_tensor)
-        compiled_func = func_neuron.aws_neuron_function.python_function
+        compiled_func = func_neuron.aws_neuron_function
         _assert_compiler_success_func(compiled_func)
         neuron_op = [op for op in compiled_func.graph.get_operations() if op.type == 'NeuronOp'][0]
         neff_size = len(neuron_op.get_attr('executable'))
@@ -206,7 +206,7 @@ class TestTraceFunction(TestV2Only):
         input_tensor = tf.random.uniform([1, 224, 224, 3])
         input_tensor = tf.cast(input_tensor, tf.float16)
         func_neuron = tfn.trace(func, input_tensor)
-        compiled_func = func_neuron.aws_neuron_function.python_function
+        compiled_func = func_neuron.aws_neuron_function
         _assert_compiler_success_func(compiled_func)
         input_shuffles = compiled_func.graph.get_operations()[1].get_attr('_input_shuffles')
         assert any(item is not None for item in input_shuffles), 'no input_shuffles'
@@ -233,7 +233,7 @@ class TestTraceFunction(TestV2Only):
         input_tensor1 = tf.random.uniform([1, 8, 6])
         input_tensor2 = tf.random.uniform([1, 8, 6])
         func_neuron = tfn.trace(func, (input_tensor0, input_tensor1, input_tensor2))
-        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(func_neuron.aws_neuron_function)
         result_func_ref = func(input_tensor0, input_tensor1, input_tensor2)
         result_func_neuron = func_neuron(input_tensor0, input_tensor1, input_tensor2)
         assert len(result_func_neuron) == len(result_func_ref)
@@ -259,7 +259,7 @@ class TestTraceFunction(TestV2Only):
         func_neuron = tfn.trace(func, ([input_tensor0, input_tensor1], input_tensor2))
         # TODO: cannot save for now
         # func_neuron.save('neuron_func_list_tensor_in_5out_save')
-        _assert_compiler_success_func(func_neuron.aws_neuron_function.python_function)
+        _assert_compiler_success_func(func_neuron.aws_neuron_function)
         result_func_ref = func([input_tensor0, input_tensor1], input_tensor2)
         result_func_neuron = func_neuron([input_tensor0, input_tensor1], input_tensor2)
         assert len(result_func_neuron) == len(result_func_ref)
@@ -301,7 +301,7 @@ class TestTraceFunction(TestV2Only):
         input_tensor = tf.random.uniform([1, 1])
         with patch('tensorflow.neuron._trace.list_operators', fake_list_operators):
             func_neuron = tfn.trace(func, input_tensor)
-        compiled_func = func_neuron.aws_neuron_function.python_function
+        compiled_func = func_neuron.aws_neuron_function
         op_list = compiled_func.graph.get_operations()
         assert len(op_list) == 7
         assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'

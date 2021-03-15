@@ -58,7 +58,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None):
     rev_inputs_map = {value.name: key for key, value in sig_def.inputs.items()}
     example_input_names = [sym_ts.name for sym_ts in wfunc.inputs if sym_ts.name in rev_inputs_map]
     example_inputs = [model_feed_dict[rev_inputs_map[name]] for name in example_input_names]
-    cfunc = trace(wfunc, example_inputs).aws_neuron_function.python_function
+    cfunc = trace(wfunc, example_inputs).aws_neuron_function
 
     # save the new ConcreteFunction as a new SavedModel
     signatures = {signature_def_key: cfunc}

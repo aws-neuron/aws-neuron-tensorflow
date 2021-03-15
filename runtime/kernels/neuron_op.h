@@ -25,7 +25,9 @@ namespace neuron {
 
 class NeuronOp : public OpKernel {
 public:
-    explicit NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {}
+    explicit NeuronOp(OpKernelConstruction *ctx) : OpKernel(ctx) {
+        VLOG(1) << "NeuronOp contructor " << this;
+    }
     void Compute(OpKernelContext *ctx) override;
 private:
     NeuronModel model_;
