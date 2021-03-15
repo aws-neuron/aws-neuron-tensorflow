@@ -811,6 +811,7 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
         return lhs.size() < rhs.size();
       };
       auto max_segment = *std::max_element(segments.begin(), segments.end(), comp);
+      VLOG(1) << "Maximum segment size " << max_segment.size();
       if (((double)max_segment.size() / (double)size_all_segments) > prune_small_subgraphs_ratio) {
         VLOG(1) << "Only keep maximum segment with size " << max_segment.size();
         segments.clear();

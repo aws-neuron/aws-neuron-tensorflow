@@ -136,7 +136,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
     if subgraph_builder_function is None:
         fuser_param_map['fuse_foldable_nodes'].b = True
-        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.9
+        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.8
         try:
             import hlo2neuron
         except ImportError:
