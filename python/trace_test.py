@@ -191,6 +191,32 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
+    def test_func_rtr_conv_multiple_consumers(self):
+        kernel0 = tf.random.uniform([7, 7, 3, 64])
+        kernel0 = tf.cast(kernel0, tf.float16)
+        kernel1 = tf.random.uniform([7, 7, 3, 64])
+        kernel1 = tf.cast(kernel1, tf.float16)
+
+        def func(tensor):
+            conv0 = tf.nn.conv2d(tensor, kernel0, padding='VALID', strides=[1, 2, 2, 1], data_format='NHWC')
+            conv1 = tf.nn.conv2d(tensor, kernel1, padding='VALID', strides=[1, 2, 2, 1], data_format='NHWC')
+            conv2 = tf.nn.conv2d(tensor, kernel1, padding='VALID', strides=[1, 2, 2, 1], data_format='NHWC')
+            return conv0 + conv1 + conv2
+
+        input_tensor = tf.random.uniform([1, 224, 224, 3])
+        input_tensor = tf.cast(input_tensor, tf.float16)
+        func_neuron = tfn.trace(func, input_tensor)
+        compiled_func = func_neuron.aws_neuron_function.python_function
+        _assert_compiler_success_func(compiled_func)
+        input_shuffles = compiled_func.graph.get_operations()[1].get_attr('_input_shuffles')
+        assert any(item is not None for item in input_shuffles), 'no input_shuffles'
+        neuron_op = [op for op in compiled_func.graph.get_operations() if op.type == 'NeuronOp'][0]
+        neff_size = len(neuron_op.get_attr('executable'))
+        assert neff_size < 5e6, 'neff too large -- replication is probably not working'
+        result_func_ref = func(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-5)
+
     def test_func_3in_5out(self):
 
         def func(tensor0, tensor1, tensor2):
