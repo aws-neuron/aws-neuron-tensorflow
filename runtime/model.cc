@@ -227,7 +227,6 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
     std::vector<bool> is_batch_outputs(ctx->num_outputs());
     bool use_dynamic_batch_size = false;
     AttrList &output_names = attr.at("output_names").list();
-    AttrList &output_dtypes = attr.at("output_dtypes").list();
     AttrList &input_batch_axis = attr.at("input_batch_axis").list();
     AttrList &output_batch_axis = attr.at("output_batch_axis").list();
     bool enable_dynamic_batch_size = false;
@@ -388,7 +387,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 }
             }
             std::vector<const Tensor*> input_ptrs(input_tensors.size());
-            for (auto i = 0; i < input_tensors.size(); ++i) {
+            for (size_t i = 0; i < input_tensors.size(); ++i) {
                 if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
                     input_ptrs[i] = &sliced_inputs[i];
                 } else {
@@ -398,13 +397,13 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             SHARD_LOG_RETURN_IF_ERROR(shared_status, check_input_tensors(input_ptrs, node_def));
             int64 end_limit = dim0_limit < batch_size ? dim0_limit : batch_size;
             std::vector<Tensor> sliced_outputs(output_tensors.size());
-            for (auto i = 0; i < output_tensors.size(); ++i) {
+            for (size_t i = 0; i < output_tensors.size(); ++i) {
                 if (TF_PREDICT_TRUE(is_batch_outputs[i])) {
                     sliced_outputs[i] = output_tensors[i]->Slice(dim0_start, end_limit);
                 }
             }
             std::vector<Tensor*> output_ptrs(output_tensors.size());
-            for (auto i = 0; i < output_tensors.size(); ++i) {
+            for (size_t i = 0; i < output_tensors.size(); ++i) {
                 if (TF_PREDICT_TRUE(is_batch_outputs[i])) {
                     output_ptrs[i] = &sliced_outputs[i];
                 } else {
@@ -421,13 +420,13 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             if (k_batch_size > 1 && scoped_io.runtime_io_.use_shm()) {
                 auto CopyInputShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
                     std::vector<Tensor> input_slices(sliced_inputs.size());
-                    for (auto i = 0; i < input_slices.size(); ++i) {
+                    for (size_t i = 0; i < input_slices.size(); ++i) {
                         if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
                             input_slices[i] = sliced_inputs[i].Slice(dim0_start, dim0_limit);
                         }
                     }
                     std::vector<const Tensor*> input_slice_ptrs(sliced_inputs.size());
-                    for (auto i = 0; i < input_slice_ptrs.size(); ++i) {
+                    for (size_t i = 0; i < input_slice_ptrs.size(); ++i) {
                         if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
                             input_slice_ptrs[i] = &input_slices[i];
                         } else {
@@ -436,13 +435,13 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                     }
                     std::vector<Tensor> *input_shm_tensors = scoped_io.get_input_shm_tensors();
                     std::vector<Tensor> input_shm_slices(sliced_inputs.size());
-                    for (auto i = 0; i < input_shm_slices.size(); ++i) {
+                    for (size_t i = 0; i < input_shm_slices.size(); ++i) {
                         if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
                             input_shm_slices[i] = input_shm_tensors->at(i).Slice(dim0_start, dim0_limit);
                         }
                     }
                     std::vector<Tensor*> input_shm_slice_ptrs(sliced_inputs.size());
-                    for (auto i = 0; i < input_shm_slice_ptrs.size(); ++i) {
+                    for (size_t i = 0; i < input_shm_slice_ptrs.size(); ++i) {
                         if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
                             input_shm_slice_ptrs[i] = &input_shm_slices[i];
                         } else {

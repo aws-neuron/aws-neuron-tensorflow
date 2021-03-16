@@ -29,9 +29,9 @@ std::string env_get(const char *env_var, const char *default_env_var) {
 int stoi_no_throw(const std::string &str) {
     try {
         return std::stoi(str);
-    } catch (std::invalid_argument e) {
+    } catch (std::invalid_argument &) {
         return STOI_INVALID_RESULT;
-    } catch (std::out_of_range e) {
+    } catch (std::out_of_range &) {
         return STOI_INVALID_RESULT;
     }
 }

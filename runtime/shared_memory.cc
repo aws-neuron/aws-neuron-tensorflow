@@ -219,7 +219,7 @@ static int64_t LargeAllocationWarningBytes() {
 }
 
 void *SharedMemoryBufferManager::AllocateRaw(size_t alignment, size_t num_bytes) {
-    if (num_bytes > LargeAllocationWarningBytes() &&
+    if ((int64)num_bytes > LargeAllocationWarningBytes() &&
             single_allocation_warning_count_ < kMaxSingleAllocationWarnings) {
         ++single_allocation_warning_count_;
         LOG(WARNING) << "Allocation of " << num_bytes << " exceeds "
