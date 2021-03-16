@@ -360,8 +360,9 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 return;                                                                     \
             }                                                                               \
         }
+        #define SHARD_VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 2, msg);
         auto ShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
-            VLOG_TIME("entering shard");
+            SHARD_VLOG_TIME("entering shard");
             if (TF_PREDICT_FALSE(dim0_limit - dim0_start != k_batch_size)) {
                 shared_status = errors::Internal("illegal shard ", dim0_start, ":", dim0_limit);
                 return;
@@ -416,7 +417,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
                 output_names, output_tensor_sizes, output_ptrs, nn_id_, &h2d_transfer_pool_));
 
             // copy input tensors with optional input_shuffles
-            VLOG_TIME("in shard before input copy");
+            SHARD_VLOG_TIME("in shard before input copy");
             if (k_batch_size > 1 && scoped_io.runtime_io_.use_shm()) {
                 auto CopyInputShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
                     std::vector<Tensor> input_slices(sliced_inputs.size());
@@ -458,7 +459,7 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             }
 
             // run inference
-            VLOG_TIME("in shard before infer");
+            SHARD_VLOG_TIME("in shard before infer");
             if (TF_PREDICT_FALSE(run_profiler_in_shard)) {
                 VLOG(1) << "enabling profiler in shard";
                 SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer_with_profiling(
@@ -466,12 +467,13 @@ Status NeuronModel::compute(OpKernelContext *ctx, const NodeDef &node_def,
             } else {
                 SHARD_LOG_IGNORE_ABORTED(shared_status, neuron_device_->infer(&scoped_io));
             }
-            VLOG_TIME("in shard after infer");
+            SHARD_VLOG_TIME("in shard after infer");
             SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.finish());
-            VLOG_TIME("in shard exit");
+            SHARD_VLOG_TIME("in shard exit");
         };
         #undef SHARD_LOG_IGNORE_ABORTED
         #undef SHARD_LOG_RETURN_IF_ERROR
+        #undef SHARD_VLOG_TIME
         if (TF_PREDICT_FALSE(profile_.enabled_)) {
             run_profiler_in_shard = true;
             ShardFunc(0, k_batch_size);
