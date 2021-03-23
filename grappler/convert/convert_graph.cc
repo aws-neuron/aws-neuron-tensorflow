@@ -13,23 +13,20 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "tensorflow/neuron/grappler/convert/convert_graph.h"
 #include "tensorflow/core/framework/graph_def_util.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/hash/hash.h"
-#include "tensorflow/neuron/runtime/macros.h"
-#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
 #include "tensorflow/neuron/grappler/convert/segment.h"
-#include "tensorflow/neuron/grappler/convert/convert_graph.h"
-
+#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
+#include "tensorflow/neuron/runtime/macros.h"
 
 namespace tensorflow {
 namespace neuron {
 namespace convert {
 
-
 const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
-
 
 // Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
 // Helper class for the segmenter to determine whether an output edge from the
@@ -131,8 +128,9 @@ static bool IsPlaceholder(const NodeDef& node) {
 }
 
 // This function creates subgraph graph def and adds to main graph.
-tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
-  string neuron_op_name = tensorflow::strings::StrCat("neuron_op_", sg_params.neuron_op_index);
+tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
+  string neuron_op_name =
+      tensorflow::strings::StrCat("neuron_op_", sg_params.neuron_op_index);
   VLOG(1) << "Start Node building ...." << neuron_op_name;
 
   std::vector<string> input_names;
@@ -146,7 +144,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
   // map of (name ->  vector of datatype)
   // This is to store all the nodes in subgraph that is named as output_nodes
   // for the graph
-  std::map<string, std::vector<std::pair<DataType, PartialTensorShape> > > main_graph_output_nodes;
+  std::map<string, std::vector<std::pair<DataType, PartialTensorShape>>>
+      main_graph_output_nodes;
 
   // map of output_name -> max tensor index,  transforming list of output_names
   // of graph to map i.e list output_names : A:1, A: 3, B:0 => map: A->3, B->0
@@ -160,7 +159,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
 
   // Adding placeholder for all incoming edges, since
   // placeholders do not need to specify inputs.
-  std::unordered_map<std::string, std::string> outside_name_port_to_placeholder_name;
+  std::unordered_map<std::string, std::string>
+      outside_name_port_to_placeholder_name;
   for (auto incoming_edge : sg_params.subgraph_incoming_edges) {
     if (incoming_edge->IsControlEdge()) {
       VLOG(2) << "Control edge: src-> " << incoming_edge->src()->name()
@@ -204,27 +204,32 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     int inside_node_index = incoming_edge->dst_input();
 
     tensorflow::Node* inside_node = sg_params.graph->FindNodeId(inside_node_id);
-    tensorflow::Node* outside_node = sg_params.graph->FindNodeId(outside_node_id);
+    tensorflow::Node* outside_node =
+        sg_params.graph->FindNodeId(outside_node_id);
 
     VLOG(2) << "edge->  src:" << outside_node->name()
             << " idx: " << outside_node_index << " dst:" << inside_node->name()
             << " idx: " << inside_node_index;
 
     NodeDef placeholder_def;
-    std::string outside_node_port = outside_node->name() + std::to_string(outside_node_index);
+    std::string outside_node_port =
+        outside_node->name() + std::to_string(outside_node_index);
     std::string placeholder_name;
     if (outside_name_port_to_placeholder_name.count(outside_node_port)) {
-      placeholder_name = outside_name_port_to_placeholder_name[outside_node_port];
+      placeholder_name =
+          outside_name_port_to_placeholder_name[outside_node_port];
     } else {
       placeholder_name = sg_params.graph->NewName(outside_node_port);
-      outside_name_port_to_placeholder_name[outside_node_port] = placeholder_name;
+      outside_name_port_to_placeholder_name[outside_node_port] =
+          placeholder_name;
       PartialTensorShape out_shape;
       std::vector<PartialTensorShape> v_output_shape;
       std::vector<PartialTensorShape> v_inferred_shape;
       PartialTensorShape inferred_shape;
       AttrSlice attrs = outside_node->attrs();
       DataType out_dtype = outside_node->output_type(outside_node_index);
-      if (IsPlaceholder(outside_node->def()) && GetNodeAttr(attrs, "shape", &out_shape).ok()) {
+      if (IsPlaceholder(outside_node->def()) &&
+          GetNodeAttr(attrs, "shape", &out_shape).ok()) {
       } else if (GetNodeAttr(attrs, "_output_shapes", &v_output_shape).ok()) {
         out_shape = v_output_shape[outside_node_index];
       }
@@ -234,15 +239,16 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
         inferred_shape = out_shape;
       }
       TF_RETURN_IF_ERROR(NodeDefBuilder(placeholder_name, "Placeholder")
-                            .Attr("dtype", out_dtype)
-                            .Attr("shape", out_shape)
-                            .Attr(kNeuronInferredShapes, {inferred_shape})
-                            .Finalize(&placeholder_def));
+                             .Attr("dtype", out_dtype)
+                             .Attr("shape", out_shape)
+                             .Attr(kNeuronInferredShapes, {inferred_shape})
+                             .Finalize(&placeholder_def));
 
       // for creating Neuron op node, storing:
       // input_names -> Attr(input_names) -> name of input nodes inside subgraph
-      // input_dtypes -> Attr(input_dtypes) -> dtype of input nodes inside subgraph
-      // input_shapes -> Attr(input_shapes) -> shape of input nodes inside subgraph
+      // input_dtypes -> Attr(input_dtypes) -> dtype of input nodes inside
+      // subgraph input_shapes -> Attr(input_shapes) -> shape of input nodes
+      // inside subgraph
       input_names.push_back(placeholder_name + ":0");
       input_dtypes.push_back(out_dtype);
       input_shapes.push_back(inferred_shape);
@@ -280,16 +286,18 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
 
   // Adding all the interior nodes to the list.
   for (auto node_id : *sg_params.subgraph_node_ids) {
-    tensorflow::Node *node = sg_params.graph->FindNodeId(node_id);
+    tensorflow::Node* node = sg_params.graph->FindNodeId(node_id);
     // this is to handle main graph output nodes in this segment.
     // filling map of (tensor_name , vector(dtype)) i.e A ->DT_FLOAT,->INT8
     // dtype order will match the the index.
     if (map_out_names_to_index.count(node->name())) {
       int num_outputs = map_out_names_to_index[node->name()];
       std::vector<PartialTensorShape> v_partial_shape;
-      Status status = GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape);
+      Status status =
+          GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape);
       if (!status.ok()) {
-        status = GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape);
+        status =
+            GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape);
       }
       if (!status.ok()) {
         v_partial_shape.resize(num_outputs);
@@ -344,7 +352,9 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
       std::vector<PartialTensorShape> v_partial_shape;
       if (GetNodeAttr(node->attrs(), "_output_shapes", &v_partial_shape).ok()) {
         neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
-      } else if (GetNodeAttr(node->attrs(), kNeuronInferredShapes, &v_partial_shape).ok()) {
+      } else if (GetNodeAttr(node->attrs(), kNeuronInferredShapes,
+                             &v_partial_shape)
+                     .ok()) {
         neuron_node_output_shapes.push_back(v_partial_shape[output_idx]);
       } else {
         neuron_node_output_shapes.emplace_back();
@@ -392,7 +402,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
   neuron_op_name = "neuron_op_" + hex_string;
   VLOG(1) << "Hashed neuron_op_name: " << neuron_op_name;
 
-  Node *neuron_node;
+  Node* neuron_node;
   TF_CHECK_OK(NodeBuilder(neuron_op_name, "NeuronOp")
                   .Input(input_nodes)
                   .Attr("graph_def", in_graph_def_string)
@@ -409,8 +419,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
 
   // Creating identityN node corresponding to any output nodes(if any) in this
   // subgraph
-  // start_index is the index of Neuron op output to which IdentityN node should be
-  // connected to.
+  // start_index is the index of Neuron op output to which IdentityN node should
+  // be connected to.
   VLOG(1) << "start_index: " << start_index;
   std::vector<tensorflow::NodeBuilder::NodeOut> identity_inputs;
 
@@ -422,7 +432,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams &sg_params) {
     VLOG(1) << " max index: " << map_out_names_to_index[name];
     for (size_t i = 0; i < main_graph_output_nodes[name].size(); ++i) {
       VLOG(1) << "start_index: " << start_index;
-      identity_inputs.push_back(NodeBuilder::NodeOut(neuron_node, start_index++));
+      identity_inputs.push_back(
+          NodeBuilder::NodeOut(neuron_node, start_index++));
     }
     Node* node;
     TF_CHECK_OK(NodeBuilder(name, "IdentityN")
@@ -451,7 +462,7 @@ std::unordered_map<string, std::vector<int>> BuildTensorNameMap(
 }
 
 // This fills the ConvertGraphParams struct.
-static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams *params) {
+static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams* params) {
   GetSubGraphIncomingEdges(*params->graph, *params->subgraph_node_ids,
                            &params->subgraph_incoming_edges);
 
@@ -473,10 +484,10 @@ static tensorflow::Status FillSubGraphEdgeSets(ConvertGraphParams *params) {
 
 // Sets up structs for creating subgraph.
 // Also, rewires new Neuron node to the graph. Removes old nodes.
-tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
+tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
   TF_RETURN_IF_ERROR(FillSubGraphEdgeSets(params));
   tensorflow::NodeDef neuron_node_def;
-  tensorflow::Node *neuron_node = nullptr;
+  tensorflow::Node* neuron_node = nullptr;
 
   SubGraphParams sg_params(*params->graph, *params->subgraph_node_ids,
                            *params->output_names, params->subgraph_outputs,
@@ -489,8 +500,9 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
   neuron_node = sg_params.neuron_node;
 
   // AddNode does not wire edges.
-  // Re-map incoming edges to use the new Neuron node instead of the orig subgraph
-  for (const tensorflow::Edge *edge : params->subgraph_incoming_edges) {
+  // Re-map incoming edges to use the new Neuron node instead of the orig
+  // subgraph
+  for (const tensorflow::Edge* edge : params->subgraph_incoming_edges) {
     if (edge->IsControlEdge()) {
       params->graph->AddControlEdge(edge->src(), neuron_node);
     }
@@ -498,23 +510,27 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams *params) {
   }
 
   VLOG(2) << "new wiring edges: " << neuron_node->in_edges().size();
-  for (const tensorflow::Edge *edge : neuron_node->in_edges()) {
+  for (const tensorflow::Edge* edge : neuron_node->in_edges()) {
     VLOG(2) << edge->src()->name() << " port: " << edge->src_output();
   }
 
-  // Re-map outgoing edges to use the new Neuron node instead of the orig subgraph
-  for (const tensorflow::Edge *edge : params->subgraph_outgoing_edges) {
+  // Re-map outgoing edges to use the new Neuron node instead of the orig
+  // subgraph
+  for (const tensorflow::Edge* edge : params->subgraph_outgoing_edges) {
     if (edge->IsControlEdge()) {
       params->graph->AddControlEdge(neuron_node, edge->dst());
     } else {
-      std::string old_src_name = edge->src()->name() + ":" + std::to_string(edge->src_output());
+      std::string old_src_name =
+          edge->src()->name() + ":" + std::to_string(edge->src_output());
       VLOG(1) << "Old src: " << old_src_name;
-      auto &output_names = neuron_node_def.attr().at("output_names").list().s();
-      auto iter = std::find(output_names.begin(), output_names.end(), old_src_name);
+      auto& output_names = neuron_node_def.attr().at("output_names").list().s();
+      auto iter =
+          std::find(output_names.begin(), output_names.end(), old_src_name);
       int new_src_output = 0;
       if (iter == output_names.end()) {
-        return errors::Internal(
-          "Old src name ", old_src_name, " not found among outputs of ", neuron_node->name());
+        return errors::Internal("Old src name ", old_src_name,
+                                " not found among outputs of ",
+                                neuron_node->name());
       } else {
         new_src_output = std::distance(output_names.begin(), iter);
       }
@@ -550,16 +566,16 @@ static tensorflow::Status ExcludeInputNodes(
 
 // Takes all the segment and modifies input graph to have Neuron ops.
 static tensorflow::Status ProcessSegments(
-    tensorflow::Graph &graph, const std::vector<string> &output_names,
-    std::unordered_map<string, tensorflow::Node*> &node_map,
-    tensorflow::tensorrt::segment::SegmentNodesVector &segments) {
+    tensorflow::Graph& graph, const std::vector<string>& output_names,
+    std::unordered_map<string, tensorflow::Node*>& node_map,
+    tensorflow::tensorrt::segment::SegmentNodesVector& segments) {
   tensorflow::Status status = tensorflow::Status::OK();
   int neuron_op_index = 0;
 
   for (const std::set<const Node*>& subgraph_node_names : segments) {
     std::set<int> subgraph_node_ids;
     std::stringstream oss;
-    for (const Node *node : subgraph_node_names) {
+    for (const Node* node : subgraph_node_names) {
       oss << " " << node->name();
       if (node_map.find(node->name()) == node_map.end()) {
         string msg =
@@ -573,7 +589,8 @@ static tensorflow::Status ProcessSegments(
     VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
     VLOG(2) << "Subgraph nodes" << oss.str();
 
-    ConvertGraphParams params(graph, output_names, subgraph_node_ids, neuron_op_index++);
+    ConvertGraphParams params(graph, output_names, subgraph_node_ids,
+                              neuron_op_index++);
     tensorflow::Status status = ConvertSubGraphToNeuron(&params);
     if (status != tensorflow::Status::OK()) {
       LOG(WARNING) << "subgraph conversion error for subgraph_index:"
@@ -587,13 +604,13 @@ static tensorflow::Status ProcessSegments(
 }
 
 void PreProcessSegmentsForResources(
-    tensorflow::Graph &graph,
-    tensorflow::tensorrt::segment::SegmentNodesVector &normal_segments) {
+    tensorflow::Graph& graph,
+    tensorflow::tensorrt::segment::SegmentNodesVector& normal_segments) {
   /*
   For each segment:
     1. If a resouce is input or output of segment, add segment to remove list.
-    2. Replace any Neuron ops that is inside the segment with actual nodes. This is
-    happens coz we we are currently doing segmentation on graph that might have
+    2. Replace any Neuron ops that is inside the segment with actual nodes. This
+  is happens coz we we are currently doing segmentation on graph that might have
     loops inside Neuron ops.
     3. Remove all segments in remove list from segment list.
   */
@@ -601,7 +618,7 @@ void PreProcessSegmentsForResources(
   TF_LOG_IF_ERROR(BuildNodeMap(graph, &node_map));
   std::set<int> remove_segment_index;
   for (auto idx = 0; idx < (int)normal_segments.size(); idx++) {
-    std::set<const Node*> &nodes_in_segment = normal_segments[idx];
+    std::set<const Node*>& nodes_in_segment = normal_segments[idx];
     std::set<int> subgraph_node_ids;
     for (auto node : nodes_in_segment) {
       subgraph_node_ids.insert(node_map[node->name()]->id());
@@ -612,7 +629,7 @@ void PreProcessSegmentsForResources(
     GetSubGraphIncomingEdges(graph, subgraph_node_ids, &incoming_edges);
     GetSubGraphOutgoingEdges(graph, subgraph_node_ids, &outgoing_edges);
 
-    for (const tensorflow::Edge *edge : incoming_edges) {
+    for (const tensorflow::Edge* edge : incoming_edges) {
       if (edge->dst()->input_type(edge->dst_input()) == DT_RESOURCE) {
         VLOG(1) << "incoming edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
@@ -621,7 +638,7 @@ void PreProcessSegmentsForResources(
       }
     }
 
-    for (const tensorflow::Edge *edge : outgoing_edges) {
+    for (const tensorflow::Edge* edge : outgoing_edges) {
       if (edge->src()->output_type(edge->src_output()) == DT_RESOURCE) {
         VLOG(1) << "outgoing edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
@@ -663,11 +680,12 @@ Status PreProcessingGraphDef(GraphDef& in_graph_def) {
   return tensorflow::Status::OK();
 }
 
-static Status FindConstantFoldableNodes(std::unordered_set<std::string>* foldable_nodes,
-                                        const GraphDef& graph_def) {
+static Status FindConstantFoldableNodes(
+    std::unordered_set<std::string>* foldable_nodes,
+    const GraphDef& graph_def) {
   // TODO: determine if we need grappler::TopologicalSort
   std::unordered_map<std::string, const NodeDef*> name_to_node;
-  for (const auto& node: graph_def.node()) {
+  for (const auto& node : graph_def.node()) {
     VLOG(1) << "adding node " << node.name();
     name_to_node[node.name()] = &node;
   }
@@ -677,13 +695,14 @@ static Status FindConstantFoldableNodes(std::unordered_set<std::string>* foldabl
       const NodeDef* in_node = name_to_node.at(node.input(0));
       const auto& attr = in_node->attr();
       const auto& shape_list = attr.at(kNeuronInferredShapes).list().shape();
-      auto predicate = [](const TensorShapeProto& sp){
+      auto predicate = [](const TensorShapeProto& sp) {
         return PartialTensorShape(sp).IsFullyDefined();
       };
       foldable = std::all_of(shape_list.begin(), shape_list.end(), predicate);
     } else {
       const auto& inputs = node.input();
-      auto predicate = [foldable_nodes, &name_to_node](const std::string& input_name) {
+      auto predicate = [foldable_nodes,
+                        &name_to_node](const std::string& input_name) {
         std::string node_name(input_name);
         size_t control_start = node_name.find('^');
         if (control_start != std::string::npos) {
@@ -693,9 +712,11 @@ static Status FindConstantFoldableNodes(std::unordered_set<std::string>* foldabl
         if (index_start != std::string::npos) {
           node_name = node_name.substr(0, index_start);
         }
-        return foldable_nodes->count(node_name) || name_to_node.at(node_name)->op() == "Const";
+        return foldable_nodes->count(node_name) ||
+               name_to_node.at(node_name)->op() == "Const";
       };
-      foldable = node.input_size() && std::all_of(inputs.begin(), inputs.end(), predicate);
+      foldable = node.input_size() &&
+                 std::all_of(inputs.begin(), inputs.end(), predicate);
     }
     if (foldable) {
       VLOG(1) << "found constant-foldable node " << node.name();
@@ -708,16 +729,15 @@ static Status FindConstantFoldableNodes(std::unordered_set<std::string>* foldabl
 // This function is the base function which does:
 // Step 1: Find Neuron Segments.
 // Step 2: Calls functions to create Neuron subgraphs.
-Status CreateNeuronGraphDef(GraphDef *new_graph_def,
-                            const GraphDef &graph_def,
-                            const std::vector<std::string> &input_op_names,
-                            const std::vector<std::string> &output_op_names,
+Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
+                            const std::vector<std::string>& input_op_names,
+                            const std::vector<std::string>& output_op_names,
                             const bool fuse_foldable_nodes,
                             const int minimum_segment_size,
                             const double prune_small_subgraphs_ratio,
-                            const std::set<std::string> &supported_op_types,
-                            const std::set<std::string> &no_fuse_ops,
-                            const std::set<std::string> &force_fuse_ops) {
+                            const std::set<std::string>& supported_op_types,
+                            const std::set<std::string>& no_fuse_ops,
+                            const std::set<std::string>& force_fuse_ops) {
   // Segment the graph into subgraphs that can be converted to Neuron op
   tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
@@ -728,15 +748,16 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
 
   // Build output tensor names
   std::unordered_map<std::string, std::string> op_name_to_type;
-  for (const auto &node : graph_def.node()) {
+  for (const auto& node : graph_def.node()) {
     op_name_to_type[node.name()] = node.op();
   }
   std::vector<std::string> outputs;
-  for (const auto &op_name : output_op_names) {
-    const tensorflow::OpRegistrationData *op_reg_data;
+  for (const auto& op_name : output_op_names) {
+    const tensorflow::OpRegistrationData* op_reg_data;
     TF_RETURN_IF_ERROR(flib.LookUp(op_name_to_type[op_name], &op_reg_data));
     int64 num_outputs = op_reg_data->op_def.output_arg_size();
-    VLOG(1) << "Output " << op_name << " contains " << num_outputs << " outputs";
+    VLOG(1) << "Output " << op_name << " contains " << num_outputs
+            << " outputs";
     for (int64 idx = 0; idx < num_outputs; ++idx) {
       outputs.push_back(op_name + ":" + std::to_string(idx));
     }
@@ -770,7 +791,8 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
     bool no_fuse = no_fuse_ops.count(node->name());
     bool force_fuse = force_fuse_ops.count(node->name());
     bool is_foldable = foldable_nodes.count(node->name());
-    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse || is_foldable)) {
+    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse ||
+          is_foldable)) {
       segment_options.exclude_node_list.insert(node->name());
     }
   }
@@ -782,22 +804,21 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
     // Adding all the nodes before the input node to exclude list.
     tensorflow::Node* omit_node = node_map[node_name];
     if (omit_node) {
-      TF_RETURN_IF_ERROR(ExcludeInputNodes(omit_node, segment_options.exclude_node_list));
+      TF_RETURN_IF_ERROR(
+          ExcludeInputNodes(omit_node, segment_options.exclude_node_list));
     }
   }
 
   tensorflow::tensorrt::segment::SegmentNodesVector segments;
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
-    &graph,
-    [](const Node* node) { return Status::OK(); },
-    [](const Edge* edge) { return true; },
-    OutputEdgeValidator(),
-    segment_options,
-    &segments));
+      &graph, [](const Node* node) { return Status::OK(); },
+      [](const Edge* edge) { return true; }, OutputEdgeValidator(),
+      segment_options, &segments));
   if (segments.size() > 1) {
     VLOG(1) << "MULTIPLE Neuron candidate conversion: " << segments.size();
-    if (prune_small_subgraphs_ratio < 0.0 || prune_small_subgraphs_ratio > 1.0) {
+    if (prune_small_subgraphs_ratio < 0.0 ||
+        prune_small_subgraphs_ratio > 1.0) {
       return errors::Internal("Found invalid prune_small_subgraphs_ratio ",
                               prune_small_subgraphs_ratio);
     }
@@ -807,12 +828,15 @@ Status CreateNeuronGraphDef(GraphDef *new_graph_def,
         size_all_segments += seg.size();
       }
       VLOG(1) << "Total size of all segments: " << size_all_segments;
-      auto comp = [](const std::set<const Node*>& lhs, const std::set<const Node*>& rhs) {
+      auto comp = [](const std::set<const Node*>& lhs,
+                     const std::set<const Node*>& rhs) {
         return lhs.size() < rhs.size();
       };
-      auto max_segment = *std::max_element(segments.begin(), segments.end(), comp);
+      auto max_segment =
+          *std::max_element(segments.begin(), segments.end(), comp);
       VLOG(1) << "Maximum segment size " << max_segment.size();
-      if (((double)max_segment.size() / (double)size_all_segments) > prune_small_subgraphs_ratio) {
+      if (((double)max_segment.size() / (double)size_all_segments) >
+          prune_small_subgraphs_ratio) {
         VLOG(1) << "Only keep maximum segment with size " << max_segment.size();
         segments.clear();
         segments.push_back(max_segment);
