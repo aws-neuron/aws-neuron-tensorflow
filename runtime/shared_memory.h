@@ -16,65 +16,69 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
 #define TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
 
-#include "tensorflow/core/platform/mutex.h"
-#include "runtime_grpc.h"
 #include "macros.h"
+#include "runtime_grpc.h"
+#include "tensorflow/core/platform/mutex.h"
 
 namespace tensorflow {
 namespace neuron {
 
 class SharedMemoryBuffer {
-public:
-    SharedMemoryBuffer(const size_t id, const uint64_t session_id,
-                       const size_t alignment, const size_t size,
-                       std::shared_ptr<RuntimeGRPC> runtime);
-    ~SharedMemoryBuffer();
-    // path_ is assigned when rtd shm_map has returned success
-    bool is_valid() { return !path_.empty(); }
-    bool unsupported_by_runtime() { return unsupported_by_runtime_; }
-    size_t get_id() { return id_; }
-    void *get_ptr() { return ptr_; }
-    size_t get_size() { return size_; }
-    std::string *get_path() { return &path_; }
-    std::string debug_string();
-private:
-    const size_t id_;
-    std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
-    void *ptr_ = nullptr;
-    void *physical_ptr_ = nullptr;
-    size_t size_ = 0;
-    size_t physical_size_ = 0;
-    bool unsupported_by_runtime_ = false;
-    std::string path_ = "";
-    TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBuffer);
+ public:
+  SharedMemoryBuffer(const size_t id, const uint64_t session_id,
+                     const size_t alignment, const size_t size,
+                     std::shared_ptr<RuntimeGRPC> runtime);
+  ~SharedMemoryBuffer();
+  // path_ is assigned when rtd shm_map has returned success
+  bool is_valid() { return !path_.empty(); }
+  bool unsupported_by_runtime() { return unsupported_by_runtime_; }
+  size_t get_id() { return id_; }
+  void* get_ptr() { return ptr_; }
+  size_t get_size() { return size_; }
+  std::string* get_path() { return &path_; }
+  std::string debug_string();
+
+ private:
+  const size_t id_;
+  std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
+  void* ptr_ = nullptr;
+  void* physical_ptr_ = nullptr;
+  size_t size_ = 0;
+  size_t physical_size_ = 0;
+  bool unsupported_by_runtime_ = false;
+  std::string path_ = "";
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBuffer);
 };
 
 typedef std::shared_ptr<SharedMemoryBuffer> SharedMemoryPtr;
 
 class SharedMemoryBufferManager : public Allocator {
-public:
-    SharedMemoryBufferManager(const uint64_t session_id, const std::string &nrtd_address);
-    ~SharedMemoryBufferManager() override {}
-    bool is_valid() { return is_valid_; }
-    SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
-    void free_shm(SharedMemoryPtr shm);
-    void clear();
-    std::string Name() override { return "AwsNeuronSharedMemory"; }
-    void *AllocateRaw(size_t alignment, size_t num_bytes) override;
-    void DeallocateRaw(void *ptr) override;
-    size_t AllocatedSizeSlow(const void *ptr) const override;
-    SharedMemoryPtr get_shm_ptr_from_ptr(const void *ptr);
-private:
-    void free_shm_unsafe(SharedMemoryPtr shm);
-    tensorflow::mutex mutex_;
-    uint64_t session_id_ = RuntimeSession::INVALID_ID;
-    std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
-    bool is_valid_ = false;
-    std::vector<SharedMemoryPtr> buffer_vec_;
-    std::unordered_map<size_t, std::unordered_set<size_t> > size_to_free_buffer_id_;
-    std::unordered_map<const void*, size_t> ptr_to_id_;
-    std::atomic<int> single_allocation_warning_count_;
-    TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBufferManager);
+ public:
+  SharedMemoryBufferManager(const uint64_t session_id,
+                            const std::string& nrtd_address);
+  ~SharedMemoryBufferManager() override {}
+  bool is_valid() { return is_valid_; }
+  SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
+  void free_shm(SharedMemoryPtr shm);
+  void clear();
+  std::string Name() override { return "AwsNeuronSharedMemory"; }
+  void* AllocateRaw(size_t alignment, size_t num_bytes) override;
+  void DeallocateRaw(void* ptr) override;
+  size_t AllocatedSizeSlow(const void* ptr) const override;
+  SharedMemoryPtr get_shm_ptr_from_ptr(const void* ptr);
+
+ private:
+  void free_shm_unsafe(SharedMemoryPtr shm);
+  tensorflow::mutex mutex_;
+  uint64_t session_id_ = RuntimeSession::INVALID_ID;
+  std::shared_ptr<RuntimeGRPC> runtime_ = nullptr;
+  bool is_valid_ = false;
+  std::vector<SharedMemoryPtr> buffer_vec_;
+  std::unordered_map<size_t, std::unordered_set<size_t> >
+      size_to_free_buffer_id_;
+  std::unordered_map<const void*, size_t> ptr_to_id_;
+  std::atomic<int> single_allocation_warning_count_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBufferManager);
 };
 
 }  // namespace neuron

@@ -13,199 +13,217 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "shared_memory.h"
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <fcntl.h>
 #include "tensorflow/core/platform/env.h"
-#include "shared_memory.h"
-
 
 namespace tensorflow {
 namespace neuron {
 
-
 class ShmFile {
-public:
-    ShmFile(const std::string &name) {
-        name_ = name;
-        mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
-        shm_open_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, mode);
-        if (shm_open_fd_ >= 0) {
-            if (::fchmod(shm_open_fd_, mode) < 0) {
-                shm_open_fd_ = -1;
-            } else {
-                shm_fd_ = shm_open_fd_;
-            }
-        }
+ public:
+  ShmFile(const std::string& name) {
+    name_ = name;
+    mode_t mode = S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH;
+    shm_open_fd_ = ::shm_open(name.c_str(), O_CREAT | O_RDWR, mode);
+    if (shm_open_fd_ >= 0) {
+      if (::fchmod(shm_open_fd_, mode) < 0) {
+        shm_open_fd_ = -1;
+      } else {
+        shm_fd_ = shm_open_fd_;
+      }
     }
-    ~ShmFile() {
-        if (shm_open_fd_ >= 0) {
-            ::close(shm_open_fd_);
-            SYS_FAIL_LOG(shm_unlink(name_.c_str()) < 0, "shm_unlink");
-        }
+  }
+  ~ShmFile() {
+    if (shm_open_fd_ >= 0) {
+      ::close(shm_open_fd_);
+      SYS_FAIL_LOG(shm_unlink(name_.c_str()) < 0, "shm_unlink");
     }
-    int shm_fd_ = -1;
-private:
-    int shm_open_fd_ = -1;
-    std::string name_;
-    TFN_DISALLOW_COPY_MOVE_ASSIGN(ShmFile);
+  }
+  int shm_fd_ = -1;
+
+ private:
+  int shm_open_fd_ = -1;
+  std::string name_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(ShmFile);
 };
 
-
 static std::string gen_shm_path() {
-    std::string filename = "/aws_neuron_runtime_";
-    for (size_t i = 0; i < 64; ++i) {
-        if (Env::Default()->CreateUniqueFileName(&filename, "")) {
-            return filename;
-        }
-        Env::Default()->SleepForMicroseconds(1);
+  std::string filename = "/aws_neuron_runtime_";
+  for (size_t i = 0; i < 64; ++i) {
+    if (Env::Default()->CreateUniqueFileName(&filename, "")) {
+      return filename;
     }
-    return "";
+    Env::Default()->SleepForMicroseconds(1);
+  }
+  return "";
 }
 
-
-SharedMemoryBuffer::SharedMemoryBuffer(const size_t id, const uint64_t session_id,
-                                       const size_t alignment, const size_t size,
-                                       std::shared_ptr<RuntimeGRPC> runtime) : id_(id) {
-    VLOG(1) << "entering SharedMemoryBuffer constructor";
-    if (nullptr == runtime) {
-        LOG(ERROR) << "runtime is not initialized";
-        return;
-    }
-    bool alignment_is_power_of_two = (alignment != 0) && (alignment & (alignment - 1)) == 0;
-    if (!alignment_is_power_of_two) {
-        LOG(ERROR) << "alignment is not power of 2";
-        return;
-    }
-    runtime_ = runtime;
-    std::string path = gen_shm_path();
-    if (path.empty()) {
-        LOG(ERROR) << "cannot generate unique file name for shared memory";
-        return;
-    }
-    size_ = size;
-    physical_size_ = size;
-    size_t page_size = ::getpagesize();
-    if (alignment > page_size) {
-        physical_size_ += alignment;
-    } else {
-        VLOG(1) << "no need for padding as alignment requirement " << alignment
-                << " is less than page size " << page_size;
-    }
-    ShmFile shm_file(path);
-    SYS_FAIL_LOG_RETURN(shm_file.shm_fd_ < 0, "shm_open");
-    SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, physical_size_) < 0, "ftruncate");
-    physical_ptr_ = ::mmap(NULL, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
-    SYS_FAIL_LOG_RETURN(MAP_FAILED == physical_ptr_, "mmap");
-    size_t space = physical_size_;
-    ptr_ = std::align(alignment, size, physical_ptr_, space);
-    SYS_FAIL_LOG_RETURN(nullptr == ptr_, "std::align");
-    if (!runtime_->shm_map(path, PROT_READ | PROT_WRITE, session_id).ok()) {
-        VLOG(1) << "neuron-rtd shm_map failed";
-        unsupported_by_runtime_ = true;
-        return;
-    }
-    VLOG(1) << "allocated shared memory buffer " << path;
-    path_ = path;
+SharedMemoryBuffer::SharedMemoryBuffer(const size_t id,
+                                       const uint64_t session_id,
+                                       const size_t alignment,
+                                       const size_t size,
+                                       std::shared_ptr<RuntimeGRPC> runtime)
+    : id_(id) {
+  VLOG(1) << "entering SharedMemoryBuffer constructor";
+  if (nullptr == runtime) {
+    LOG(ERROR) << "runtime is not initialized";
+    return;
+  }
+  bool alignment_is_power_of_two =
+      (alignment != 0) && (alignment & (alignment - 1)) == 0;
+  if (!alignment_is_power_of_two) {
+    LOG(ERROR) << "alignment is not power of 2";
+    return;
+  }
+  runtime_ = runtime;
+  std::string path = gen_shm_path();
+  if (path.empty()) {
+    LOG(ERROR) << "cannot generate unique file name for shared memory";
+    return;
+  }
+  size_ = size;
+  physical_size_ = size;
+  size_t page_size = ::getpagesize();
+  if (alignment > page_size) {
+    physical_size_ += alignment;
+  } else {
+    VLOG(1) << "no need for padding as alignment requirement " << alignment
+            << " is less than page size " << page_size;
+  }
+  ShmFile shm_file(path);
+  SYS_FAIL_LOG_RETURN(shm_file.shm_fd_ < 0, "shm_open");
+  SYS_FAIL_LOG_RETURN(::ftruncate(shm_file.shm_fd_, physical_size_) < 0,
+                      "ftruncate");
+  physical_ptr_ =
+      ::mmap(NULL, physical_size_, PROT_WRITE, MAP_SHARED, shm_file.shm_fd_, 0);
+  SYS_FAIL_LOG_RETURN(MAP_FAILED == physical_ptr_, "mmap");
+  size_t space = physical_size_;
+  ptr_ = std::align(alignment, size, physical_ptr_, space);
+  SYS_FAIL_LOG_RETURN(nullptr == ptr_, "std::align");
+  if (!runtime_->shm_map(path, PROT_READ | PROT_WRITE, session_id).ok()) {
+    VLOG(1) << "neuron-rtd shm_map failed";
+    unsupported_by_runtime_ = true;
+    return;
+  }
+  VLOG(1) << "allocated shared memory buffer " << path;
+  path_ = path;
 }
 
 SharedMemoryBuffer::~SharedMemoryBuffer() {
-    VLOG(1) << "entering destructor of SharedMemoryBuffer " << path_;
-    if (!path_.empty()) {
-        TF_LOG_IF_ERROR(runtime_->shm_unmap(path_, PROT_READ | PROT_WRITE));
-    }
-    if (MAP_FAILED != physical_ptr_) {
-        SYS_FAIL_LOG(munmap(physical_ptr_, physical_size_) < 0, "munmap");
-    }
+  VLOG(1) << "entering destructor of SharedMemoryBuffer " << path_;
+  if (!path_.empty()) {
+    TF_LOG_IF_ERROR(runtime_->shm_unmap(path_, PROT_READ | PROT_WRITE));
+  }
+  if (MAP_FAILED != physical_ptr_) {
+    SYS_FAIL_LOG(munmap(physical_ptr_, physical_size_) < 0, "munmap");
+  }
 }
 
 std::string SharedMemoryBuffer::debug_string() {
-    return errors::Internal(
-        "SharedMemoryBuffer("
-            "ptr=", ptr_, ", "
-            "size=", size_, ", "
-            "physical_ptr=", physical_ptr_, ", "
-            "physical_size=", physical_size_,
-        ")").error_message();
+  return errors::Internal(
+             "SharedMemoryBuffer("
+             "ptr=",
+             ptr_,
+             ", "
+             "size=",
+             size_,
+             ", "
+             "physical_ptr=",
+             physical_ptr_,
+             ", "
+             "physical_size=",
+             physical_size_, ")")
+      .error_message();
 }
 
-
-SharedMemoryBufferManager::SharedMemoryBufferManager(const uint64_t session_id,
-                                                     const std::string &nrtd_address)
-                                                     : session_id_(session_id),
-                                                       single_allocation_warning_count_(0) {
-    runtime_ = std::make_shared<RuntimeGRPC>();
-    TF_LOG_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
-    is_valid_ = true;
+SharedMemoryBufferManager::SharedMemoryBufferManager(
+    const uint64_t session_id, const std::string& nrtd_address)
+    : session_id_(session_id), single_allocation_warning_count_(0) {
+  runtime_ = std::make_shared<RuntimeGRPC>();
+  TF_LOG_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
+  is_valid_ = true;
 }
 
-
-SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment, const size_t size) {
-    if (!is_valid_) {
-        VLOG(1) << "SharedMemoryBufferManager is invalid";
-        return nullptr;
-    }
-    tensorflow::mutex_lock lock(mutex_);
-    if (!is_valid_) {
-        // check once more to kick out threads that have already accessed is_valid_ before the lock
-        return nullptr;
-    }
-    if (size_to_free_buffer_id_.count(size) && size_to_free_buffer_id_[size].size()) {
-        // get one from the free buffer set
-        std::unordered_set<size_t> *free_buffer_id_set = &size_to_free_buffer_id_[size];
-        auto iter = free_buffer_id_set->begin();
-        size_t free_buffer_id = *iter;
-        free_buffer_id_set->erase(iter);
-        SharedMemoryPtr shm_ptr = buffer_vec_[free_buffer_id];
-        VLOG(1) << "reusing already allocated shm buffer " << shm_ptr->debug_string();
-        return shm_ptr;
-    }
-    VLOG(1) << "allocating a new shm buffer";
-    size_t id = buffer_vec_.size();
-    SharedMemoryPtr shm_ptr = std::make_shared<SharedMemoryBuffer>(
-        id, session_id_, alignment, size, runtime_);
-    if (!shm_ptr->is_valid()) {
-        if (shm_ptr->unsupported_by_runtime()) {
-            LOG(INFO) << "The current Neuron runtime configuration does not support "
-                         "shared memory data transfer. Please refer to "
-                         "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/neuron-guide/neuron-runtime/nrt-theory-of-operation.html#shared-memory-for-inference-ifmaps-and-ofmaps "
-                         "if you encounter performance problem caused by high CPU usage on inf1 instances.";
-            is_valid_ = false;
-        }
-        VLOG(1) << "SharedMemoryBufferManager created an invalid buffer";
-        return nullptr;
-    }
-    buffer_vec_.push_back(shm_ptr);
-    ptr_to_id_[shm_ptr->get_ptr()] = id;
-    VLOG(1) << "successfully allocated shm buffer " << shm_ptr->debug_string();
+SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment,
+                                                        const size_t size) {
+  if (!is_valid_) {
+    VLOG(1) << "SharedMemoryBufferManager is invalid";
+    return nullptr;
+  }
+  tensorflow::mutex_lock lock(mutex_);
+  if (!is_valid_) {
+    // check once more to kick out threads that have already accessed is_valid_
+    // before the lock
+    return nullptr;
+  }
+  if (size_to_free_buffer_id_.count(size) &&
+      size_to_free_buffer_id_[size].size()) {
+    // get one from the free buffer set
+    std::unordered_set<size_t>* free_buffer_id_set =
+        &size_to_free_buffer_id_[size];
+    auto iter = free_buffer_id_set->begin();
+    size_t free_buffer_id = *iter;
+    free_buffer_id_set->erase(iter);
+    SharedMemoryPtr shm_ptr = buffer_vec_[free_buffer_id];
+    VLOG(1) << "reusing already allocated shm buffer "
+            << shm_ptr->debug_string();
     return shm_ptr;
+  }
+  VLOG(1) << "allocating a new shm buffer";
+  size_t id = buffer_vec_.size();
+  SharedMemoryPtr shm_ptr = std::make_shared<SharedMemoryBuffer>(
+      id, session_id_, alignment, size, runtime_);
+  if (!shm_ptr->is_valid()) {
+    if (shm_ptr->unsupported_by_runtime()) {
+      LOG(INFO) << "The current Neuron runtime configuration does not support "
+                   "shared memory data transfer. Please refer to "
+                   "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/"
+                   "neuron-guide/neuron-runtime/"
+                   "nrt-theory-of-operation.html#shared-memory-for-inference-"
+                   "ifmaps-and-ofmaps "
+                   "if you encounter performance problem caused by high CPU "
+                   "usage on inf1 instances.";
+      is_valid_ = false;
+    }
+    VLOG(1) << "SharedMemoryBufferManager created an invalid buffer";
+    return nullptr;
+  }
+  buffer_vec_.push_back(shm_ptr);
+  ptr_to_id_[shm_ptr->get_ptr()] = id;
+  VLOG(1) << "successfully allocated shm buffer " << shm_ptr->debug_string();
+  return shm_ptr;
 }
 
 void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {
-    tensorflow::mutex_lock lock(mutex_);
-    free_shm_unsafe(shm);
+  tensorflow::mutex_lock lock(mutex_);
+  free_shm_unsafe(shm);
 }
 
 void SharedMemoryBufferManager::free_shm_unsafe(SharedMemoryPtr shm) {
-    if (!shm->is_valid()) {
-        LOG(ERROR) << "SharedMemoryBufferManager cannot free an invalid shared memory buffer";
-        return;
-    }
-    VLOG(1) << "freeing shm buf " << *shm->get_path();
-    size_t size = shm->get_size();
-    if (!size_to_free_buffer_id_.count(size)) {
-        size_to_free_buffer_id_.emplace(
-            std::piecewise_construct, std::forward_as_tuple(size), std::forward_as_tuple());
-    }
-    size_to_free_buffer_id_[size].insert(shm->get_id());
+  if (!shm->is_valid()) {
+    LOG(ERROR) << "SharedMemoryBufferManager cannot free an invalid shared "
+                  "memory buffer";
+    return;
+  }
+  VLOG(1) << "freeing shm buf " << *shm->get_path();
+  size_t size = shm->get_size();
+  if (!size_to_free_buffer_id_.count(size)) {
+    size_to_free_buffer_id_.emplace(std::piecewise_construct,
+                                    std::forward_as_tuple(size),
+                                    std::forward_as_tuple());
+  }
+  size_to_free_buffer_id_[size].insert(shm->get_id());
 }
 
 void SharedMemoryBufferManager::clear() {
-    tensorflow::mutex_lock lock(mutex_);
-    size_to_free_buffer_id_.clear();
-    ptr_to_id_.clear();
-    buffer_vec_.clear();
-    is_valid_ = false;
+  tensorflow::mutex_lock lock(mutex_);
+  size_to_free_buffer_id_.clear();
+  ptr_to_id_.clear();
+  buffer_vec_.clear();
+  is_valid_ = false;
 }
 
 // Individual allocations large than this amount will trigger a warning.
@@ -214,57 +232,60 @@ static const int kMaxSingleAllocationWarnings = 5;
 
 // Cache first invocation to port::AvailableRam, as it can be expensive.
 static int64_t LargeAllocationWarningBytes() {
-    static int64_t value = static_cast<int64>(port::AvailableRam() * kLargeAllocationWarningThreshold);
-    return value;
+  static int64_t value = static_cast<int64>(port::AvailableRam() *
+                                            kLargeAllocationWarningThreshold);
+  return value;
 }
 
-void *SharedMemoryBufferManager::AllocateRaw(size_t alignment, size_t num_bytes) {
-    if ((int64)num_bytes > LargeAllocationWarningBytes() &&
-            single_allocation_warning_count_ < kMaxSingleAllocationWarnings) {
-        ++single_allocation_warning_count_;
-        LOG(WARNING) << "Allocation of " << num_bytes << " exceeds "
-                     << 100 * kLargeAllocationWarningThreshold
-                     << "% of system memory.";
-    }
-    SharedMemoryPtr shm_ptr = allocate_shm(alignment, num_bytes);
-    if (TF_PREDICT_FALSE(nullptr == shm_ptr)) {
-        VLOG(1) << "allocate_shm failed; falling back to non-shared-memory allocation";
-        return port::AlignedMalloc(num_bytes, alignment);
-    } else {
-        return shm_ptr->get_ptr();
-    }
+void* SharedMemoryBufferManager::AllocateRaw(size_t alignment,
+                                             size_t num_bytes) {
+  if ((int64)num_bytes > LargeAllocationWarningBytes() &&
+      single_allocation_warning_count_ < kMaxSingleAllocationWarnings) {
+    ++single_allocation_warning_count_;
+    LOG(WARNING) << "Allocation of " << num_bytes << " exceeds "
+                 << 100 * kLargeAllocationWarningThreshold
+                 << "% of system memory.";
+  }
+  SharedMemoryPtr shm_ptr = allocate_shm(alignment, num_bytes);
+  if (TF_PREDICT_FALSE(nullptr == shm_ptr)) {
+    VLOG(1)
+        << "allocate_shm failed; falling back to non-shared-memory allocation";
+    return port::AlignedMalloc(num_bytes, alignment);
+  } else {
+    return shm_ptr->get_ptr();
+  }
 }
 
-void SharedMemoryBufferManager::DeallocateRaw(void *ptr) {
-    tensorflow::mutex_lock lock(mutex_);
-    if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
-        VLOG(1) << "freeing a non-shared-memory pointer";
-        port::AlignedFree(ptr);
-        return;
-    }
-    size_t id = ptr_to_id_[ptr];
-    SharedMemoryPtr shm = buffer_vec_[id];
-    free_shm_unsafe(shm);
+void SharedMemoryBufferManager::DeallocateRaw(void* ptr) {
+  tensorflow::mutex_lock lock(mutex_);
+  if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+    VLOG(1) << "freeing a non-shared-memory pointer";
+    port::AlignedFree(ptr);
+    return;
+  }
+  size_t id = ptr_to_id_[ptr];
+  SharedMemoryPtr shm = buffer_vec_[id];
+  free_shm_unsafe(shm);
 }
 
-size_t SharedMemoryBufferManager::AllocatedSizeSlow(const void *ptr) const {
-    if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
-        return port::MallocExtension_GetAllocatedSize(ptr);
-    }
-    size_t id = ptr_to_id_.at(ptr);
-    SharedMemoryPtr shm = buffer_vec_[id];
-    return shm->get_size();
+size_t SharedMemoryBufferManager::AllocatedSizeSlow(const void* ptr) const {
+  if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+    return port::MallocExtension_GetAllocatedSize(ptr);
+  }
+  size_t id = ptr_to_id_.at(ptr);
+  SharedMemoryPtr shm = buffer_vec_[id];
+  return shm->get_size();
 }
 
-SharedMemoryPtr SharedMemoryBufferManager::get_shm_ptr_from_ptr(const void *ptr) {
-    tensorflow::mutex_lock lock(mutex_);
-    if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
-        return nullptr;
-    }
-    size_t id = ptr_to_id_.at(ptr);
-    return buffer_vec_[id];
+SharedMemoryPtr SharedMemoryBufferManager::get_shm_ptr_from_ptr(
+    const void* ptr) {
+  tensorflow::mutex_lock lock(mutex_);
+  if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+    return nullptr;
+  }
+  size_t id = ptr_to_id_.at(ptr);
+  return buffer_vec_[id];
 }
-
 
 }  // namespace neuron
 }  // namespace tensorflow
