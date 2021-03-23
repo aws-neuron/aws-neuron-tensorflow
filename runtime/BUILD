@@ -46,6 +46,8 @@ cc_library(
     srcs = [
         "engine.cc",
         "engine.h",
+        "device.cc",
+        "device.h",
         "shared_memory.h",
         "shared_memory.cc",
         "runtime_grpc.h",
@@ -55,6 +57,7 @@ cc_library(
     hdrs = ["engine.h"],
     deps = [
         ":utils",
+        "@org_tensorflow//tensorflow/core:core_cpu",
     ],
 )
 

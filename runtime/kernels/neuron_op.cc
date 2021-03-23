@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "neuron_op.h"
+#include "../device.h"
 
 namespace tensorflow {
 namespace register_kernel {
@@ -21,17 +22,17 @@ namespace register_kernel {
 static KernelDef* neuron_kernel(const std::string& type) {
   // Need to allocate from an existing one to workaround the bug that setting
   // one attribute can affect other attributes
-  KernelDef* kernel =
-      new KernelDef(GetRegisteredKernelsForOp("IdentityN").kernel(0));
+  auto identity_n_kernel = GetRegisteredKernelsForOp("IdentityN").kernel(0);
+  KernelDef* kernel = new KernelDef(identity_n_kernel);
   kernel->clear_op();
   kernel->clear_device_type();
   kernel->clear_constraint();
   kernel->clear_host_memory_arg();
   kernel->clear_label();
   kernel->clear_priority();
-  kernel->set_op(GetRegisteredKernelsForOp(type).kernel_size() ? "_no_register"
-                                                               : type);
-  kernel->set_device_type(DEVICE_CPU);
+  int64 kernel_size = GetRegisteredKernelsForOp(type).kernel_size();
+  kernel->set_op(kernel_size ? "_no_register" : type);
+  kernel->set_device_type(neuron::DEVICE_NEURON);
   return kernel;
 }
 
