@@ -23,17 +23,20 @@ namespace tensorflow {
 namespace grappler {
 namespace neuron {
 
-constexpr char name_static_shape_inference[] = "aws_neuron_static_shape_inference";
+constexpr char name_static_shape_inference[] =
+    "aws_neuron_static_shape_inference";
 
 class StaticShapeInference : public CustomGraphOptimizer {
-public:
-    Status Init(const tensorflow::RewriterConfig_CustomGraphOptimizer *config=nullptr) override;
-    ~StaticShapeInference() override {}
-    std::string name() const override { return name_static_shape_inference; }
-    bool UsesFunctionLibrary() const { return true; }
-    Status Optimize(Cluster *cluster, const GrapplerItem &item, GraphDef *output) override;
-    void Feedback(Cluster *cluster, const GrapplerItem &item,
-                  const GraphDef &optimize_output, double result) override;
+ public:
+  Status Init(const tensorflow::RewriterConfig_CustomGraphOptimizer* config =
+                  nullptr) override;
+  ~StaticShapeInference() override {}
+  std::string name() const override { return name_static_shape_inference; }
+  bool UsesFunctionLibrary() const { return true; }
+  Status Optimize(Cluster* cluster, const GrapplerItem& item,
+                  GraphDef* output) override;
+  void Feedback(Cluster* cluster, const GrapplerItem& item,
+                const GraphDef& optimize_output, double result) override;
 };
 
 }  // end namespace neuron
