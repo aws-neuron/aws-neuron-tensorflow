@@ -13,27 +13,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include <stdexcept>
 #include "env.h"
+#include <stdexcept>
 
 namespace tensorflow {
 namespace neuron {
 
 #define STOI_INVALID_RESULT -65536
 
-std::string env_get(const char *env_var, const char *default_env_var) {
-    char *str = std::getenv(env_var);
-    return str ? str : default_env_var;
+std::string env_get(const char* env_var, const char* default_env_var) {
+  char* str = std::getenv(env_var);
+  return str ? str : default_env_var;
 }
 
-int stoi_no_throw(const std::string &str) {
-    try {
-        return std::stoi(str);
-    } catch (std::invalid_argument &) {
-        return STOI_INVALID_RESULT;
-    } catch (std::out_of_range &) {
-        return STOI_INVALID_RESULT;
-    }
+int stoi_no_throw(const std::string& str) {
+  try {
+    return std::stoi(str);
+  } catch (std::invalid_argument&) {
+    return STOI_INVALID_RESULT;
+  } catch (std::out_of_range&) {
+    return STOI_INVALID_RESULT;
+  }
 }
 
 }  // namespace neuron
