@@ -21,13 +21,13 @@ limitations under the License.
 #include <vector>
 
 #include "absl/strings/str_cat.h"
-#include "union_find.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/strings/strcat.h"
 #include "tensorflow/core/platform/types.h"
+#include "union_find.h"
 
 namespace tensorflow {
 namespace tensorrt {
@@ -455,7 +455,8 @@ Status SegmentGraph(const Graph* tf_graph,
   }
   LOG(INFO) << msg << "(For more information see "
             << "https://awsdocs-neuron.readthedocs-hosted.com"
-            << "/en/latest/release-notes/neuron-cc-ops/neuron-cc-ops-tensorflow.html).";
+            << "/en/latest/release-notes/neuron-cc-ops/"
+               "neuron-cc-ops-tensorflow.html).";
 
   // The segmentation algorithm below visits nodes in reverse topological order
   // and attempts to merge nodes along output edges. That means that subgraphs
