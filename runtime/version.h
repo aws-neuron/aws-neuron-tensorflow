@@ -26,7 +26,8 @@ namespace neuron {
 #define TFN_STR(x) TFN_STR_HELPER(x)
 
 // e.g. "1.1" or "1.12".
-#define TFN_VERSION_STRING (TFN_STR(TFN_MAJOR_VERSION) "." TFN_STR(TFN_MINOR_VERSION))
+#define TFN_VERSION_STRING \
+  (TFN_STR(TFN_MAJOR_VERSION) "." TFN_STR(TFN_MINOR_VERSION))
 
 }  // namespace neuron
 }  // namespace tensorflow
