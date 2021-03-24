@@ -17,6 +17,7 @@ limitations under the License.
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include "env.h"
 #include "tensorflow/core/platform/env.h"
 
 namespace tensorflow {
@@ -123,28 +124,29 @@ SharedMemoryBuffer::~SharedMemoryBuffer() {
 }
 
 std::string SharedMemoryBuffer::debug_string() {
-  return errors::Internal(
-             "SharedMemoryBuffer("
-             "ptr=",
-             ptr_,
-             ", "
-             "size=",
-             size_,
-             ", "
-             "physical_ptr=",
-             physical_ptr_,
-             ", "
-             "physical_size=",
-             physical_size_, ")")
+  return errors::Internal("SharedMemoryBuffer(ptr=", ptr_, ", size=", size_,
+                          ", "
+                          "physical_ptr=",
+                          physical_ptr_,
+                          ", "
+                          "physical_size=",
+                          physical_size_, ")")
       .error_message();
 }
 
-SharedMemoryBufferManager::SharedMemoryBufferManager(
-    const uint64_t session_id, const std::string& nrtd_address)
-    : session_id_(session_id), single_allocation_warning_count_(0) {
-  runtime_ = std::make_shared<RuntimeGRPC>();
-  TF_LOG_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
-  is_valid_ = true;
+SharedMemoryBufferManager::SharedMemoryBufferManager()
+    : single_allocation_warning_count_(0) {}
+
+Status SharedMemoryBufferManager::initialize(const uint64_t session_id,
+                                             const std::string& nrtd_address) {
+  std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
+  if ("no" != nrt_shm_map) {
+    session_id_ = session_id;
+    runtime_ = std::make_shared<RuntimeGRPC>();
+    TF_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
+    is_valid_ = true;
+  }
+  return Status::OK();
 }
 
 SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment,
@@ -216,14 +218,6 @@ void SharedMemoryBufferManager::free_shm_unsafe(SharedMemoryPtr shm) {
                                     std::forward_as_tuple());
   }
   size_to_free_buffer_id_[size].insert(shm->get_id());
-}
-
-void SharedMemoryBufferManager::clear() {
-  tensorflow::mutex_lock lock(mutex_);
-  size_to_free_buffer_id_.clear();
-  ptr_to_id_.clear();
-  buffer_vec_.clear();
-  is_valid_ = false;
 }
 
 // Individual allocations large than this amount will trigger a warning.

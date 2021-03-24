@@ -54,13 +54,12 @@ typedef std::shared_ptr<SharedMemoryBuffer> SharedMemoryPtr;
 
 class SharedMemoryBufferManager : public Allocator {
  public:
-  SharedMemoryBufferManager(const uint64_t session_id,
-                            const std::string& nrtd_address);
+  SharedMemoryBufferManager();
   ~SharedMemoryBufferManager() override {}
+  Status initialize(const uint64_t session_id, const std::string& nrtd_address);
   bool is_valid() { return is_valid_; }
   SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
   void free_shm(SharedMemoryPtr shm);
-  void clear();
   std::string Name() override { return "AwsNeuronSharedMemory"; }
   void* AllocateRaw(size_t alignment, size_t num_bytes) override;
   void DeallocateRaw(void* ptr) override;

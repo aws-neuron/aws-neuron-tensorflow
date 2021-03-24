@@ -46,6 +46,12 @@ NeuronDeviceManager::NeuronDeviceManager() {
   // runtime session
   session_ = std::make_shared<RuntimeSession>();
   runtime_status_ = session_->initialize(nrtd_address_);
+
+  // shared memory allocator
+  shm_buf_mgr_ = std::make_shared<SharedMemoryBufferManager>();
+  if (runtime_status_.ok()) {
+    shm_buf_mgr_->initialize(session_->get_id(), nrtd_address_);
+  }
 }
 
 NeuronDeviceManager::~NeuronDeviceManager() {
@@ -127,7 +133,7 @@ Status NeuronDeviceManager::init_devices(
       return errors::Internal("neuron runtime session is not initialized");
     }
     status = device_array_[idx].initialize(nrtd_address_, num_cores_req,
-                                           num_dup, session_);
+                                           num_dup, session_, shm_buf_mgr_);
     if (!status.ok()) {
       if (status.code() != tensorflow::error::Code::ABORTED) {
         LOG(WARNING) << "Cannot initialize NeuronCore Group with "
@@ -251,9 +257,11 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice** device,
   return Status::OK();
 }
 
-Status NeuronDevice::initialize(const std::string& nrtd_address,
-                                const int num_cores_req, const int num_dup,
-                                std::shared_ptr<RuntimeSession> session) {
+Status NeuronDevice::initialize(
+    const std::string& nrtd_address,
+    const int num_cores_req, const int num_dup,
+    std::shared_ptr<RuntimeSession> session,
+    std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr) {
   tensorflow::mutex_lock lock(mutex_eg_);
   if (closed_) {
     return errors::Aborted("neuron_device is closed");
@@ -285,14 +293,7 @@ Status NeuronDevice::initialize(const std::string& nrtd_address,
     }
   }
   running_nn_id_ = NRT_INVALID_NN_ID;
-  std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
-  if ("no" != nrt_shm_map) {
-    shm_buf_mgr_ =
-        std::make_shared<SharedMemoryBufferManager>(session_id, nrtd_address);
-    if (!shm_buf_mgr_->is_valid()) {
-      shm_buf_mgr_ = nullptr;
-    }
-  }
+  shm_buf_mgr_ = shm_buf_mgr;
   return Status::OK();
 }
 
@@ -455,7 +456,6 @@ void NeuronDevice::clear(bool from_global_state) {
   if (!from_global_state) {
     set_running(NRT_INVALID_NN_ID);
     nn_id_to_all_nn_ids_.clear();
-    shm_buf_mgr_->clear();
     vec_eg_id_.clear();
   }
 }

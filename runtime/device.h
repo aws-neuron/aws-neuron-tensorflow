@@ -34,7 +34,8 @@ class NeuronDevice {
  public:
   NeuronDevice() {}
   Status initialize(const std::string& nrtd_address, const int num_cores_req,
-                    const int num_dup, std::shared_ptr<RuntimeSession> session);
+                    const int num_dup, std::shared_ptr<RuntimeSession> session,
+                    std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr);
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
@@ -105,6 +106,7 @@ class NeuronDeviceManager {
   static const int DEFAULT_NUM_CORES = -65536;  // any number < -MAX_NUM_CORES
   std::string nrtd_address_;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
+  std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
   std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
   std::unordered_map<std::string, size_t> session_handle_to_device_index_;
   size_t device_index_ = 0;
