@@ -92,7 +92,7 @@ class NeuronDeviceManager {
   static const int64 MIN_NUM_CORES = 0;
 
  private:
-  NeuronDeviceManager() {}
+  NeuronDeviceManager();
   ~NeuronDeviceManager();
   Status init_default_device(const int64_t opt_device_size,
                              const int64_t max_num_duplicates);
@@ -107,9 +107,9 @@ class NeuronDeviceManager {
   std::shared_ptr<RuntimeSession> session_ = nullptr;
   std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
   std::unordered_map<std::string, size_t> session_handle_to_device_index_;
-  bool path_set_ = false;
   size_t device_index_ = 0;
   size_t num_devices_ = 0;
+  Status runtime_status_ = errors::InvalidArgument("Uninitialized");
   bool ready_ = false;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceManager);
 };

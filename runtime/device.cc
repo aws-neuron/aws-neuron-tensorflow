@@ -34,6 +34,20 @@ static std::string remove_pattern(std::string data,
   return data;
 }
 
+NeuronDeviceManager::NeuronDeviceManager() {
+  tensorflow::mutex_lock lock(global_mutex_);
+  // append /opt/aws/neuron/bin to PATH
+  std::string env_path = env_get("PATH", "");
+  setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
+
+  // neuron-rtd address
+  nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
+
+  // runtime session
+  session_ = std::make_shared<RuntimeSession>();
+  runtime_status_ = session_->initialize(nrtd_address_);
+}
+
 NeuronDeviceManager::~NeuronDeviceManager() {
   tensorflow::mutex_lock lock(global_mutex_);
   clear_from_global_state();
@@ -41,18 +55,7 @@ NeuronDeviceManager::~NeuronDeviceManager() {
 
 Status NeuronDeviceManager::initialize(const int64_t opt_device_size,
                                        const int64_t max_num_duplicates) {
-  if (!path_set_) {
-    // append /opt/aws/neuron/bin to PATH
-    std::string env_path = env_get("PATH", "");
-    setenv("PATH", (env_path + ":/opt/aws/neuron/bin").c_str(), 1);
-    path_set_ = true;
-  }
-
-  // neuron-rtd address
-  nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
-
-  session_ = std::make_shared<RuntimeSession>();
-  TF_RETURN_IF_ERROR(session_->initialize(nrtd_address_));
+  TF_RETURN_IF_ERROR(runtime_status_);
 
   // get number of neuron cores from comma-separated list of integers
   std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
