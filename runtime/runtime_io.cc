@@ -72,15 +72,24 @@ Status ScopedRuntimeIO::setup(AttrList &input_names,
                              use_shm, input_paths, output_paths, output_ptrs, thread_pool);
 }
 
-Status ScopedRuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &input_tensors) {
+Status ScopedRuntimeIO::copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
+                                           std::vector<Tensor*> *input_shm_tensors) {
     if (TF_PREDICT_TRUE(runtime_io_.use_shm())) {
-        if (TF_PREDICT_FALSE(input_shm_tensors_.size() != input_tensors.size())) {
+        std::vector<Tensor*> input_shm_ptrs;
+        if (nullptr == input_shm_tensors) {
+            input_shm_ptrs.reserve(input_shm_tensors_.size());
+            for (Tensor &shm_tensor : input_shm_tensors_) {
+                input_shm_ptrs.push_back(&shm_tensor);
+            }
+            input_shm_tensors = &input_shm_ptrs;
+        }
+        if (TF_PREDICT_FALSE(input_shm_tensors->size() != input_tensors.size())) {
             return errors::InvalidArgument(
                 "size mismatch between input_shm_tensors_ and input_tensors");
         }
         for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
             StringPiece tensor_data(input_tensors[idx]->tensor_data());
-            TF_RETURN_IF_ERROR(tensor_memcpy(thread_pool_, &input_shm_tensors_[idx], tensor_data));
+            TF_RETURN_IF_ERROR(tensor_memcpy(thread_pool_, input_shm_tensors->at(idx), tensor_data));
         }
     }
     return runtime_io_.copy_input_tensors(input_tensors);

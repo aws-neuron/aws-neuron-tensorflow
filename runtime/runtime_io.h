@@ -32,7 +32,8 @@ public:
                  const std::vector<Tensor*> &output_tensors,
                  const uint32_t nn_id, thread::ThreadPool *thread_pool,
                  std::shared_ptr<SharedMemoryBufferManager> shm_mgr);
-    Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors);
+    Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
+                              std::vector<Tensor*> *input_shm_tensors=nullptr);
     Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
                               AttrList &input_shuffles, std::vector<Tensor> *shuffle_buffers,
                               std::vector<Tensor*> *input_shm_tensors=nullptr);

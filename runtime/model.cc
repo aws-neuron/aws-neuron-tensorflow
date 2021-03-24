@@ -197,7 +197,7 @@ static Status copy_input_tensors_with_shuffle(OpKernelContext *ctx, const NodeDe
         RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors, input_shuffles, &buffers,
                                                          input_shm_tensors));
     } else {
-        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors));
+        RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(input_tensors, input_shm_tensors));
     }
     return Status::OK();
 }
