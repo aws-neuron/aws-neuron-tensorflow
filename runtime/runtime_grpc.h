@@ -140,8 +140,8 @@ class RuntimeGRPC {
 
  private:
   std::unique_ptr<nrt::nmgr_v1::Stub> stub_;
-  static const size_t EXEC_MAX_CHUNK_SIZE =
-      1024 * 1024;  // some reasonable number of bytes
+  // some reasonable number of bytes
+  static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;
   std::string nrtd_address_ = "";
   TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeGRPC);
 };

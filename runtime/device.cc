@@ -23,8 +23,6 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
-
 #ifdef NEURONTFSERV
 void sigint_handler(int sig) {
   NeuronDeviceManager::GetNeuronDeviceManager().clear_from_global_state();

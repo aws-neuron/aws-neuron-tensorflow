@@ -70,8 +70,6 @@ class NeuronDevice {
   std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
   uint32_t running_nn_id_;
   uint32_t num_cores_ = 0;
-  static const size_t EXEC_MAX_CHUNK_SIZE =
-      1024 * 1024;  // some reasonable number of bytes
   std::string nrtd_address_ = "";
   std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;
   std::unordered_map<uint32_t, size_t> nn_id_to_active_idx_;
@@ -104,8 +102,7 @@ class NeuronDeviceManager {
                     const int64_t max_num_duplicates);
   void clear();
   tensorflow::mutex global_mutex_;
-  static const int DEFAULT_NUM_CORES =
-      -65536;  // any negative number < -MAX_NUM_CORES
+  static const int DEFAULT_NUM_CORES = -65536;  // any number < -MAX_NUM_CORES
   std::string nrtd_address_;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
   std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
