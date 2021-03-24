@@ -16,26 +16,27 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_MODEL_H_
 #define TENSORFLOW_NEURON_RUNTIME_MODEL_H_
 
-#include "tensorflow/core/framework/op_kernel.h"
 #include "device.h"
+#include "tensorflow/core/framework/op_kernel.h"
 
 namespace tensorflow {
 namespace neuron {
 
 class NeuronModel {
-public:
-    NeuronModel();
-    Status compute(OpKernelContext *ctx, const NodeDef &node_def,
-                   const std::vector<const Tensor*> &input_tensors);
-    ~NeuronModel();
-private:
-    Status initialize(const NodeDef &node_def, const std::string &session_handle);
-    tensorflow::mutex mutex_model_;
-    NeuronDevice *neuron_device_ = nullptr;
-    uint32_t nn_id_ = NRT_INVALID_NN_ID;
-    int64 estimated_cost_ = 0;
-    ProfilerInterface profile_;
-    thread::ThreadPool h2d_transfer_pool_;
+ public:
+  NeuronModel();
+  Status compute(OpKernelContext* ctx, const NodeDef& node_def,
+                 const std::vector<const Tensor*>& input_tensors);
+  ~NeuronModel();
+
+ private:
+  Status initialize(const NodeDef& node_def, const std::string& session_handle);
+  tensorflow::mutex mutex_model_;
+  NeuronDevice* neuron_device_ = nullptr;
+  uint32_t nn_id_ = NRT_INVALID_NN_ID;
+  int64 estimated_cost_ = 0;
+  ProfilerInterface profile_;
+  thread::ThreadPool h2d_transfer_pool_;
 };
 
 }  // namespace neuron
