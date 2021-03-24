@@ -16,37 +16,39 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_RUNTIME_IO_H_
 #define TENSORFLOW_NEURON_RUNTIME_RUNTIME_IO_H_
 
-#include "tensorflow/core/lib/core/threadpool.h"
 #include "shared_memory.h"
+#include "tensorflow/core/lib/core/threadpool.h"
 
 namespace tensorflow {
 namespace neuron {
 
 class ScopedRuntimeIO {
-public:
-    ScopedRuntimeIO() {}
-    Status setup(AttrList &input_names,
-                 const std::vector<const Tensor*> &input_tensors,
-                 AttrList &output_names,
-                 const std::vector<size_t> &output_tensor_sizes,
-                 const std::vector<Tensor*> &output_tensors,
-                 const uint32_t nn_id, thread::ThreadPool *thread_pool,
-                 std::shared_ptr<SharedMemoryBufferManager> shm_mgr);
-    Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
-                              std::vector<Tensor*> *input_shm_tensors=nullptr);
-    Status copy_input_tensors(const std::vector<const Tensor*> &input_tensors,
-                              AttrList &input_shuffles, std::vector<Tensor> *shuffle_buffers,
-                              std::vector<Tensor*> *input_shm_tensors=nullptr);
-    std::vector<Tensor> *get_input_shm_tensors() { return &input_shm_tensors_; }
-    Status finish();
-    ~ScopedRuntimeIO();
-    RuntimeIO runtime_io_;
-private:
-    std::shared_ptr<SharedMemoryBufferManager> shm_mgr_ = nullptr;
-    std::vector<Tensor> input_shm_tensors_;
-    std::vector<SharedMemoryPtr> output_shm_bufs_;
-    thread::ThreadPool *thread_pool_;
-    TFN_DISALLOW_COPY_MOVE_ASSIGN(ScopedRuntimeIO);
+ public:
+  ScopedRuntimeIO() {}
+  Status setup(AttrList& input_names,
+               const std::vector<const Tensor*>& input_tensors,
+               AttrList& output_names,
+               const std::vector<size_t>& output_tensor_sizes,
+               const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
+               thread::ThreadPool* thread_pool,
+               std::shared_ptr<SharedMemoryBufferManager> shm_mgr);
+  Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors,
+                            std::vector<Tensor*>* input_shm_tensors = nullptr);
+  Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors,
+                            AttrList& input_shuffles,
+                            std::vector<Tensor>* shuffle_buffers,
+                            std::vector<Tensor*>* input_shm_tensors = nullptr);
+  std::vector<Tensor>* get_input_shm_tensors() { return &input_shm_tensors_; }
+  Status finish();
+  ~ScopedRuntimeIO();
+  RuntimeIO runtime_io_;
+
+ private:
+  std::shared_ptr<SharedMemoryBufferManager> shm_mgr_ = nullptr;
+  std::vector<Tensor> input_shm_tensors_;
+  std::vector<SharedMemoryPtr> output_shm_bufs_;
+  thread::ThreadPool* thread_pool_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(ScopedRuntimeIO);
 };
 
 }  // namespace neuron
