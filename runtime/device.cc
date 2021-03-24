@@ -13,24 +13,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifdef NEURONTFSERV
-#include <csignal>
-#endif  // NEURONTFSERV
 #include "device.h"
 #include "env.h"
 #include "macros.h"
 
 namespace tensorflow {
 namespace neuron {
-
-#ifdef NEURONTFSERV
-void sigint_handler(int sig) {
-  NeuronDeviceManager::GetNeuronDeviceManager().clear_from_global_state();
-  std::signal(SIGINT, SIG_DFL);
-  std::signal(SIGTERM, SIG_DFL);
-  std::raise(sig);
-}
-#endif  // NEURONTFSERV
 
 static std::string remove_pattern(std::string data,
                                   const std::string& pattern) {
@@ -235,10 +223,6 @@ Status NeuronDeviceManager::apply_for_device(NeuronDevice** device,
   tensorflow::mutex_lock lock(global_mutex_);
   if (!ready_) {
     TF_RETURN_IF_ERROR(initialize(opt_device_size, max_num_duplicates));
-#ifdef NEURONTFSERV
-    std::signal(SIGINT, sigint_handler);
-    std::signal(SIGTERM, sigint_handler);
-#endif  // NEURONTFSERV
   }
 
   // a particular device_index is requested by the client
