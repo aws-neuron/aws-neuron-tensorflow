@@ -25,9 +25,9 @@ namespace neuron {
 class NeuronModelConfig {
  public:
   NeuronModelConfig() {}
-  void parse_opt_device_size(AttrList& model_config) {
+  void parse_opt_engine_size(AttrList& model_config) {
     if (model_config_valid(model_config)) {
-      opt_device_size_ = model_config_global_opt_num_cores(model_config);
+      opt_engine_size_ = model_config_global_opt_num_cores(model_config);
       max_num_duplicates_ = model_config_max_num_duplicates(model_config);
     }
   }
@@ -103,15 +103,15 @@ class NeuronModelConfig {
     ninfer_ = (uint32_t)max_num_threads;
   }
 
-  void parse_device_index(AttrList& model_config) {
-    device_index_ = model_config_device_index(model_config);
+  void parse_engine_index(AttrList& model_config) {
+    engine_index_ = model_config_engine_index(model_config);
   }
 
-  int64_t opt_device_size_ = -1;
+  int64_t opt_engine_size_ = -1;
   int64_t max_num_duplicates_ = 1;
   uint32_t timeout_ = 2;
   uint32_t ninfer_ = 5;
-  int64_t device_index_ = -1;
+  int64_t engine_index_ = -1;
 
  private:
   bool model_config_valid(AttrList& model_config) {
@@ -129,7 +129,7 @@ class NeuronModelConfig {
   int64 model_config_timeout(AttrList& model_config) {
     return model_config.i(3);
   }
-  int64 model_config_device_index(AttrList& model_config) {
+  int64 model_config_engine_index(AttrList& model_config) {
     if (model_config.i_size() >= 5) {
       return model_config.i(4);
     } else {

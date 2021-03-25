@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "model.h"
-#include "device.h"
+#include "engine.h"
 #include "model_config.h"
 
 #define TFNN_ASSERT(cond, error)     \
@@ -116,7 +116,7 @@ NeuronModel::NeuronModel()
 Status NeuronModel::initialize(const NodeDef& node_def,
                                const std::string& session_handle) {
   tensorflow::mutex_lock lock(mutex_model_);
-  if (TF_PREDICT_TRUE(nullptr != neuron_device_)) {
+  if (TF_PREDICT_TRUE(nullptr != neuron_engine_)) {
     VLOG(1) << "NeuronModel is already initialized";
     return Status::OK();
   }
@@ -153,23 +153,23 @@ Status NeuronModel::initialize(const NodeDef& node_def,
     profile_.dump_info(attr.at("graph_def").s(), attr.at("executable").s());
   AttrList& model_config_attr = attr.at("model_config").list();
   NeuronModelConfig model_config;
-  model_config.parse_opt_device_size(model_config_attr);
-  model_config.parse_device_index(model_config_attr);
+  model_config.parse_opt_engine_size(model_config_attr);
+  model_config.parse_engine_index(model_config_attr);
   TF_RETURN_IF_ERROR(
-      NeuronDeviceManager::GetNeuronDeviceManager().apply_for_device(
-          &neuron_device_, session_handle, model_config.opt_device_size_,
-          model_config.max_num_duplicates_, model_config.device_index_));
+      NeuronEngineManager::GetNeuronEngineManager().apply_for_engine(
+          &neuron_engine_, session_handle, model_config.opt_engine_size_,
+          model_config.max_num_duplicates_, model_config.engine_index_));
   model_config.parse_timeout(model_config_attr);
-  model_config.parse_ninfer(model_config_attr, neuron_device_->num_cores(),
-                            NeuronDeviceManager::MIN_NUM_CORES,
-                            NeuronDeviceManager::MAX_NUM_CORES);
+  model_config.parse_ninfer(model_config_attr, neuron_engine_->num_cores(),
+                            NeuronEngineManager::MIN_NUM_CORES,
+                            NeuronEngineManager::MAX_NUM_CORES);
   StringPiece executable(attr.at("executable").s());
   estimated_cost_ = executable.size();
   TF_RETURN_IF_ERROR(
-      neuron_device_->load(&nn_id_, executable, model_config.timeout_,
+      neuron_engine_->load(&nn_id_, executable, model_config.timeout_,
                            model_config.ninfer_, profile_.enabled_));
   VLOG(1) << "loaded " << node_def.name() << " as " << nn_id_
-          << "; number of NEFFs: " << neuron_device_->num_executable();
+          << "; number of NEFFs: " << neuron_engine_->num_executable();
 
   // check argument sizes
   TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "input"));
@@ -346,7 +346,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   RIE_IGNORE_ABORTED(initialize(node_def, ctx->session_handle()));
 
   // keep a shared pointer so that RuntimeSession outlives shared memory buffers
-  std::shared_ptr<RuntimeSession> session_alive = neuron_device_->get_session();
+  std::shared_ptr<RuntimeSession> session_alive = neuron_engine_->get_session();
 
   // run inference
   if (use_dynamic_batch_size) {
@@ -435,7 +435,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       ScopedRuntimeIO scoped_io;
       SHARD_LOG_IGNORE_ABORTED(
           shared_status,
-          neuron_device_->setup_scoped_runtime_io(
+          neuron_engine_->setup_scoped_runtime_io(
               &scoped_io, input_names, input_ptrs, output_names,
               output_tensor_sizes, output_ptrs, nn_id_, &h2d_transfer_pool_));
 
@@ -493,10 +493,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         VLOG(1) << "enabling profiler in shard";
         SHARD_LOG_IGNORE_ABORTED(
             shared_status,
-            neuron_device_->infer_with_profiling(&scoped_io, &profile_));
+            neuron_engine_->infer_with_profiling(&scoped_io, &profile_));
       } else {
         SHARD_LOG_IGNORE_ABORTED(shared_status,
-                                 neuron_device_->infer(&scoped_io));
+                                 neuron_engine_->infer(&scoped_io));
       }
       SHARD_VLOG_TIME("in shard after infer");
       SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.finish());
@@ -526,7 +526,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   } else {
     TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
     ScopedRuntimeIO scoped_io;
-    RIE_IGNORE_ABORTED(neuron_device_->setup_scoped_runtime_io(
+    RIE_IGNORE_ABORTED(neuron_engine_->setup_scoped_runtime_io(
         &scoped_io, input_names, input_tensors, output_names,
         output_tensor_sizes, output_tensors, nn_id_, thread_pool));
 
@@ -539,9 +539,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     if (TF_PREDICT_FALSE(profile_.enabled_)) {
       VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
       RIE_IGNORE_ABORTED(
-          neuron_device_->infer_with_profiling(&scoped_io, &profile_));
+          neuron_engine_->infer_with_profiling(&scoped_io, &profile_));
     } else {
-      RIE_IGNORE_ABORTED(neuron_device_->infer(&scoped_io));
+      RIE_IGNORE_ABORTED(neuron_engine_->infer(&scoped_io));
     }
     VLOG_TIME("after infer");
     RIE_IGNORE_ABORTED(scoped_io.finish());
@@ -554,13 +554,13 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 NeuronModel::~NeuronModel() {
   VLOG(1) << "calling NeuronModel destructor";
   tensorflow::mutex_lock lock(mutex_model_);
-  if (nullptr == neuron_device_) {
-    VLOG(1) << "neuron_device_ not available; not tearing down";
+  if (nullptr == neuron_engine_) {
+    VLOG(1) << "neuron_engine_ not available; not tearing down";
     return;
   }
-  neuron_device_->unload(nn_id_);
+  neuron_engine_->unload(nn_id_);
   VLOG(1) << "unload from NeuronModel::~NeuronModel";
-  NeuronDeviceManager::GetNeuronDeviceManager().clear_if_empty();
+  NeuronEngineManager::GetNeuronEngineManager().clear_if_empty();
   VLOG(1) << "NeuronModel destructor done";
 }
 

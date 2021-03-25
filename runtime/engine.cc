@@ -13,7 +13,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "device.h"
+#include "engine.h"
 #include "env.h"
 #include "macros.h"
 
@@ -34,7 +34,7 @@ static std::string remove_pattern(std::string data,
   return data;
 }
 
-NeuronDeviceManager::NeuronDeviceManager() {
+NeuronEngineManager::NeuronEngineManager() {
   tensorflow::mutex_lock lock(global_mutex_);
   // append /opt/aws/neuron/bin to PATH
   std::string env_path = env_get("PATH", "");
@@ -54,48 +54,48 @@ NeuronDeviceManager::NeuronDeviceManager() {
   }
 }
 
-NeuronDeviceManager::~NeuronDeviceManager() {
+NeuronEngineManager::~NeuronEngineManager() {
   tensorflow::mutex_lock lock(global_mutex_);
   clear_from_global_state();
 }
 
-Status NeuronDeviceManager::initialize(const int64_t opt_device_size,
+Status NeuronEngineManager::initialize(const int64_t opt_engine_size,
                                        const int64_t max_num_duplicates) {
   TF_RETURN_IF_ERROR(runtime_status_);
 
   // get number of neuron cores from comma-separated list of integers
-  std::string neuron_device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
-  if (neuron_device_sizes_raw.empty()) {
+  std::string neuron_engine_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
+  if (neuron_engine_sizes_raw.empty()) {
     TF_RETURN_IF_ERROR(
-        init_default_device(opt_device_size, max_num_duplicates));
+        init_default_engine(opt_engine_size, max_num_duplicates));
   } else {
     // remove [ and ]
-    std::string neuron_device_sizes =
-        remove_pattern(neuron_device_sizes_raw, "[");
-    neuron_device_sizes = remove_pattern(neuron_device_sizes, "]");
+    std::string neuron_engine_sizes =
+        remove_pattern(neuron_engine_sizes_raw, "[");
+    neuron_engine_sizes = remove_pattern(neuron_engine_sizes, "]");
 
     std::vector<int> num_cores_req_vector;
     std::vector<int> num_dup_vector;
-    std::stringstream neuron_device_sizes_stream(neuron_device_sizes);
+    std::stringstream neuron_engine_sizes_stream(neuron_engine_sizes);
     for (size_t idx = 0; idx < MAX_NUM_CORES; ++idx) {
-      if (!neuron_device_sizes_stream.good()) {
+      if (!neuron_engine_sizes_stream.good()) {
         break;
       }
-      std::string device_spec;
-      std::getline(neuron_device_sizes_stream, device_spec, ',');
-      if (device_spec.empty()) {
+      std::string engine_spec;
+      std::getline(neuron_engine_sizes_stream, engine_spec, ',');
+      if (engine_spec.empty()) {
         continue;
       }
       int num_dup = 1;
-      if (device_spec.find("x") != std::string::npos) {
-        size_t delim_pos = device_spec.find("x");
-        num_dup = stoi_no_throw(device_spec.substr(0, delim_pos));
-        device_spec = device_spec.substr(delim_pos + 1, std::string::npos);
+      if (engine_spec.find("x") != std::string::npos) {
+        size_t delim_pos = engine_spec.find("x");
+        num_dup = stoi_no_throw(engine_spec.substr(0, delim_pos));
+        engine_spec = engine_spec.substr(delim_pos + 1, std::string::npos);
       }
-      int num_cores_req = stoi_no_throw(device_spec);
+      int num_cores_req = stoi_no_throw(engine_spec);
       if (num_cores_req < 0 || num_cores_req > MAX_NUM_CORES || num_dup <= 0 ||
           num_dup > MAX_NUM_CORES) {
-        LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_device_sizes_raw
+        LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_engine_sizes_raw
                      << " looks ill-formatted. Falling back to initializing"
                      << " a default NeuronCore Group.";
         num_cores_req_vector.clear();
@@ -107,16 +107,16 @@ Status NeuronDeviceManager::initialize(const int64_t opt_device_size,
     }
     if (num_cores_req_vector.empty()) {
       TF_RETURN_IF_ERROR(
-          init_default_device(opt_device_size, max_num_duplicates));
+          init_default_engine(opt_engine_size, max_num_duplicates));
     } else {
-      TF_RETURN_IF_ERROR(init_devices(num_cores_req_vector, num_dup_vector));
+      TF_RETURN_IF_ERROR(init_engines(num_cores_req_vector, num_dup_vector));
     }
   }
   ready_ = true;
   return Status::OK();
 }
 
-Status NeuronDeviceManager::init_devices(
+Status NeuronEngineManager::init_engines(
     const std::vector<int>& num_cores_req_vector,
     const std::vector<int>& num_dup_vector) {
   Status status =
@@ -132,7 +132,7 @@ Status NeuronDeviceManager::init_devices(
     if (nullptr == session_) {
       return errors::Internal("neuron runtime session is not initialized");
     }
-    status = device_array_[idx].initialize(nrtd_address_, num_cores_req,
+    status = engine_array_[idx].initialize(nrtd_address_, num_cores_req,
                                            num_dup, session_, shm_buf_mgr_);
     if (!status.ok()) {
       if (status.code() != tensorflow::error::Code::ABORTED) {
@@ -141,23 +141,23 @@ Status NeuronDeviceManager::init_devices(
       }
       break;
     }
-    ++num_devices_;
+    ++num_engines_;
     VLOG(1) << "successfully initialized NeuronCore Group of size "
             << num_cores_req;
   }
-  if (0 == num_devices_) {
+  if (0 == num_engines_) {
     return status;
   }
   return Status::OK();
 }
 
-Status NeuronDeviceManager::init_default_device(
-    const int64_t opt_device_size, const int64_t max_num_duplicates) {
+Status NeuronEngineManager::init_default_engine(
+    const int64_t opt_engine_size, const int64_t max_num_duplicates) {
   std::vector<int> num_cores_req_vector = {DEFAULT_NUM_CORES};
   std::vector<int> num_dup_vector({1});
-  if (0 <= opt_device_size && opt_device_size <= 64) {
+  if (0 <= opt_engine_size && opt_engine_size <= 64) {
     // get one full Inferentia by default
-    if (opt_device_size == 1) {
+    if (opt_engine_size == 1) {
       if (4 == max_num_duplicates) {
         num_cores_req_vector = {1};
         num_dup_vector = {4};
@@ -171,7 +171,7 @@ Status NeuronDeviceManager::init_default_device(
         num_cores_req_vector = {1, 1, 1, 1};
         num_dup_vector = {};
       }
-    } else if (opt_device_size == 2) {
+    } else if (opt_engine_size == 2) {
       if (2 == max_num_duplicates) {
         num_cores_req_vector = {2};
         num_dup_vector = {2};
@@ -181,14 +181,14 @@ Status NeuronDeviceManager::init_default_device(
       }
     }
   }
-  return init_devices(num_cores_req_vector, num_dup_vector);
+  return init_engines(num_cores_req_vector, num_dup_vector);
 }
 
-void NeuronDeviceManager::clear_if_empty() {
+void NeuronEngineManager::clear_if_empty() {
   tensorflow::mutex_lock lock(global_mutex_);
   bool empty = true;
-  for (size_t idx = 0; idx < num_devices_; ++idx) {
-    if (0 != device_array_[idx].num_executable()) {
+  for (size_t idx = 0; idx < num_engines_; ++idx) {
+    if (0 != engine_array_[idx].num_executable()) {
       empty = false;
     }
   }
@@ -197,74 +197,74 @@ void NeuronDeviceManager::clear_if_empty() {
   }
 }
 
-void NeuronDeviceManager::clear() {
-  for (size_t idx = 0; idx < num_devices_; ++idx) {
-    device_array_[idx].clear();
+void NeuronEngineManager::clear() {
+  for (size_t idx = 0; idx < num_engines_; ++idx) {
+    engine_array_[idx].clear();
   }
-  session_handle_to_device_index_.clear();
-  num_devices_ = 0;
-  device_index_ = 0;
+  session_handle_to_engine_index_.clear();
+  num_engines_ = 0;
+  engine_index_ = 0;
   ready_ = false;
-  VLOG(1) << "NeuronDeviceManager is cleared";
+  VLOG(1) << "NeuronEngineManager is cleared";
 }
 
-void NeuronDeviceManager::clear_from_global_state() {
-  for (size_t idx = 0; idx < num_devices_; ++idx) {
-    device_array_[idx].clear(true);
+void NeuronEngineManager::clear_from_global_state() {
+  for (size_t idx = 0; idx < num_engines_; ++idx) {
+    engine_array_[idx].clear(true);
   }
-  session_handle_to_device_index_.clear();
-  num_devices_ = 0;
-  device_index_ = 0;
+  session_handle_to_engine_index_.clear();
+  num_engines_ = 0;
+  engine_index_ = 0;
   ready_ = false;
-  VLOG(1) << "NeuronDeviceManager is cleared from global state";
+  VLOG(1) << "NeuronEngineManager is cleared from global state";
 }
 
-NeuronDeviceManager& NeuronDeviceManager::GetNeuronDeviceManager() {
-  static NeuronDeviceManager mgr;
+NeuronEngineManager& NeuronEngineManager::GetNeuronEngineManager() {
+  static NeuronEngineManager mgr;
   return mgr;
 }
 
-Status NeuronDeviceManager::apply_for_device(NeuronDevice** device,
+Status NeuronEngineManager::apply_for_engine(NeuronEngine** engine,
                                              const std::string& session_handle,
-                                             const int64_t opt_device_size,
+                                             const int64_t opt_engine_size,
                                              const int64_t max_num_duplicates,
-                                             const int64_t device_index) {
+                                             const int64_t engine_index) {
   tensorflow::mutex_lock lock(global_mutex_);
   if (!ready_) {
-    TF_RETURN_IF_ERROR(initialize(opt_device_size, max_num_duplicates));
+    TF_RETURN_IF_ERROR(initialize(opt_engine_size, max_num_duplicates));
   }
 
-  // a particular device_index is requested by the client
-  if (0 <= device_index && device_index < (int64_t)num_devices_) {
-    *device = &device_array_[device_index];
+  // a particular engine_index is requested by the client
+  if (0 <= engine_index && engine_index < (int64_t)num_engines_) {
+    *engine = &engine_array_[engine_index];
     return Status::OK();
   }
 
   // if seeing a NEFF that is in the same session as a previously seen NEFF is
-  // in, then prefer giving them the same device
-  if (session_handle_to_device_index_.count(session_handle)) {
-    *device = &device_array_[session_handle_to_device_index_[session_handle]];
+  // in, then prefer giving them the same engine
+  if (session_handle_to_engine_index_.count(session_handle)) {
+    *engine = &engine_array_[session_handle_to_engine_index_[session_handle]];
     return Status::OK();
   }
 
-  // otherwise get the next device and round-robin
-  *device = &device_array_[device_index_];
-  session_handle_to_device_index_[session_handle] = device_index_;
-  ++device_index_;
-  if (device_index_ >= num_devices_) {
-    device_index_ = 0;
+  // otherwise get the next engine and round-robin
+  *engine = &engine_array_[engine_index_];
+  session_handle_to_engine_index_[session_handle] = engine_index_;
+  ++engine_index_;
+  if (engine_index_ >= num_engines_) {
+    engine_index_ = 0;
   }
   return Status::OK();
 }
 
-Status NeuronDevice::initialize(
+Status NeuronEngine::initialize(
     const std::string& nrtd_address,
     const int num_cores_req, const int num_dup,
     std::shared_ptr<RuntimeSession> session,
     std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr) {
   tensorflow::mutex_lock lock(mutex_eg_);
   if (closed_) {
-    return errors::Aborted("neuron_device is closed");
+    return errors::Aborted("neuron_engine is closed");
   }
   nrtd_address_ = nrtd_address;
   TF_RETURN_IF_ERROR(runtime_.initialize(nrtd_address_));
@@ -282,7 +282,7 @@ Status NeuronDevice::initialize(
         runtime_.create_eg(&eg_id, &num_cores_, num_cores_req, session_id));
     vec_eg_id_.push_back(eg_id);
   } else {
-    // setup device to duplicate models automatically
+    // setup engine to duplicate models automatically
     for (int idx = 0; idx < num_dup; ++idx) {
       uint32_t eg_id = NRT_INVALID_EG_ID;
       uint32_t num_cores = 0;
@@ -297,12 +297,12 @@ Status NeuronDevice::initialize(
   return Status::OK();
 }
 
-Status NeuronDevice::load(uint32_t* nn_id, const StringPiece& executable,
+Status NeuronEngine::load(uint32_t* nn_id, const StringPiece& executable,
                           const uint32_t timeout, const uint32_t ninfer,
                           const bool profile_enabled) {
   tensorflow::mutex_lock lock(mutex_eg_);
   if (closed_) {
-    return errors::Aborted("neuron_device is closed");
+    return errors::Aborted("neuron_engine is closed");
   }
   uint32_t first_nn_id = NRT_INVALID_NN_ID;
   std::vector<uint32_t> all_nn_ids;
@@ -334,7 +334,7 @@ Status NeuronDevice::load(uint32_t* nn_id, const StringPiece& executable,
       return status;
     }
   } else {
-    return errors::Unavailable("NeuronDevice is uninitialized");
+    return errors::Unavailable("NeuronEngine is uninitialized");
   }
   if (nn_id_to_all_nn_ids_.count(first_nn_id)) {
     for (const uint32_t nid : all_nn_ids) {
@@ -355,7 +355,7 @@ Status NeuronDevice::load(uint32_t* nn_id, const StringPiece& executable,
   return Status::OK();
 }
 
-void NeuronDevice::unload(const uint32_t nn_id) {
+void NeuronEngine::unload(const uint32_t nn_id) {
   tensorflow::mutex_lock lock(mutex_eg_);
   if (closed_) {
     return;
@@ -381,7 +381,7 @@ void NeuronDevice::unload(const uint32_t nn_id) {
   VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
-Status NeuronDevice::setup_scoped_runtime_io(
+Status NeuronEngine::setup_scoped_runtime_io(
     ScopedRuntimeIO* scoped_io, AttrList& input_names,
     const std::vector<const Tensor*>& input_tensors, AttrList& output_names,
     const std::vector<size_t>& output_tensor_sizes,
@@ -395,7 +395,7 @@ Status NeuronDevice::setup_scoped_runtime_io(
                           thread_pool, shm_buf_mgr_);
 }
 
-Status NeuronDevice::infer(ScopedRuntimeIO* scoped_io) {
+Status NeuronEngine::infer(ScopedRuntimeIO* scoped_io) {
   RuntimeIO* runtime_io = &scoped_io->runtime_io_;
   uint32_t nn_id = runtime_io->get_nn_id();
   SemResQueue sem_res_queue;
@@ -412,7 +412,7 @@ Status NeuronDevice::infer(ScopedRuntimeIO* scoped_io) {
   return runtime_.infer_wait(runtime_io);
 }
 
-Status NeuronDevice::infer_with_profiling(ScopedRuntimeIO* scoped_io,
+Status NeuronEngine::infer_with_profiling(ScopedRuntimeIO* scoped_io,
                                           ProfilerInterface* profile) {
   RuntimeIO* runtime_io = &scoped_io->runtime_io_;
   uint32_t nn_id = runtime_io->get_nn_id();
@@ -426,7 +426,7 @@ Status NeuronDevice::infer_with_profiling(ScopedRuntimeIO* scoped_io,
   return status_wait;
 }
 
-void NeuronDevice::clear(bool from_global_state) {
+void NeuronEngine::clear(bool from_global_state) {
   tensorflow::mutex_lock lock(mutex_eg_);
   if (closed_) {
     return;
@@ -447,12 +447,12 @@ void NeuronDevice::clear(bool from_global_state) {
     for (const uint32_t nid : all_nn_ids) {
       TF_LOG_IF_ERROR(runtime_.unload(nid, from_global_state));
     }
-    VLOG(1) << "unload from NeuronDevice::clear";
+    VLOG(1) << "unload from NeuronEngine::clear";
   }
   for (const uint32_t eg_id : vec_eg_id_) {
     TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id, from_global_state));
   }
-  VLOG(1) << "destroy_eg from NeuronDevice::clear";
+  VLOG(1) << "destroy_eg from NeuronEngine::clear";
   if (!from_global_state) {
     set_running(NRT_INVALID_NN_ID);
     nn_id_to_all_nn_ids_.clear();
@@ -460,9 +460,9 @@ void NeuronDevice::clear(bool from_global_state) {
   }
 }
 
-Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
+Status NeuronEngine::start_model_unsafe(const uint32_t nn_id) {
   if (TF_PREDICT_FALSE(closed_)) {
-    return errors::Aborted("neuron_device is closed");
+    return errors::Aborted("neuron_engine is closed");
   }
   if (TF_PREDICT_FALSE(!running(nn_id) && is_busy())) {
     // if nn_id is not running, stop the current running model
@@ -495,23 +495,23 @@ Status NeuronDevice::start_model_unsafe(const uint32_t nn_id) {
   return Status::OK();
 }
 
-inline bool NeuronDevice::is_busy() {
+inline bool NeuronEngine::is_busy() {
   return running_nn_id_ != NRT_INVALID_NN_ID;
 }
 
-inline bool NeuronDevice::running(uint32_t nn_id) {
+inline bool NeuronEngine::running(uint32_t nn_id) {
   return running_nn_id_ == nn_id && NRT_INVALID_NN_ID != running_nn_id_;
 }
 
-inline uint32_t NeuronDevice::nn_get_current_running() {
+inline uint32_t NeuronEngine::nn_get_current_running() {
   return running_nn_id_;
 }
 
-inline void NeuronDevice::set_running(uint32_t nn_id) {
+inline void NeuronEngine::set_running(uint32_t nn_id) {
   running_nn_id_ = nn_id;
 }
 
-Status NeuronDevice::get_active(uint32_t* active_nn_id,
+Status NeuronEngine::get_active(uint32_t* active_nn_id,
                                 std::shared_ptr<xla::Semaphore>* sem,
                                 const uint32_t nn_id) {
   if (TF_PREDICT_FALSE(!nn_id_to_all_nn_ids_.count(nn_id))) {

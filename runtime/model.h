@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_MODEL_H_
 #define TENSORFLOW_NEURON_RUNTIME_MODEL_H_
 
-#include "device.h"
+#include "engine.h"
 #include "tensorflow/core/framework/op_kernel.h"
 
 namespace tensorflow {
@@ -32,7 +32,7 @@ class NeuronModel {
  private:
   Status initialize(const NodeDef& node_def, const std::string& session_handle);
   tensorflow::mutex mutex_model_;
-  NeuronDevice* neuron_device_ = nullptr;
+  NeuronEngine* neuron_engine_ = nullptr;
   uint32_t nn_id_ = NRT_INVALID_NN_ID;
   int64 estimated_cost_ = 0;
   ProfilerInterface profile_;

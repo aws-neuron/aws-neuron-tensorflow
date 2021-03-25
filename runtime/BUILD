@@ -37,15 +37,15 @@ cc_library(
     ],
     hdrs = ["model.h"],
     deps = [
-        ":device",
+        ":engine",
     ],
 )
 
 cc_library(
-    name = "device",
+    name = "engine",
     srcs = [
-        "device.cc",
-        "device.h",
+        "engine.cc",
+        "engine.h",
         "shared_memory.h",
         "shared_memory.cc",
         "runtime_grpc.h",
@@ -54,7 +54,7 @@ cc_library(
         "runtime_io.cc",
         "version.h",
     ],
-    hdrs = ["device.h"],
+    hdrs = ["engine.h"],
     deps = [
         ":utils",
     ],

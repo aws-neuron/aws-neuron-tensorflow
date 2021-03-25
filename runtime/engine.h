@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
-#define TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_ENGINE_H_
+#define TENSORFLOW_NEURON_RUNTIME_ENGINE_H_
 
 #include <queue>
 #include "profiler.h"
@@ -30,9 +30,9 @@ namespace neuron {
 
 typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
 
-class NeuronDevice {
+class NeuronEngine {
  public:
-  NeuronDevice() {}
+  NeuronEngine() {}
   Status initialize(const std::string& nrtd_address, const int num_cores_req,
                     const int num_dup, std::shared_ptr<RuntimeSession> session,
                     std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr);
@@ -76,30 +76,30 @@ class NeuronDevice {
   std::unordered_map<uint32_t, size_t> nn_id_to_active_idx_;
   std::unordered_map<uint32_t, std::vector<std::shared_ptr<xla::Semaphore> > >
       nn_id_to_sems_;
-  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDevice);
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronEngine);
 };
 
-class NeuronDeviceManager {
+class NeuronEngineManager {
  public:
-  static NeuronDeviceManager& GetNeuronDeviceManager();
-  Status apply_for_device(NeuronDevice** device,
+  static NeuronEngineManager& GetNeuronEngineManager();
+  Status apply_for_engine(NeuronEngine** engine,
                           const std::string& session_handle,
-                          const int64_t opt_device_size,
+                          const int64_t opt_engine_size,
                           const int64_t max_num_duplicates,
-                          const int64_t device_index = -1);
+                          const int64_t engine_index = -1);
   void clear_if_empty();
   void clear_from_global_state();
   static const int64 MAX_NUM_CORES = 64;
   static const int64 MIN_NUM_CORES = 0;
 
  private:
-  NeuronDeviceManager();
-  ~NeuronDeviceManager();
-  Status init_default_device(const int64_t opt_device_size,
+  NeuronEngineManager();
+  ~NeuronEngineManager();
+  Status init_default_engine(const int64_t opt_engine_size,
                              const int64_t max_num_duplicates);
-  Status init_devices(const std::vector<int>& num_cores_req_vector,
+  Status init_engines(const std::vector<int>& num_cores_req_vector,
                       const std::vector<int>& num_dup_vector);
-  Status initialize(const int64_t opt_device_size,
+  Status initialize(const int64_t opt_engine_size,
                     const int64_t max_num_duplicates);
   void clear();
   tensorflow::mutex global_mutex_;
@@ -107,16 +107,16 @@ class NeuronDeviceManager {
   std::string nrtd_address_;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
   std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
-  std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
-  std::unordered_map<std::string, size_t> session_handle_to_device_index_;
-  size_t device_index_ = 0;
-  size_t num_devices_ = 0;
+  std::array<NeuronEngine, MAX_NUM_CORES> engine_array_;
+  std::unordered_map<std::string, size_t> session_handle_to_engine_index_;
+  size_t engine_index_ = 0;
+  size_t num_engines_ = 0;
   Status runtime_status_ = errors::InvalidArgument("Uninitialized");
   bool ready_ = false;
-  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceManager);
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronEngineManager);
 };
 
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_ENGINE_H_
