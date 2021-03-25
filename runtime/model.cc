@@ -352,18 +352,18 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   if (use_dynamic_batch_size) {
     int64 end_start = k_batch_size - (pad_batch_size - batch_size);
     bool run_profiler_in_shard = false;
-    Status shared_status;
-#define SHARD_LOG_RETURN_IF_ERROR(shared_status, ...)              \
+    Status status_sd;
+#define SHARD_LOG_ERROR(status_sd, ...)                            \
   {                                                                \
     Status _status = (__VA_ARGS__);                                \
     if (TF_PREDICT_FALSE(!_status.ok())) {                         \
       LOG(ERROR) << "shard error code " << _status.code()          \
                  << ", error message " << _status.error_message(); \
-      shared_status = _status;                                     \
+      status_sd = _status;                                         \
       return;                                                      \
     }                                                              \
   }
-#define SHARD_LOG_IGNORE_ABORTED(shared_status, ...)                  \
+#define SHARD_LOG_IGNORE_ABORTED(status_sd, ...)                      \
   {                                                                   \
     Status _status(__VA_ARGS__);                                      \
     if (TF_PREDICT_FALSE(                                             \
@@ -371,7 +371,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
               _status.code() == tensorflow::error::Code::ABORTED))) { \
       LOG(ERROR) << "shard error code " << _status.code()             \
                  << ", error message " << _status.error_message();    \
-      shared_status = _status;                                        \
+      status_sd = _status;                                            \
       return;                                                         \
     }                                                                 \
   }
@@ -379,7 +379,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     auto ShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
       SHARD_VLOG_TIME("entering shard");
       if (TF_PREDICT_FALSE(dim0_limit - dim0_start != k_batch_size)) {
-        shared_status =
+        status_sd =
             errors::Internal("illegal shard ", dim0_start, ":", dim0_limit);
         return;
       }
@@ -393,11 +393,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
             ps_shape.set_dim(0, k_batch_size);
             Tensor pad_end_slice(in_tensor->dtype(), ps_shape);
             Tensor zero_slice = pad_end_slice.Slice(end_start, k_batch_size);
-            SHARD_LOG_RETURN_IF_ERROR(shared_status,
-                                      tensor_memset(&zero_slice, 0));
+            SHARD_LOG_ERROR(status_sd, tensor_memset(&zero_slice, 0));
             Tensor end_slice = in_tensor->Slice(dim0_start, batch_size);
-            SHARD_LOG_RETURN_IF_ERROR(shared_status,
-                                      tensor_copy(&pad_end_slice, end_slice));
+            SHARD_LOG_ERROR(status_sd, tensor_copy(&pad_end_slice, end_slice));
             sliced_inputs[idx] = pad_end_slice;
           } else {
             sliced_inputs[idx] = in_tensor->Slice(dim0_start, dim0_limit);
@@ -412,8 +410,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           input_ptrs[i] = input_tensors[i];
         }
       }
-      SHARD_LOG_RETURN_IF_ERROR(shared_status,
-                                check_input_tensors(input_ptrs, node_def));
+      SHARD_LOG_ERROR(status_sd, check_input_tensors(input_ptrs, node_def));
       int64 end_limit = dim0_limit < batch_size ? dim0_limit : batch_size;
       std::vector<Tensor> sliced_outputs(output_tensors.size());
       for (size_t i = 0; i < output_tensors.size(); ++i) {
@@ -431,7 +428,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       }
       ScopedRuntimeIO scoped_io;
       SHARD_LOG_IGNORE_ABORTED(
-          shared_status,
+          status_sd,
           neuron_engine_->setup_scoped_runtime_io(
               &scoped_io, input_names, input_ptrs, output_names,
               output_tensor_sizes, output_ptrs, nn_id_, &h2d_transfer_pool_));
@@ -472,16 +469,16 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
             }
           }
           SHARD_LOG_IGNORE_ABORTED(
-              shared_status, copy_input_tensors_with_shuffle(
-                                 ctx, node_def, input_slice_ptrs, &scoped_io,
-                                 &input_shm_slice_ptrs));
+              status_sd, copy_input_tensors_with_shuffle(
+                             ctx, node_def, input_slice_ptrs, &scoped_io,
+                             &input_shm_slice_ptrs));
         };
         h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit,
                                        std::move(CopyInputShardFunc));
       } else {
-        SHARD_LOG_IGNORE_ABORTED(shared_status,
-                                 copy_input_tensors_with_shuffle(
-                                     ctx, node_def, input_ptrs, &scoped_io));
+        SHARD_LOG_IGNORE_ABORTED(
+            status_sd, copy_input_tensors_with_shuffle(ctx, node_def,
+                                                       input_ptrs, &scoped_io));
       }
 
       // run inference
@@ -489,24 +486,23 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       if (TF_PREDICT_FALSE(run_profiler_in_shard)) {
         VLOG(1) << "enabling profiler in shard";
         SHARD_LOG_IGNORE_ABORTED(
-            shared_status,
+            status_sd,
             neuron_engine_->infer_with_profiling(&scoped_io, &profile_));
       } else {
-        SHARD_LOG_IGNORE_ABORTED(shared_status,
-                                 neuron_engine_->infer(&scoped_io));
+        SHARD_LOG_IGNORE_ABORTED(status_sd, neuron_engine_->infer(&scoped_io));
       }
       SHARD_VLOG_TIME("in shard after infer");
-      SHARD_LOG_IGNORE_ABORTED(shared_status, scoped_io.finish());
+      SHARD_LOG_IGNORE_ABORTED(status_sd, scoped_io.finish());
       SHARD_VLOG_TIME("in shard exit");
     };
 #undef SHARD_LOG_IGNORE_ABORTED
-#undef SHARD_LOG_RETURN_IF_ERROR
+#undef SHARD_LOG_ERROR
 #undef SHARD_VLOG_TIME
     if (TF_PREDICT_FALSE(profile_.enabled_)) {
       run_profiler_in_shard = true;
       ShardFunc(0, k_batch_size);
       run_profiler_in_shard = false;
-      RIE_IGNORE_ABORTED(shared_status);
+      RIE_IGNORE_ABORTED(status_sd);
     }
     VLOG_TIME("before sharding");
 #if TF_VERSION_LESS_THAN(2, 0)
@@ -519,7 +515,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
                                                        k_batch_size);
     thread_pool->ParallelFor(pad_batch_size, params, std::move(ShardFunc));
 #endif
-    RIE_IGNORE_ABORTED(shared_status);
+    RIE_IGNORE_ABORTED(status_sd);
   } else {
     TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
     ScopedRuntimeIO scoped_io;
