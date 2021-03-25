@@ -106,7 +106,6 @@ SharedMemoryBuffer::SharedMemoryBuffer(const size_t id,
   SYS_FAIL_LOG_RETURN(nullptr == ptr_, "std::align");
   if (!runtime_->shm_map(path, PROT_READ | PROT_WRITE, session_id).ok()) {
     VLOG(1) << "neuron-rtd shm_map failed";
-    unsupported_by_runtime_ = true;
     return;
   }
   VLOG(1) << "allocated shared memory buffer " << path;
@@ -144,28 +143,45 @@ Status SharedMemoryAllocator::initialize(const uint64_t session_id,
     session_id_ = session_id;
     runtime_ = std::make_shared<RuntimeGRPC>();
     TF_RETURN_IF_ERROR(runtime_->initialize(nrtd_address));
-    is_valid_ = true;
+    size_t id = buffer_vec_.size();
+    SharedMemoryPtr shm_ptr = std::make_shared<SharedMemoryBuffer>(
+        id, session_id_, /*alignment=*/1, /*size=*/16, runtime_);
+    is_valid_ = shm_ptr->is_valid();
+    if (!is_valid_) {
+      LOG(INFO) << "The current Neuron runtime configuration does not support "
+                   "shared memory data transfer. Please refer to "
+                   "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/"
+                   "neuron-guide/neuron-runtime/"
+                   "nrt-theory-of-operation.html#shared-memory-for-inference-"
+                   "ifmaps-and-ofmaps "
+                   "if you encounter performance problem caused by high CPU "
+                   "usage on inf1 instances.";
+    }
   }
   return Status::OK();
 }
 
 SharedMemoryPtr SharedMemoryAllocator::allocate_shm(const size_t alignment,
                                                     const size_t size) {
-  if (!is_valid_) {
-    VLOG(1) << "SharedMemoryAllocator is invalid";
-    return nullptr;
-  }
   tensorflow::mutex_lock lock(mutex_);
-  if (!is_valid_) {
-    // check once more to kick out threads that have already accessed is_valid_
-    // before the lock
-    return nullptr;
+  if (TF_PREDICT_FALSE(!is_valid_)) {
+    LOG(ERROR) << "SharedMemoryAllocator is invalid";
   }
   if (size_to_free_buffer_id_.count(size) &&
       size_to_free_buffer_id_[size].size()) {
     // get one from the free buffer set
     std::unordered_set<size_t>* free_buffer_id_set =
         &size_to_free_buffer_id_[size];
+    for (size_t free_buffer_id : *free_buffer_id_set) {
+      SharedMemoryPtr shm_ptr = buffer_vec_[free_buffer_id];
+      if (TF_PREDICT_TRUE(shm_ptr->is_valid())) {
+        free_buffer_id_set->erase(free_buffer_id);
+        VLOG(1) << "reusing already allocated shm buffer "
+                << shm_ptr->debug_string();
+        return shm_ptr;
+      }
+    }
+    LOG(ERROR) << "all cached buffers are invalid; returning an invalid buffer";
     auto iter = free_buffer_id_set->begin();
     size_t free_buffer_id = *iter;
     free_buffer_id_set->erase(iter);
@@ -178,23 +194,13 @@ SharedMemoryPtr SharedMemoryAllocator::allocate_shm(const size_t alignment,
   size_t id = buffer_vec_.size();
   SharedMemoryPtr shm_ptr = std::make_shared<SharedMemoryBuffer>(
       id, session_id_, alignment, size, runtime_);
-  if (!shm_ptr->is_valid()) {
-    if (shm_ptr->unsupported_by_runtime()) {
-      LOG(INFO) << "The current Neuron runtime configuration does not support "
-                   "shared memory data transfer. Please refer to "
-                   "https://awsdocs-neuron.readthedocs-hosted.com/en/latest/"
-                   "neuron-guide/neuron-runtime/"
-                   "nrt-theory-of-operation.html#shared-memory-for-inference-"
-                   "ifmaps-and-ofmaps "
-                   "if you encounter performance problem caused by high CPU "
-                   "usage on inf1 instances.";
-      is_valid_ = false;
-    }
-    VLOG(1) << "SharedMemoryAllocator created an invalid buffer";
-    return nullptr;
-  }
   buffer_vec_.push_back(shm_ptr);
   ptr_to_id_[shm_ptr->get_ptr()] = id;
+  if (TF_PREDICT_FALSE(!shm_ptr->is_valid())) {
+    LOG(ERROR) << "allocate_shm failed; " << shm_ptr->debug_string()
+               << " will not be available in Neuron runtime";
+    return shm_ptr;
+  }
   VLOG(1) << "successfully allocated shm buffer " << shm_ptr->debug_string();
   return shm_ptr;
 }
@@ -205,10 +211,8 @@ void SharedMemoryAllocator::free_shm(SharedMemoryPtr shm) {
 }
 
 void SharedMemoryAllocator::free_shm_unsafe(SharedMemoryPtr shm) {
-  if (!shm->is_valid()) {
-    LOG(ERROR) << "SharedMemoryAllocator cannot free an invalid shared "
-                  "memory buffer";
-    return;
+  if (TF_PREDICT_FALSE(!shm->is_valid())) {
+    LOG(ERROR) << "freeing invalid shm buffer " << shm->debug_string();
   }
   VLOG(1) << "freeing shm buf " << *shm->get_path();
   size_t size = shm->get_size();
@@ -239,21 +243,13 @@ void* SharedMemoryAllocator::AllocateRaw(size_t alignment, size_t num_bytes) {
                  << 100 * kLargeAllocationWarningThreshold
                  << "% of system memory.";
   }
-  SharedMemoryPtr shm_ptr = allocate_shm(alignment, num_bytes);
-  if (TF_PREDICT_FALSE(nullptr == shm_ptr)) {
-    VLOG(1)
-        << "allocate_shm failed; falling back to non-shared-memory allocation";
-    return port::AlignedMalloc(num_bytes, alignment);
-  } else {
-    return shm_ptr->get_ptr();
-  }
+  return allocate_shm(alignment, num_bytes)->get_ptr();
 }
 
 void SharedMemoryAllocator::DeallocateRaw(void* ptr) {
   tensorflow::mutex_lock lock(mutex_);
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
-    VLOG(1) << "freeing a non-shared-memory pointer";
-    port::AlignedFree(ptr);
+    LOG(ERROR) << "freeing non-shared-memory pointer " << ptr;
     return;
   }
   size_t id = ptr_to_id_[ptr];
@@ -263,7 +259,8 @@ void SharedMemoryAllocator::DeallocateRaw(void* ptr) {
 
 size_t SharedMemoryAllocator::AllocatedSizeSlow(const void* ptr) const {
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
-    return port::MallocExtension_GetAllocatedSize(ptr);
+    LOG(ERROR) << "cannot determine size of non-shared-memory pointer " << ptr;
+    return 0;
   }
   size_t id = ptr_to_id_.at(ptr);
   SharedMemoryPtr shm = buffer_vec_[id];
@@ -274,6 +271,7 @@ SharedMemoryPtr SharedMemoryAllocator::get_shm_ptr_from_ptr(
     const void* ptr) {
   tensorflow::mutex_lock lock(mutex_);
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
+    LOG(ERROR) << "cannot find shm_ptr from non-shared-memory pointer " << ptr;
     return nullptr;
   }
   size_t id = ptr_to_id_.at(ptr);

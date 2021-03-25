@@ -31,7 +31,6 @@ class SharedMemoryBuffer {
   ~SharedMemoryBuffer();
   // path_ is assigned when rtd shm_map has returned success
   bool is_valid() { return !path_.empty(); }
-  bool unsupported_by_runtime() { return unsupported_by_runtime_; }
   size_t get_id() { return id_; }
   void* get_ptr() { return ptr_; }
   size_t get_size() { return size_; }
@@ -45,7 +44,6 @@ class SharedMemoryBuffer {
   void* physical_ptr_ = nullptr;
   size_t size_ = 0;
   size_t physical_size_ = 0;
-  bool unsupported_by_runtime_ = false;
   std::string path_ = "";
   TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBuffer);
 };
