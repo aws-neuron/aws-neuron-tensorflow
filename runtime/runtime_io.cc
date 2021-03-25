@@ -32,7 +32,6 @@ Status ScopedRuntimeIO::setup(
   std::vector<std::string*> output_paths;
   std::vector<void*> output_ptrs;
   if (nullptr != shm_alloc_ && shm_alloc_->is_valid()) {
-    bool allocation_ok = true;
     input_shm_tensors_.reserve(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
     for (const Tensor* tensor : input_tensors) {
@@ -42,30 +41,20 @@ Status ScopedRuntimeIO::setup(
       input_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
       const void* temp_ptr = input_shm_tensors_.back().tensor_data().data();
       SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr_from_ptr(temp_ptr);
-      if (nullptr == shm_buf) {
-        allocation_ok = false;
-        break;
-      }
       input_shm_bufs.push_back(shm_buf);
     }
     for (size_t buf_size : output_tensor_sizes) {
       SharedMemoryPtr shm_buf = shm_alloc_->allocate_shm(1, buf_size);
-      if (nullptr == shm_buf) {
-        allocation_ok = false;
-        break;
-      }
       output_shm_bufs_.push_back(shm_buf);
     }
-    if (allocation_ok) {
-      for (auto shm_buf : input_shm_bufs) {
-        input_paths.push_back(shm_buf->get_path());
-      }
-      for (auto shm_buf : output_shm_bufs_) {
-        output_paths.push_back(shm_buf->get_path());
-        output_ptrs.push_back(shm_buf->get_ptr());
-      }
-      use_shm = true;
+    for (auto shm_buf : input_shm_bufs) {
+      input_paths.push_back(shm_buf->get_path());
     }
+    for (auto shm_buf : output_shm_bufs_) {
+      output_paths.push_back(shm_buf->get_path());
+      output_ptrs.push_back(shm_buf->get_ptr());
+    }
+    use_shm = true;
   }
   return runtime_io_.setup(input_names, output_names, output_tensors, nn_id,
                            use_shm, input_paths, output_paths, output_ptrs,
