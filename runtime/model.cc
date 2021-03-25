@@ -387,23 +387,20 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       std::vector<Tensor> sliced_inputs(input_tensors.size());
       for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
         if (TF_PREDICT_TRUE(is_batch_inputs[idx])) {
+          const Tensor* in_tensor = input_tensors[idx];
           if (TF_PREDICT_FALSE(dim0_limit > batch_size)) {
-            TensorShape ps_shape(input_tensors[idx]->shape());
+            TensorShape ps_shape(in_tensor->shape());
             ps_shape.set_dim(0, k_batch_size);
-            Tensor pad_end_slice(input_tensors[idx]->dtype(), ps_shape);
+            Tensor pad_end_slice(in_tensor->dtype(), ps_shape);
             Tensor zero_slice = pad_end_slice.Slice(end_start, k_batch_size);
             SHARD_LOG_RETURN_IF_ERROR(shared_status,
                                       tensor_memset(&zero_slice, 0));
-            Tensor end_slice =
-                input_tensors[idx]->Slice(dim0_start, batch_size);
-            StringPiece t_data = end_slice.tensor_data();
-            SHARD_LOG_RETURN_IF_ERROR(
-                shared_status,
-                tensor_memcpy(nullptr, &pad_end_slice, t_data));
+            Tensor end_slice = in_tensor->Slice(dim0_start, batch_size);
+            SHARD_LOG_RETURN_IF_ERROR(shared_status,
+                                      tensor_copy(&pad_end_slice, end_slice));
             sliced_inputs[idx] = pad_end_slice;
           } else {
-            sliced_inputs[idx] =
-                input_tensors[idx]->Slice(dim0_start, dim0_limit);
+            sliced_inputs[idx] = in_tensor->Slice(dim0_start, dim0_limit);
           }
         }
       }

@@ -102,7 +102,7 @@ Status RuntimeIO::finish() {
       out_tensor_raw = raw_output_tensors[idx];
     }
     TF_RETURN_WITH_CONTEXT_IF_ERROR(
-        tensor_memcpy(thread_pool_, out_tensor, out_tensor_raw),
+        tensor_memcpy(out_tensor, out_tensor_raw, thread_pool_),
         "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
   }
   return Status::OK();

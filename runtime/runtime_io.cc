@@ -84,9 +84,8 @@ Status ScopedRuntimeIO::copy_input_tensors(
           "size mismatch between input_shm_tensors_ and input_tensors");
     }
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-      StringPiece tensor_data(input_tensors[idx]->tensor_data());
-      TF_RETURN_IF_ERROR(
-          tensor_memcpy(thread_pool_, input_shm_tensors->at(idx), tensor_data));
+      Tensor* dst = input_shm_tensors->at(idx);
+      TF_RETURN_IF_ERROR(tensor_copy(dst, *input_tensors[idx], thread_pool_));
     }
   }
   return runtime_io_.copy_input_tensors(input_tensors);
