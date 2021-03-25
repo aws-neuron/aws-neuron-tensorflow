@@ -34,23 +34,29 @@ Status ScopedRuntimeIO::setup(
   if (nullptr != shm_alloc_ && shm_alloc_->is_valid()) {
     input_shm_tensors_.reserve(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
+    std::vector<SharedMemoryPtr> output_shm_bufs;
     for (const Tensor* tensor : input_tensors) {
       TensorShape shape = tensor->shape();
       DataType dtype = tensor->dtype();
       AllocationAttributes attr;
       input_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
-      const void* temp_ptr = input_shm_tensors_.back().tensor_data().data();
-      SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr_from_ptr(temp_ptr);
+      const Tensor& shm_tensor = input_shm_tensors_.back();
+      SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr(shm_tensor);
       input_shm_bufs.push_back(shm_buf);
     }
     for (size_t buf_size : output_tensor_sizes) {
-      SharedMemoryPtr shm_buf = shm_alloc_->allocate_shm(1, buf_size);
-      output_shm_bufs_.push_back(shm_buf);
+      TensorShape shape({buf_size});
+      DataType dtype(DT_UINT8);
+      AllocationAttributes attr;
+      output_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
+      const Tensor& shm_tensor = output_shm_tensors_.back();
+      SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr(shm_tensor);
+      output_shm_bufs.push_back(shm_buf);
     }
     for (auto shm_buf : input_shm_bufs) {
       input_paths.push_back(shm_buf->get_path());
     }
-    for (auto shm_buf : output_shm_bufs_) {
+    for (auto shm_buf : output_shm_bufs) {
       output_paths.push_back(shm_buf->get_path());
       output_ptrs.push_back(shm_buf->get_ptr());
     }
@@ -140,14 +146,6 @@ Status ScopedRuntimeIO::copy_input_tensors(
 }
 
 Status ScopedRuntimeIO::finish() { return runtime_io_.finish(); }
-
-ScopedRuntimeIO::~ScopedRuntimeIO() {
-  if (nullptr != shm_alloc_) {
-    for (auto shm_buf : output_shm_bufs_) {
-      shm_alloc_->free_shm(shm_buf);
-    }
-  }
-}
 
 }  // namespace neuron
 }  // namespace tensorflow

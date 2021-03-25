@@ -40,13 +40,13 @@ class ScopedRuntimeIO {
                             std::vector<Tensor*>* input_shm_tensors = nullptr);
   std::vector<Tensor>* get_input_shm_tensors() { return &input_shm_tensors_; }
   Status finish();
-  ~ScopedRuntimeIO();
+  ~ScopedRuntimeIO() {}
   RuntimeIO runtime_io_;
 
  private:
   std::shared_ptr<SharedMemoryAllocator> shm_alloc_ = nullptr;
   std::vector<Tensor> input_shm_tensors_;
-  std::vector<SharedMemoryPtr> output_shm_bufs_;
+  std::vector<Tensor> output_shm_tensors_;
   thread::ThreadPool* thread_pool_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(ScopedRuntimeIO);
 };

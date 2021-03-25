@@ -56,15 +56,14 @@ class SharedMemoryAllocator : public Allocator {
   ~SharedMemoryAllocator() override {}
   Status initialize(const uint64_t session_id, const std::string& nrtd_address);
   bool is_valid() { return is_valid_; }
-  SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
-  void free_shm(SharedMemoryPtr shm);
   std::string Name() override { return "AwsNeuronSharedMemory"; }
   void* AllocateRaw(size_t alignment, size_t num_bytes) override;
   void DeallocateRaw(void* ptr) override;
   size_t AllocatedSizeSlow(const void* ptr) const override;
-  SharedMemoryPtr get_shm_ptr_from_ptr(const void* ptr);
+  SharedMemoryPtr get_shm_ptr(const Tensor& tensor);
 
  private:
+  SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
   void free_shm_unsafe(SharedMemoryPtr shm);
   tensorflow::mutex mutex_;
   uint64_t session_id_ = RuntimeSession::INVALID_ID;

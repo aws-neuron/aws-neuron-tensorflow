@@ -205,11 +205,6 @@ SharedMemoryPtr SharedMemoryAllocator::allocate_shm(const size_t alignment,
   return shm_ptr;
 }
 
-void SharedMemoryAllocator::free_shm(SharedMemoryPtr shm) {
-  tensorflow::mutex_lock lock(mutex_);
-  free_shm_unsafe(shm);
-}
-
 void SharedMemoryAllocator::free_shm_unsafe(SharedMemoryPtr shm) {
   if (TF_PREDICT_FALSE(!shm->is_valid())) {
     LOG(ERROR) << "freeing invalid shm buffer " << shm->debug_string();
@@ -267,8 +262,8 @@ size_t SharedMemoryAllocator::AllocatedSizeSlow(const void* ptr) const {
   return shm->get_size();
 }
 
-SharedMemoryPtr SharedMemoryAllocator::get_shm_ptr_from_ptr(
-    const void* ptr) {
+SharedMemoryPtr SharedMemoryAllocator::get_shm_ptr(const Tensor& tensor) {
+  const void* ptr = tensor.tensor_data().data();
   tensorflow::mutex_lock lock(mutex_);
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
     LOG(ERROR) << "cannot find shm_ptr from non-shared-memory pointer " << ptr;
