@@ -399,7 +399,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
             StringPiece t_data = end_slice.tensor_data();
             SHARD_LOG_RETURN_IF_ERROR(
                 shared_status,
-                tensor_memcpy(nullptr, &pad_end_slice, t_data, t_data.size()));
+                tensor_memcpy(nullptr, &pad_end_slice, t_data));
             sliced_inputs[idx] = pad_end_slice;
           } else {
             sliced_inputs[idx] =

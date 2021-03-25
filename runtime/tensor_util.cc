@@ -96,21 +96,14 @@ void fast_memcpy(thread::ThreadPool* thread_pool, void* dst, const void* src,
 }
 
 Status tensor_memcpy(thread::ThreadPool* thread_pool, Tensor* tensor,
-                     StringPiece& source, int64 memcpy_size) {
+                     StringPiece& source) {
   if (TF_PREDICT_FALSE(!DataTypeCanUseMemcpy(tensor->dtype()))) {
     return errors::Unimplemented("tensor_memcpy on data type ", tensor->dtype(),
                                  " is not allowed");
   }
+  int64 src_size = source.size();
   int64 dst_size = tensor->tensor_data().size();
-  if (memcpy_size < 0) {
-    memcpy_size = dst_size;
-  }
-  if (TF_PREDICT_FALSE(memcpy_size > (int64)source.size() ||
-                       memcpy_size > dst_size)) {
-    return errors::OutOfRange(
-        "unexpected tensor size in tensor_memcpy, source size: ", source.size(),
-        ", target size: ", tensor->tensor_data().size());
-  }
+  int64 memcpy_size = src_size < dst_size ? src_size : dst_size;
   const char* char_src = source.data();
   char* char_dst = const_cast<char*>(tensor->tensor_data().data());
   fast_memcpy(thread_pool, char_dst, char_src, memcpy_size);

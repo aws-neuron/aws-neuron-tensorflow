@@ -25,7 +25,7 @@ namespace neuron {
 void fast_memcpy(thread::ThreadPool* thread_pool, void* dst, const void* src,
                  int64 total_size);
 Status tensor_memcpy(thread::ThreadPool* thread_pool, Tensor* tensor,
-                     StringPiece& source, int64 memcpy_size = -1);
+                     StringPiece& source);
 Status tensor_memset(Tensor* tensor, int ch);
 Status tensor_shuffle(Tensor* dst, const Tensor& src,
                       const TensorProto& shuffle);
