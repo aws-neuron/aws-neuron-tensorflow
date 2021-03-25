@@ -24,8 +24,8 @@ namespace neuron {
 Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
                         const std::vector<Tensor*>& output_tensors,
                         const uint32_t nn_id, bool use_shm,
-                        const std::vector<std::string*>& input_paths,
-                        const std::vector<std::string*>& output_paths,
+                        const std::vector<StringPiece>& input_paths,
+                        const std::vector<StringPiece>& output_paths,
                         const std::vector<void*>& output_ptrs,
                         thread::ThreadPool* thread_pool) {
   thread_pool_ = thread_pool;
@@ -35,19 +35,19 @@ Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
     nrt::infer_io* infer_io = request_.add_ifmap();
     infer_io->set_name(input_names.s(idx));
     if (TF_PREDICT_TRUE(use_shm_)) {
-      infer_io->mutable_buf_shm()->set_path(*input_paths[idx]);
+      StringPiece path = input_paths.at(idx);
+      infer_io->mutable_buf_shm()->set_path(path.data(), path.size());
     }
   }
   if (TF_PREDICT_TRUE(use_shm_)) {
     for (int idx = 0; idx < output_names.s_size(); ++idx) {
+      StringPiece path = output_paths.at(idx);
       nrt::infer_io* infer_io = request_.add_shm_ofmap();
       infer_io->set_name(output_names.s(idx));
-      infer_io->mutable_buf_shm()->set_path(*output_paths[idx]);
-    }
-    for (int idx = 0; idx < output_names.s_size(); ++idx) {
-      nrt::infer_io* infer_io = wait_request_.add_shm_ofmap();
-      infer_io->set_name(output_names.s(idx));
-      infer_io->mutable_buf_shm()->set_path(*output_paths[idx]);
+      infer_io->mutable_buf_shm()->set_path(path.data(), path.size());
+      nrt::infer_io* infer_io_wait = wait_request_.add_shm_ofmap();
+      infer_io_wait->set_name(output_names.s(idx));
+      infer_io_wait->mutable_buf_shm()->set_path(path.data(), path.size());
     }
   }
   request_.mutable_h_nn()->set_id(nn_id);

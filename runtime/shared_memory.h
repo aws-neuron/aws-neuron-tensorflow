@@ -34,7 +34,7 @@ class SharedMemoryBuffer {
   size_t get_id() { return id_; }
   void* get_ptr() { return ptr_; }
   size_t get_size() { return size_; }
-  std::string* get_path() { return &path_; }
+  StringPiece get_path() { return StringPiece(path_); }
   std::string debug_string();
 
  private:

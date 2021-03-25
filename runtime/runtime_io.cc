@@ -28,8 +28,8 @@ Status ScopedRuntimeIO::setup(
   shm_alloc_ = shm_alloc;
   thread_pool_ = thread_pool;
   bool use_shm = false;
-  std::vector<std::string*> input_paths;
-  std::vector<std::string*> output_paths;
+  std::vector<StringPiece> input_paths;
+  std::vector<StringPiece> output_paths;
   std::vector<void*> output_ptrs;
   if (nullptr != shm_alloc_ && shm_alloc_->is_valid()) {
     input_shm_tensors_.reserve(input_tensors.size());

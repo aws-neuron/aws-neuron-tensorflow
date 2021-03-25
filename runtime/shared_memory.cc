@@ -209,7 +209,7 @@ void SharedMemoryAllocator::free_shm_unsafe(SharedMemoryPtr shm) {
   if (TF_PREDICT_FALSE(!shm->is_valid())) {
     LOG(ERROR) << "freeing invalid shm buffer " << shm->debug_string();
   }
-  VLOG(1) << "freeing shm buf " << *shm->get_path();
+  VLOG(1) << "freeing shm buf " << shm->get_path();
   size_t size = shm->get_size();
   if (!size_to_free_buffer_id_.count(size)) {
     size_to_free_buffer_id_.emplace(std::piecewise_construct,

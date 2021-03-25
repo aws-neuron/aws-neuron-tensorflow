@@ -80,8 +80,9 @@ class RuntimeIO {
   RuntimeIO() {}
   Status setup(AttrList& input_names, AttrList& output_names,
                const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
-               bool use_shm, const std::vector<std::string*>& input_paths,
-               const std::vector<std::string*>& output_paths,
+               bool use_shm,
+               const std::vector<StringPiece>& input_paths,
+               const std::vector<StringPiece>& output_paths,
                const std::vector<void*>& output_ptrs,
                thread::ThreadPool* thread_pool = nullptr);
   bool use_shm() { return use_shm_; }
