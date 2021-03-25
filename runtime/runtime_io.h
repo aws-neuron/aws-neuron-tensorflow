@@ -31,7 +31,7 @@ class ScopedRuntimeIO {
                const std::vector<size_t>& output_tensor_sizes,
                const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
                thread::ThreadPool* thread_pool,
-               std::shared_ptr<SharedMemoryBufferManager> shm_mgr);
+               std::shared_ptr<SharedMemoryAllocator> shm_alloc);
   Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors,
                             std::vector<Tensor*>* input_shm_tensors = nullptr);
   Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors,
@@ -44,7 +44,7 @@ class ScopedRuntimeIO {
   RuntimeIO runtime_io_;
 
  private:
-  std::shared_ptr<SharedMemoryBufferManager> shm_mgr_ = nullptr;
+  std::shared_ptr<SharedMemoryAllocator> shm_alloc_ = nullptr;
   std::vector<Tensor> input_shm_tensors_;
   std::vector<SharedMemoryPtr> output_shm_bufs_;
   thread::ThreadPool* thread_pool_;

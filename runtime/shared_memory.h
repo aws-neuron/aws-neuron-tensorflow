@@ -52,10 +52,10 @@ class SharedMemoryBuffer {
 
 typedef std::shared_ptr<SharedMemoryBuffer> SharedMemoryPtr;
 
-class SharedMemoryBufferManager : public Allocator {
+class SharedMemoryAllocator : public Allocator {
  public:
-  SharedMemoryBufferManager();
-  ~SharedMemoryBufferManager() override {}
+  SharedMemoryAllocator();
+  ~SharedMemoryAllocator() override {}
   Status initialize(const uint64_t session_id, const std::string& nrtd_address);
   bool is_valid() { return is_valid_; }
   SharedMemoryPtr allocate_shm(const size_t alignment, const size_t size);
@@ -77,7 +77,7 @@ class SharedMemoryBufferManager : public Allocator {
       size_to_free_buffer_id_;
   std::unordered_map<const void*, size_t> ptr_to_id_;
   std::atomic<int> single_allocation_warning_count_;
-  TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryBufferManager);
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(SharedMemoryAllocator);
 };
 
 }  // namespace neuron

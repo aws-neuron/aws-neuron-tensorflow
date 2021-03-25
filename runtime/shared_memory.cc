@@ -134,11 +134,11 @@ std::string SharedMemoryBuffer::debug_string() {
       .error_message();
 }
 
-SharedMemoryBufferManager::SharedMemoryBufferManager()
+SharedMemoryAllocator::SharedMemoryAllocator()
     : single_allocation_warning_count_(0) {}
 
-Status SharedMemoryBufferManager::initialize(const uint64_t session_id,
-                                             const std::string& nrtd_address) {
+Status SharedMemoryAllocator::initialize(const uint64_t session_id,
+                                         const std::string& nrtd_address) {
   std::string nrt_shm_map = env_get("NEURON_RTD_SHM_MAP", "");
   if ("no" != nrt_shm_map) {
     session_id_ = session_id;
@@ -149,10 +149,10 @@ Status SharedMemoryBufferManager::initialize(const uint64_t session_id,
   return Status::OK();
 }
 
-SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment,
-                                                        const size_t size) {
+SharedMemoryPtr SharedMemoryAllocator::allocate_shm(const size_t alignment,
+                                                    const size_t size) {
   if (!is_valid_) {
-    VLOG(1) << "SharedMemoryBufferManager is invalid";
+    VLOG(1) << "SharedMemoryAllocator is invalid";
     return nullptr;
   }
   tensorflow::mutex_lock lock(mutex_);
@@ -190,7 +190,7 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment,
                    "usage on inf1 instances.";
       is_valid_ = false;
     }
-    VLOG(1) << "SharedMemoryBufferManager created an invalid buffer";
+    VLOG(1) << "SharedMemoryAllocator created an invalid buffer";
     return nullptr;
   }
   buffer_vec_.push_back(shm_ptr);
@@ -199,14 +199,14 @@ SharedMemoryPtr SharedMemoryBufferManager::allocate_shm(const size_t alignment,
   return shm_ptr;
 }
 
-void SharedMemoryBufferManager::free_shm(SharedMemoryPtr shm) {
+void SharedMemoryAllocator::free_shm(SharedMemoryPtr shm) {
   tensorflow::mutex_lock lock(mutex_);
   free_shm_unsafe(shm);
 }
 
-void SharedMemoryBufferManager::free_shm_unsafe(SharedMemoryPtr shm) {
+void SharedMemoryAllocator::free_shm_unsafe(SharedMemoryPtr shm) {
   if (!shm->is_valid()) {
-    LOG(ERROR) << "SharedMemoryBufferManager cannot free an invalid shared "
+    LOG(ERROR) << "SharedMemoryAllocator cannot free an invalid shared "
                   "memory buffer";
     return;
   }
@@ -231,8 +231,7 @@ static int64_t LargeAllocationWarningBytes() {
   return value;
 }
 
-void* SharedMemoryBufferManager::AllocateRaw(size_t alignment,
-                                             size_t num_bytes) {
+void* SharedMemoryAllocator::AllocateRaw(size_t alignment, size_t num_bytes) {
   if ((int64)num_bytes > LargeAllocationWarningBytes() &&
       single_allocation_warning_count_ < kMaxSingleAllocationWarnings) {
     ++single_allocation_warning_count_;
@@ -250,7 +249,7 @@ void* SharedMemoryBufferManager::AllocateRaw(size_t alignment,
   }
 }
 
-void SharedMemoryBufferManager::DeallocateRaw(void* ptr) {
+void SharedMemoryAllocator::DeallocateRaw(void* ptr) {
   tensorflow::mutex_lock lock(mutex_);
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
     VLOG(1) << "freeing a non-shared-memory pointer";
@@ -262,7 +261,7 @@ void SharedMemoryBufferManager::DeallocateRaw(void* ptr) {
   free_shm_unsafe(shm);
 }
 
-size_t SharedMemoryBufferManager::AllocatedSizeSlow(const void* ptr) const {
+size_t SharedMemoryAllocator::AllocatedSizeSlow(const void* ptr) const {
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {
     return port::MallocExtension_GetAllocatedSize(ptr);
   }
@@ -271,7 +270,7 @@ size_t SharedMemoryBufferManager::AllocatedSizeSlow(const void* ptr) const {
   return shm->get_size();
 }
 
-SharedMemoryPtr SharedMemoryBufferManager::get_shm_ptr_from_ptr(
+SharedMemoryPtr SharedMemoryAllocator::get_shm_ptr_from_ptr(
     const void* ptr) {
   tensorflow::mutex_lock lock(mutex_);
   if (TF_PREDICT_FALSE(!ptr_to_id_.count(ptr))) {

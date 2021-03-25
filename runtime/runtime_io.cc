@@ -24,14 +24,14 @@ Status ScopedRuntimeIO::setup(
     AttrList& output_names, const std::vector<size_t>& output_tensor_sizes,
     const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
     thread::ThreadPool* thread_pool,
-    std::shared_ptr<SharedMemoryBufferManager> shm_mgr) {
-  shm_mgr_ = shm_mgr;
+    std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
+  shm_alloc_ = shm_alloc;
   thread_pool_ = thread_pool;
   bool use_shm = false;
   std::vector<std::string*> input_paths;
   std::vector<std::string*> output_paths;
   std::vector<void*> output_ptrs;
-  if (nullptr != shm_mgr_ && shm_mgr_->is_valid()) {
+  if (nullptr != shm_alloc_ && shm_alloc_->is_valid()) {
     bool allocation_ok = true;
     input_shm_tensors_.reserve(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
@@ -39,9 +39,9 @@ Status ScopedRuntimeIO::setup(
       TensorShape shape = tensor->shape();
       DataType dtype = tensor->dtype();
       AllocationAttributes attr;
-      input_shm_tensors_.emplace_back(shm_mgr_.get(), dtype, shape, attr);
+      input_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
       const void* temp_ptr = input_shm_tensors_.back().tensor_data().data();
-      SharedMemoryPtr shm_buf = shm_mgr_->get_shm_ptr_from_ptr(temp_ptr);
+      SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr_from_ptr(temp_ptr);
       if (nullptr == shm_buf) {
         allocation_ok = false;
         break;
@@ -49,7 +49,7 @@ Status ScopedRuntimeIO::setup(
       input_shm_bufs.push_back(shm_buf);
     }
     for (size_t buf_size : output_tensor_sizes) {
-      SharedMemoryPtr shm_buf = shm_mgr_->allocate_shm(1, buf_size);
+      SharedMemoryPtr shm_buf = shm_alloc_->allocate_shm(1, buf_size);
       if (nullptr == shm_buf) {
         allocation_ok = false;
         break;
@@ -153,9 +153,9 @@ Status ScopedRuntimeIO::copy_input_tensors(
 Status ScopedRuntimeIO::finish() { return runtime_io_.finish(); }
 
 ScopedRuntimeIO::~ScopedRuntimeIO() {
-  if (nullptr != shm_mgr_) {
+  if (nullptr != shm_alloc_) {
     for (auto shm_buf : output_shm_bufs_) {
-      shm_mgr_->free_shm(shm_buf);
+      shm_alloc_->free_shm(shm_buf);
     }
   }
 }
