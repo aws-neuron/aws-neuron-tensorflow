@@ -54,10 +54,10 @@ class NeuronEngine {
   void clear(bool from_global_state = false);
   size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
   uint32_t num_cores() { return num_cores_; };
-  Status start_model_unsafe(const uint32_t nn_id);
   std::shared_ptr<RuntimeSession> get_session() { return session_; }
 
  private:
+  Status start_model_unsafe(const uint32_t nn_id);
   bool is_busy();
   bool running(uint32_t nn_id);
   void set_running(uint32_t nn_id);
