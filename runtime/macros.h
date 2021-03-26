@@ -77,5 +77,15 @@ typedef const AttrValue_ListValue AttrList;
 #define VLOG_TIME_BASE(start, lvl, msg) \
   VLOG(lvl) << msg << " " << Env::Default()->NowMicros() - start;
 
+#define CHECK_VALID_PTR(ptr)            \
+  if (TF_PREDICT_FALSE(ptr == nullptr)) \
+    return errors::InvalidArgument("null pointer ", (#ptr), "(", (ptr), ")");
+
+#define CHECK_SIZES_MATCH(lhs_size, rhs_size)                             \
+  if (TF_PREDICT_FALSE((int64)(lhs_size) != (int64)(rhs_size)))           \
+    return errors::InvalidArgument("size mismatch: ", (#lhs_size),        \
+                                   " == ", (lhs_size), ", ", (#rhs_size), \
+                                   " == ", (rhs_size));
+
 }  // namespace neuron
 }  // namespace tensorflow

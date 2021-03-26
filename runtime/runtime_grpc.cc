@@ -21,12 +21,6 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-#define CHECK_SIZES_MATCH(lhs_size, rhs_size)                              \
-  if (TF_PREDICT_FALSE((int64)(lhs_size) != (int64)(rhs_size)))            \
-    return errors::InvalidArgument("size mismatch: ", (#lhs_size), " == ", \
-                                   (lhs_size), ", ", (#rhs_size), " == ",  \
-                                   (rhs_size));
-
 Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
                         const std::vector<Tensor*>& output_tensors,
                         const std::vector<Tensor*>& output_shm_tensors,

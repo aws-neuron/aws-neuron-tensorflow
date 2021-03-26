@@ -33,11 +33,11 @@ class ScopedRuntimeIO {
                thread::ThreadPool* thread_pool,
                std::shared_ptr<SharedMemoryAllocator> shm_alloc);
   Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors,
-                            std::vector<Tensor*>* input_shm_tensors = nullptr);
+                            std::vector<Tensor>* input_shm_tensors);
   Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors,
                             AttrList& input_shuffles,
                             std::vector<Tensor>* shuffle_buffers,
-                            std::vector<Tensor*>* input_shm_tensors = nullptr);
+                            std::vector<Tensor>* input_shm_tensors);
   std::vector<Tensor>* get_input_shm_tensors() { return &input_shm_tensors_; }
   Status finish();
   ~ScopedRuntimeIO() {}

@@ -191,7 +191,7 @@ static Status allocate_shuffle_buffers(
 static Status copy_input_tensors_with_shuffle(
     OpKernelContext* ctx, const NodeDef& node_def,
     const std::vector<const Tensor*>& input_tensors, ScopedRuntimeIO* scoped_io,
-    std::vector<Tensor*>* input_shm_tensors = nullptr) {
+    std::vector<Tensor>* input_shm_tensors) {
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   if (attr.count("_input_shuffles")) {
     AttrList& input_shuffles = attr.at("_input_shuffles").list();
@@ -435,6 +435,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 
       // copy input tensors with optional input_shuffles
       SHARD_VLOG_TIME("in shard before input copy");
+      std::vector<Tensor>* input_shm_tensors =
+          scoped_io.get_input_shm_tensors();
       if (k_batch_size > 1 && scoped_io.runtime_io_.use_shm()) {
         auto CopyInputShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
           std::vector<Tensor> input_slices(sliced_inputs.size());
@@ -451,34 +453,26 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
               input_slice_ptrs[i] = input_tensors[i];
             }
           }
-          std::vector<Tensor>* input_shm_tensors =
-              scoped_io.get_input_shm_tensors();
           std::vector<Tensor> input_shm_slices(sliced_inputs.size());
           for (size_t i = 0; i < input_shm_slices.size(); ++i) {
+            Tensor& shm_tensor = input_shm_tensors->at(i);
             if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
-              input_shm_slices[i] =
-                  input_shm_tensors->at(i).Slice(dim0_start, dim0_limit);
-            }
-          }
-          std::vector<Tensor*> input_shm_slice_ptrs(sliced_inputs.size());
-          for (size_t i = 0; i < input_shm_slice_ptrs.size(); ++i) {
-            if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
-              input_shm_slice_ptrs[i] = &input_shm_slices[i];
+              input_shm_slices[i] = shm_tensor.Slice(dim0_start, dim0_limit);
             } else {
-              input_shm_slice_ptrs[i] = &input_shm_tensors->at(i);
+              input_shm_slices[i] = shm_tensor;
             }
           }
           SHARD_LOG_IGNORE_ABORTED(
               status_sd, copy_input_tensors_with_shuffle(
                              ctx, node_def, input_slice_ptrs, &scoped_io,
-                             &input_shm_slice_ptrs));
+                             &input_shm_slices));
         };
         h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit,
                                        std::move(CopyInputShardFunc));
       } else {
         SHARD_LOG_IGNORE_ABORTED(
-            status_sd, copy_input_tensors_with_shuffle(ctx, node_def,
-                                                       input_ptrs, &scoped_io));
+            status_sd, copy_input_tensors_with_shuffle(
+                ctx, node_def, input_ptrs, &scoped_io, input_shm_tensors));
       }
 
       // run inference
@@ -524,8 +518,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         output_tensor_sizes, output_tensors, nn_id_, thread_pool));
 
     // copy input tensors with optional input_shuffles
+    std::vector<Tensor>* input_shm_tensors = scoped_io.get_input_shm_tensors();
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
-        ctx, node_def, input_tensors, &scoped_io));
+        ctx, node_def, input_tensors, &scoped_io, input_shm_tensors));
 
     // run inference
     VLOG_TIME("before infer");
