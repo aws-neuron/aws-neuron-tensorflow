@@ -79,11 +79,11 @@ class RuntimeIO {
  public:
   RuntimeIO() {}
   Status setup(AttrList& input_names, AttrList& output_names,
-               const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
-               bool use_shm,
+               const std::vector<Tensor*>& output_tensors,
+               const std::vector<Tensor*>& output_shm_tensors,
+               const uint32_t nn_id, bool use_shm,
                const std::vector<StringPiece>& input_paths,
                const std::vector<StringPiece>& output_paths,
-               const std::vector<void*>& output_ptrs,
                thread::ThreadPool* thread_pool = nullptr);
   bool use_shm() { return use_shm_; }
   Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors);
@@ -111,8 +111,8 @@ class RuntimeIO {
   grpc::Status wait_status_;
   AttrList* output_names_;
   std::vector<Tensor*> output_tensors_;
+  std::vector<Tensor*> output_shm_tensors_;
   bool use_shm_ = false;
-  std::vector<void*> output_ptrs_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };
 

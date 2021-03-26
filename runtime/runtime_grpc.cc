@@ -21,16 +21,24 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
+#define CHECK_SIZES_MATCH(lhs_size, rhs_size)                              \
+  if (TF_PREDICT_FALSE((int64)(lhs_size) != (int64)(rhs_size)))            \
+    return errors::InvalidArgument("size mismatch: ", (#lhs_size), " == ", \
+                                   (lhs_size), ", ", (#rhs_size), " == ",  \
+                                   (rhs_size));
+
 Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
                         const std::vector<Tensor*>& output_tensors,
+                        const std::vector<Tensor*>& output_shm_tensors,
                         const uint32_t nn_id, bool use_shm,
                         const std::vector<StringPiece>& input_paths,
                         const std::vector<StringPiece>& output_paths,
-                        const std::vector<void*>& output_ptrs,
                         thread::ThreadPool* thread_pool) {
+  CHECK_SIZES_MATCH(output_names.s_size(), output_tensors.size());
+  CHECK_SIZES_MATCH(output_tensors.size(), output_shm_tensors.size());
   thread_pool_ = thread_pool;
   use_shm_ = use_shm;
-  output_ptrs_ = output_ptrs;
+  output_shm_tensors_ = output_shm_tensors;
   for (auto idx = 0; idx < input_names.s_size(); ++idx) {
     nrt::infer_io* infer_io = request_.add_ifmap();
     infer_io->set_name(input_names.s(idx));
@@ -58,10 +66,7 @@ Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
 
 Status RuntimeIO::copy_input_tensors(
     const std::vector<const Tensor*>& input_tensors) {
-  if (TF_PREDICT_FALSE(request_.ifmap_size() != (int64)input_tensors.size())) {
-    return errors::InvalidArgument(
-        "size mismatch between input_tensors and request_.ifmap()");
-  }
+  CHECK_SIZES_MATCH(request_.ifmap_size(), input_tensors.size());
   if (TF_PREDICT_FALSE(!use_shm_)) {
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       nrt::infer_io* infer_io = request_.mutable_ifmap(idx);
@@ -73,8 +78,8 @@ Status RuntimeIO::copy_input_tensors(
 }
 
 Status RuntimeIO::finish() {
-  std::vector<StringPiece> raw_output_tensors;
   if (TF_PREDICT_FALSE(!use_shm_)) {
+    std::vector<StringPiece> raw_output_tensors;
     std::unordered_map<std::string, StringPiece> map_name_raw;
     for (const auto& infer_io : response_.ofmap()) {
       map_name_raw.emplace(infer_io.name(), infer_io.buf());
@@ -86,24 +91,21 @@ Status RuntimeIO::finish() {
       }
       raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
     }
+    for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
+      Tensor* out_tensor = output_tensors_[idx];
+      StringPiece out_tensor_raw = raw_output_tensors.at(idx);
+      TF_RETURN_WITH_CONTEXT_IF_ERROR(
+          tensor_memcpy(out_tensor, out_tensor_raw, thread_pool_),
+          "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
+    }
   } else {
-    if (TF_PREDICT_FALSE(output_names_->s_size() >
-                         (int64)output_ptrs_.size())) {
-      return errors::Aborted("shared memory is invalid");
+    for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
+      Tensor* out_tensor = output_tensors_[idx];
+      const Tensor& shm_tensor = *output_shm_tensors_.at(idx);
+      TF_RETURN_WITH_CONTEXT_IF_ERROR(
+          tensor_copy(out_tensor, shm_tensor, thread_pool_),
+          "tensor_copy failure on tensor name: ", output_names_->s(idx));
     }
-  }
-  for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
-    StringPiece out_tensor_raw;
-    Tensor* out_tensor = output_tensors_[idx];
-    if (TF_PREDICT_TRUE(use_shm_)) {
-      size_t size = out_tensor->tensor_data().size();
-      out_tensor_raw = StringPiece(static_cast<char*>(output_ptrs_[idx]), size);
-    } else {
-      out_tensor_raw = raw_output_tensors[idx];
-    }
-    TF_RETURN_WITH_CONTEXT_IF_ERROR(
-        tensor_memcpy(out_tensor, out_tensor_raw, thread_pool_),
-        "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
   }
   return Status::OK();
 }

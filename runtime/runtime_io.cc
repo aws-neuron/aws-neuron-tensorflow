@@ -30,7 +30,6 @@ Status ScopedRuntimeIO::setup(
   bool use_shm = false;
   std::vector<StringPiece> input_paths;
   std::vector<StringPiece> output_paths;
-  std::vector<void*> output_ptrs;
   if (nullptr != shm_alloc_ && shm_alloc_->is_valid()) {
     input_shm_tensors_.reserve(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
@@ -58,13 +57,23 @@ Status ScopedRuntimeIO::setup(
     }
     for (auto shm_buf : output_shm_bufs) {
       output_paths.push_back(shm_buf->get_path());
-      output_ptrs.push_back(shm_buf->get_ptr());
     }
     use_shm = true;
+  } else {
+    for (size_t buf_size : output_tensor_sizes) {
+      TensorShape shape({buf_size});
+      DataType dtype(DT_UINT8);
+      output_shm_tensors_.emplace_back(dtype, shape);
+    }
   }
-  return runtime_io_.setup(input_names, output_names, output_tensors, nn_id,
-                           use_shm, input_paths, output_paths, output_ptrs,
-                           thread_pool);
+  std::vector<Tensor*> output_shm_tensors;
+  output_shm_tensors.reserve(output_shm_tensors_.size());
+  for (auto& tensor : output_shm_tensors_) {
+    output_shm_tensors.push_back(&tensor);
+  }
+  return runtime_io_.setup(input_names, output_names, output_tensors,
+                           output_shm_tensors, nn_id, use_shm, input_paths,
+                           output_paths, thread_pool);
 }
 
 Status ScopedRuntimeIO::copy_input_tensors(
