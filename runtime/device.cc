@@ -17,6 +17,7 @@ limitations under the License.
 #include <vector>
 
 #include "device.h"
+#include "engine.h"
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/process_state.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -60,13 +61,27 @@ NeuronDevice::NeuronDevice(const SessionOptions& options,
     : LocalDevice(options, attrs) {
   ProcessState* ps = ProcessState::singleton();
   cpu_allocator_ = ps->GetCPUAllocator(port::kNUMANoAffinity);
+  NeuronEngineManager& nem = NeuronEngineManager::GetNeuronEngineManager();
+  shm_allocator_ = nem.get_shm_allocator();
 }
 
 NeuronDevice::~NeuronDevice() {}
 
 Allocator* NeuronDevice::GetAllocator(AllocatorAttributes attr) {
-  VLOG(1) << "returning cpu allocator from NeuronDevice::GetAllocator";
-  return cpu_allocator_;
+  Allocator* allocator;
+  std::string name;
+  if (TF_PREDICT_TRUE(on_shm(attr))) {
+    if (TF_PREDICT_FALSE(!shm_allocator_->is_valid())) {
+      LOG(ERROR) << "NeuronDevice::GetAllocator returns invalid shm allocator";
+    }
+    allocator = shm_allocator_;
+    name = "shm";
+  } else {
+    allocator = cpu_allocator_;
+    name = "cpu";
+  }
+  VLOG(1) << "NeuronDevice::GetAllocator returns " << name << " allocator";
+  return allocator;
 }
 
 Status NeuronDevice::MakeTensorFromProto(const TensorProto& tensor_proto,
@@ -113,6 +128,14 @@ Status NeuronDevice::FillContextMap(const Graph* graph,
 Status NeuronDevice::TryGetDeviceContext(DeviceContext** out_context) {
   *out_context = new NeuronDeviceContext;
   return Status::OK();
+}
+
+void NeuronDevice::set_on_shm(AllocatorAttributes* attr, bool v) {
+  attr->value |= (static_cast<int>(v) << NeuronDevice::on_shm_shift_);
+}
+
+bool NeuronDevice::on_shm(const AllocatorAttributes& attr) {
+  return attr.value & (0x1 << NeuronDevice::on_shm_shift_);
 }
 
 class NeuronDeviceFactory : public DeviceFactory {

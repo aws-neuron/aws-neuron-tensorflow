@@ -17,6 +17,7 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
 
 #include "macros.h"
+#include "shared_memory.h"
 #include "tensorflow/core/common_runtime/local_device.h"
 #include "tensorflow/core/framework/allocator.h"
 #include "tensorflow/core/framework/device_base.h"
@@ -47,9 +48,18 @@ class NeuronDevice : public LocalDevice {
 #endif
   Status TryGetDeviceContext(DeviceContext** out_context);
   Status Sync() override { return Status::OK(); }
+  // From tensorflow/core/framework/allocator.h:
+  // NOTE: The upper 8 bits of the value are reserved for
+  // device-specific uses.  Implementors of a device can interpret these
+  // upper 8 bits in device-specific ways, and ops implemented for those
+  // devices are responsible for setting those 8 bits appropriately.
+  static void set_on_shm(AllocatorAttributes* attr, bool v);
+  static bool on_shm(const AllocatorAttributes& attr);
 
  private:
   Allocator* cpu_allocator_;  // Not owned
+  SharedMemoryAllocator* shm_allocator_;  // Not owned
+  static const int on_shm_shift_ = sizeof(AllocatorAttributes::value) - 1;
 };
 
 }  // namespace neuron

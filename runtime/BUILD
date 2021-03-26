@@ -27,6 +27,7 @@ tf_kernel_library(
     hdrs = ["kernels/neuron_op.h"],
     deps = [
         ":model",
+        ":device",
         ":registration",
     ],
 )
@@ -73,7 +74,8 @@ cc_library(
     hdrs = ["engine.h"],
     deps = [
         ":utils",
-        ":device",
+        ":shared_memory",
+        ":runtime_grpc",
     ],
 )
 
@@ -84,6 +86,7 @@ cc_library(
     deps = [
         ":utils",
         ":shared_memory",
+        ":engine",
         "@org_tensorflow//tensorflow/core:core_cpu",
     ],
     alwayslink=1,  # for linking device into tf-serving
