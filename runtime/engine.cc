@@ -258,8 +258,7 @@ Status NeuronEngineManager::apply_for_engine(NeuronEngine** engine,
 }
 
 Status NeuronEngine::initialize(
-    const std::string& nrtd_address,
-    const int num_cores_req, const int num_dup,
+    const std::string& nrtd_address, const int num_cores_req, const int num_dup,
     std::shared_ptr<RuntimeSession> session,
     std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
   tensorflow::mutex_lock lock(mutex_eg_);
@@ -383,7 +382,7 @@ void NeuronEngine::unload(const uint32_t nn_id) {
 
 Status NeuronEngine::setup_scoped_runtime_io(
     ScopedRuntimeIO* scoped_io, AttrList& input_names,
-    const std::vector<const Tensor*>& input_tensors, AttrList& output_names,
+    const std::vector<Tensor>& input_tensors, AttrList& output_names,
     const std::vector<size_t>& output_tensor_sizes,
     const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
     thread::ThreadPool* thread_pool) {

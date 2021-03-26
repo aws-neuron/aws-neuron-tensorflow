@@ -86,7 +86,7 @@ class RuntimeIO {
                const std::vector<StringPiece>& output_paths,
                thread::ThreadPool* thread_pool = nullptr);
   bool use_shm() { return use_shm_; }
-  Status copy_input_tensors(const std::vector<const Tensor*>& input_tensors);
+  Status copy_input_tensors(const std::vector<Tensor>& input_tensors);
   void set_nn_id(const uint32_t nn_id) {
     request_.mutable_h_nn()->set_id(nn_id);
   }

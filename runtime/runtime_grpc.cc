@@ -58,13 +58,12 @@ Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
   return Status::OK();
 }
 
-Status RuntimeIO::copy_input_tensors(
-    const std::vector<const Tensor*>& input_tensors) {
+Status RuntimeIO::copy_input_tensors(const std::vector<Tensor>& input_tensors) {
   CHECK_SIZES_MATCH(request_.ifmap_size(), input_tensors.size());
   if (TF_PREDICT_FALSE(!use_shm_)) {
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       nrt::infer_io* infer_io = request_.mutable_ifmap(idx);
-      StringPiece tensor_data(input_tensors[idx]->tensor_data());
+      StringPiece tensor_data(input_tensors.at(idx).tensor_data());
       infer_io->set_buf(tensor_data.data(), tensor_data.size());
     }
   }

@@ -39,12 +39,14 @@ class NeuronEngine {
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
-  Status setup_scoped_runtime_io(
-      ScopedRuntimeIO* scoped_io, AttrList& input_names,
-      const std::vector<const Tensor*>& input_tensors, AttrList& output_names,
-      const std::vector<size_t>& output_tensor_sizes,
-      const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
-      thread::ThreadPool* thread_pool);
+  Status setup_scoped_runtime_io(ScopedRuntimeIO* scoped_io,
+                                 AttrList& input_names,
+                                 const std::vector<Tensor>& input_tensors,
+                                 AttrList& output_names,
+                                 const std::vector<size_t>& output_tensor_sizes,
+                                 const std::vector<Tensor*>& output_tensors,
+                                 const uint32_t nn_id,
+                                 thread::ThreadPool* thread_pool);
   Status infer(ScopedRuntimeIO* scoped_io);
   Status infer_with_profiling(ScopedRuntimeIO* scoped_io,
                               ProfilerInterface* profile);

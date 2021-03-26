@@ -75,13 +75,13 @@ static Status get_io_tensor_sizes(std::vector<size_t>* tensor_sizes,
   return Status::OK();
 }
 
-static Status check_input_tensors(
-    const std::vector<const Tensor*>& input_tensors, const NodeDef& node_def) {
+static Status check_input_tensors(const std::vector<Tensor>& input_tensors,
+                                  const NodeDef& node_def) {
   AttrList& input_names = node_def.attr().at("input_names").list();
   AttrList& input_dtypes = node_def.attr().at("input_dtypes").list();
   AttrList& input_shapes = node_def.attr().at("input_shapes").list();
   TFNN_ASSERT(
-      (int)input_tensors.size() == input_names.s_size(),
+      (int64)input_tensors.size() == input_names.s_size(),
       errors::Internal("incorrect number of input tensors, input_tensors size ",
                        input_tensors.size(), ", input_names size",
                        input_names.s_size()));
@@ -94,8 +94,9 @@ static Status check_input_tensors(
                                input_shapes.shape_size(), ", input_names size",
                                input_names.s_size()));
   for (auto idx = 0; idx < input_dtypes.type_size(); ++idx) {
-    DataType dtype = input_tensors[idx]->dtype();
-    TensorShape shape = input_tensors[idx]->shape();
+    const Tensor& in_tensor = input_tensors.at(idx);
+    DataType dtype = in_tensor.dtype();
+    TensorShape shape = in_tensor.shape();
     DataType dtype_expected = input_dtypes.type(idx);
     TensorShape shape_expected = input_shapes.shape(idx);
     TFNN_ASSERT(dtype == dtype_expected,
@@ -179,18 +180,18 @@ Status NeuronModel::initialize(const NodeDef& node_def,
 
 static Status allocate_shuffle_buffers(
     OpKernelContext* ctx, std::vector<Tensor>* shuffle_buffers,
-    const std::vector<const Tensor*>& input_tensors) {
+    const std::vector<Tensor>& input_tensors) {
   for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-    const Tensor* src = input_tensors[idx];
+    const Tensor& src = input_tensors.at(idx);
     Tensor* dst = &shuffle_buffers->at(idx);
-    TF_RETURN_IF_ERROR(ctx->allocate_temp(src->dtype(), src->shape(), dst));
+    TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
   }
   return Status::OK();
 }
 
 static Status copy_input_tensors_with_shuffle(
     OpKernelContext* ctx, const NodeDef& node_def,
-    const std::vector<const Tensor*>& input_tensors, ScopedRuntimeIO* scoped_io,
+    const std::vector<Tensor>& input_tensors, ScopedRuntimeIO* scoped_io,
     std::vector<Tensor>* input_shm_tensors) {
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   if (attr.count("_input_shuffles")) {
@@ -211,7 +212,7 @@ static Status copy_input_tensors_with_shuffle(
 }
 
 Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
-                            const std::vector<const Tensor*>& input_tensors) {
+                            const std::vector<Tensor>& input_tensors) {
   uint64 start_time = Env::Default()->NowMicros();
 #define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
   thread::ThreadPool* thread_pool =
@@ -257,8 +258,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     AttrList& input_shapes = attr.at("input_shapes").list();
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       bool is_batch_tensor = false;
-      const Tensor* tptr = input_tensors[idx];
-      TensorShape shape(tptr->shape());
+      const Tensor& in_tensor = input_tensors.at(idx);
+      TensorShape shape(in_tensor.shape());
       TensorShape k_shape(input_shapes.shape(idx));
       input_copy_cost_per_unit += k_shape.num_elements();
       if (TF_PREDICT_TRUE(0 == input_batch_axis.i(idx))) {
@@ -292,7 +293,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           shape == k_shape,
           errors::InvalidArgument(
               "incorrect shape found on input tensor ", input_names.s(idx),
-              ", inference time shape ", tptr->shape().DebugString(),
+              ", inference time shape ", in_tensor.shape().DebugString(),
               ", expected shape ", input_shapes.shape(idx).DebugString()));
       is_batch_inputs[idx] = is_batch_tensor;
     }
@@ -386,51 +387,44 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       VLOG(2) << "Sharding " << dim0_start << " to " << dim0_limit;
       std::vector<Tensor> sliced_inputs(input_tensors.size());
       for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+        const Tensor& in_tensor = input_tensors.at(idx);
         if (TF_PREDICT_TRUE(is_batch_inputs[idx])) {
-          const Tensor* in_tensor = input_tensors[idx];
           if (TF_PREDICT_FALSE(dim0_limit > batch_size)) {
-            TensorShape ps_shape(in_tensor->shape());
+            TensorShape ps_shape(in_tensor.shape());
             ps_shape.set_dim(0, k_batch_size);
-            Tensor pad_end_slice(in_tensor->dtype(), ps_shape);
+            Tensor pad_end_slice(in_tensor.dtype(), ps_shape);
             Tensor zero_slice = pad_end_slice.Slice(end_start, k_batch_size);
             SHARD_LOG_ERROR(status_sd, tensor_memset(&zero_slice, 0));
-            Tensor end_slice = in_tensor->Slice(dim0_start, batch_size);
+            Tensor end_slice = in_tensor.Slice(dim0_start, batch_size);
             SHARD_LOG_ERROR(status_sd, tensor_copy(&pad_end_slice, end_slice));
             sliced_inputs[idx] = pad_end_slice;
           } else {
-            sliced_inputs[idx] = in_tensor->Slice(dim0_start, dim0_limit);
+            sliced_inputs[idx] = in_tensor.Slice(dim0_start, dim0_limit);
           }
-        }
-      }
-      std::vector<const Tensor*> input_ptrs(input_tensors.size());
-      for (size_t i = 0; i < input_tensors.size(); ++i) {
-        if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
-          input_ptrs[i] = &sliced_inputs[i];
         } else {
-          input_ptrs[i] = input_tensors[i];
+          sliced_inputs[idx] = in_tensor;
         }
       }
-      SHARD_LOG_ERROR(status_sd, check_input_tensors(input_ptrs, node_def));
+      SHARD_LOG_ERROR(status_sd, check_input_tensors(sliced_inputs, node_def));
       int64 end_limit = dim0_limit < batch_size ? dim0_limit : batch_size;
       std::vector<Tensor> sliced_outputs(output_tensors.size());
-      for (size_t i = 0; i < output_tensors.size(); ++i) {
+      for (size_t i = 0; i < sliced_outputs.size(); ++i) {
+        Tensor* out_tensor = output_tensors.at(i);
         if (TF_PREDICT_TRUE(is_batch_outputs[i])) {
-          sliced_outputs[i] = output_tensors[i]->Slice(dim0_start, end_limit);
+          sliced_outputs[i] = out_tensor->Slice(dim0_start, end_limit);
+        } else {
+          sliced_outputs[i] = *out_tensor;
         }
       }
       std::vector<Tensor*> output_ptrs(output_tensors.size());
       for (size_t i = 0; i < output_tensors.size(); ++i) {
-        if (TF_PREDICT_TRUE(is_batch_outputs[i])) {
-          output_ptrs[i] = &sliced_outputs[i];
-        } else {
-          output_ptrs[i] = output_tensors[i];
-        }
+        output_ptrs[i] = &sliced_outputs.at(i);
       }
       ScopedRuntimeIO scoped_io;
       SHARD_LOG_IGNORE_ABORTED(
           status_sd,
           neuron_engine_->setup_scoped_runtime_io(
-              &scoped_io, input_names, input_ptrs, output_names,
+              &scoped_io, input_names, sliced_inputs, output_names,
               output_tensor_sizes, output_ptrs, nn_id_, &h2d_transfer_pool_));
 
       // copy input tensors with optional input_shuffles
@@ -443,14 +437,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           for (size_t i = 0; i < input_slices.size(); ++i) {
             if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
               input_slices[i] = sliced_inputs[i].Slice(dim0_start, dim0_limit);
-            }
-          }
-          std::vector<const Tensor*> input_slice_ptrs(sliced_inputs.size());
-          for (size_t i = 0; i < input_slice_ptrs.size(); ++i) {
-            if (TF_PREDICT_TRUE(is_batch_inputs[i])) {
-              input_slice_ptrs[i] = &input_slices[i];
             } else {
-              input_slice_ptrs[i] = input_tensors[i];
+              input_slices[i] = input_tensors[i];
             }
           }
           std::vector<Tensor> input_shm_slices(sliced_inputs.size());
@@ -463,16 +451,16 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
             }
           }
           SHARD_LOG_IGNORE_ABORTED(
-              status_sd, copy_input_tensors_with_shuffle(
-                             ctx, node_def, input_slice_ptrs, &scoped_io,
-                             &input_shm_slices));
+              status_sd,
+              copy_input_tensors_with_shuffle(ctx, node_def, input_slices,
+                                              &scoped_io, &input_shm_slices));
         };
         h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit,
                                        std::move(CopyInputShardFunc));
       } else {
-        SHARD_LOG_IGNORE_ABORTED(
-            status_sd, copy_input_tensors_with_shuffle(
-                ctx, node_def, input_ptrs, &scoped_io, input_shm_tensors));
+        SHARD_LOG_IGNORE_ABORTED(status_sd, copy_input_tensors_with_shuffle(
+                                                ctx, node_def, sliced_inputs,
+                                                &scoped_io, input_shm_tensors));
       }
 
       // run inference

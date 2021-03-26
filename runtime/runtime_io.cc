@@ -20,7 +20,7 @@ namespace tensorflow {
 namespace neuron {
 
 Status ScopedRuntimeIO::setup(
-    AttrList& input_names, const std::vector<const Tensor*>& input_tensors,
+    AttrList& input_names, const std::vector<Tensor>& input_tensors,
     AttrList& output_names, const std::vector<size_t>& output_tensor_sizes,
     const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
     thread::ThreadPool* thread_pool,
@@ -34,9 +34,9 @@ Status ScopedRuntimeIO::setup(
     input_shm_tensors_.reserve(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
     std::vector<SharedMemoryPtr> output_shm_bufs;
-    for (const Tensor* tensor : input_tensors) {
-      TensorShape shape = tensor->shape();
-      DataType dtype = tensor->dtype();
+    for (const Tensor& tensor : input_tensors) {
+      TensorShape shape = tensor.shape();
+      DataType dtype = tensor.dtype();
       AllocationAttributes attr;
       input_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
       const Tensor& shm_tensor = input_shm_tensors_.back();
@@ -77,21 +77,21 @@ Status ScopedRuntimeIO::setup(
 }
 
 Status ScopedRuntimeIO::copy_input_tensors(
-    const std::vector<const Tensor*>& input_tensors,
+    const std::vector<Tensor>& input_tensors,
     std::vector<Tensor>* input_shm_tensors) {
   if (TF_PREDICT_TRUE(runtime_io_.use_shm())) {
     CHECK_VALID_PTR(input_shm_tensors);
     CHECK_SIZES_MATCH(input_shm_tensors->size(), input_tensors.size());
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       Tensor* dst = &input_shm_tensors->at(idx);
-      TF_RETURN_IF_ERROR(tensor_copy(dst, *input_tensors[idx], thread_pool_));
+      TF_RETURN_IF_ERROR(tensor_copy(dst, input_tensors.at(idx), thread_pool_));
     }
   }
   return runtime_io_.copy_input_tensors(input_tensors);
 }
 
 Status ScopedRuntimeIO::copy_input_tensors(
-    const std::vector<const Tensor*>& input_tensors, AttrList& input_shuffles,
+    const std::vector<Tensor>& input_tensors, AttrList& input_shuffles,
     std::vector<Tensor>* shuffle_buffers,
     std::vector<Tensor>* input_shm_tensors) {
   uint64 start_timestamp = Env::Default()->NowMicros();
@@ -102,7 +102,7 @@ Status ScopedRuntimeIO::copy_input_tensors(
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       Tensor* dst = &input_shm_tensors->at(idx);
       const TensorProto& shuffle = input_shuffles.tensor(idx);
-      TF_RETURN_IF_ERROR(tensor_shuffle(dst, *input_tensors[idx], shuffle));
+      TF_RETURN_IF_ERROR(tensor_shuffle(dst, input_tensors.at(idx), shuffle));
     }
     TF_RETURN_IF_ERROR(runtime_io_.copy_input_tensors(input_tensors));
   } else {
@@ -114,14 +114,12 @@ Status ScopedRuntimeIO::copy_input_tensors(
       return errors::Internal(
           "wrong number of allocated input shuffle buffers");
     }
-    std::vector<const Tensor*> shuffled_input_tensors(input_tensors.size());
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       Tensor* dst = &shuffle_buffers->at(idx);
       const TensorProto& shuffle = input_shuffles.tensor(idx);
-      TF_RETURN_IF_ERROR(tensor_shuffle(dst, *input_tensors[idx], shuffle));
-      shuffled_input_tensors[idx] = dst;
+      TF_RETURN_IF_ERROR(tensor_shuffle(dst, input_tensors.at(idx), shuffle));
     }
-    TF_RETURN_IF_ERROR(runtime_io_.copy_input_tensors(shuffled_input_tensors));
+    TF_RETURN_IF_ERROR(runtime_io_.copy_input_tensors(*shuffle_buffers));
   }
   uint64 elapsed = Env::Default()->NowMicros() - start_timestamp;
   VLOG(1) << "input copy and shuffle for " << input_tensors.size()

@@ -26,7 +26,7 @@ class NeuronModel {
  public:
   NeuronModel();
   Status compute(OpKernelContext* ctx, const NodeDef& node_def,
-                 const std::vector<const Tensor*>& input_tensors);
+                 const std::vector<Tensor>& input_tensors);
   ~NeuronModel();
 
  private:
