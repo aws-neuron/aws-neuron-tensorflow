@@ -61,7 +61,7 @@ void ProfilerInterface::initialize(const std::string& profile_dir,
 }
 
 void ProfilerInterface::dump_info(const std::string& graph_def,
-                                  const std::string& executable) {
+                                  const StringPiece& executable) {
   Status status = Env::Default()->RecursivelyCreateDir(profile_dir_);
   if (!status.ok()) {
     LOG(ERROR) << "Cannot create directory for neuron-profile; turning off "

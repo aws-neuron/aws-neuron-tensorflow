@@ -25,7 +25,7 @@ class ProfilerInterface {
  public:
   ProfilerInterface() {}
   void initialize(const std::string& profile_dir, const std::string& op_name);
-  void dump_info(const std::string& graph_def, const std::string& executable);
+  void dump_info(const std::string& graph_def, const StringPiece& executable);
   void start_session(const std::string& nrtd_address, const uint32_t nn_id);
   void stop_session();
   bool enabled_ = false;

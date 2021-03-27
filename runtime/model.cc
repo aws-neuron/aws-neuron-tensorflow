@@ -275,12 +275,13 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   }
 
   // validate executable
-  if (0 == attr.at("executable").s().size()) {
+  StringPiece executable(attr.at("executable").s());
+  if (executable.empty()) {
     return errors::InvalidArgument("Neuron executable (neff) is empty.");
   }
   profile_.initialize(env_get("NEURON_PROFILE"), node_def.name());
   if (profile_.enabled_)
-    profile_.dump_info(attr.at("graph_def").s(), attr.at("executable").s());
+    profile_.dump_info(attr.at("graph_def").s(), executable);
   AttrList& model_config_attr = attr.at("model_config").list();
   NeuronModelConfig model_config;
   model_config.parse_opt_engine_size(model_config_attr);
@@ -293,7 +294,6 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   model_config.parse_ninfer(model_config_attr, neuron_engine_->num_cores(),
                             NeuronEngineManager::MIN_NUM_CORES,
                             NeuronEngineManager::MAX_NUM_CORES);
-  StringPiece executable(attr.at("executable").s());
   estimated_cost_ = executable.size();
   TF_RETURN_IF_ERROR(
       neuron_engine_->load(&nn_id_, executable, model_config.timeout_,
