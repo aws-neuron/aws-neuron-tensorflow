@@ -111,12 +111,11 @@ static Status check_input_tensors(const std::vector<Tensor>& input_tensors,
 
 static Status setup_runtime_io(
     RuntimeIO* runtime_io, thread::ThreadPool* thread_pool,
-    const NodeDef& node_def,
-    const std::vector<Tensor>& input_tensors,
+    const NodeDef& node_def, const std::vector<Tensor>& input_tensors,
     std::vector<Tensor>* input_shm_tensors,
     const std::vector<Tensor*>& output_tensors,
-    std::vector<Tensor>* output_shm_tensors,
-    uint32_t nn_id, std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
+    std::vector<Tensor>* output_shm_tensors, uint32_t nn_id,
+    std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
   std::vector<size_t> output_tensor_sizes;
   TF_RETURN_IF_ERROR(
       get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
@@ -161,21 +160,73 @@ static Status setup_runtime_io(
       output_shm_tensors->emplace_back(dtype, shape);
     }
   }
-  return runtime_io->setup(
-      input_names, output_names, output_tensors, output_shm_tensors,
-      nn_id, use_shm, input_paths, output_paths, thread_pool);
+  return runtime_io->setup(input_names, output_names, output_tensors,
+                           output_shm_tensors, nn_id, use_shm, input_paths,
+                           output_paths, thread_pool);
+}
+
+static Status copy_input_tensors(RuntimeIO* runtime_io,
+                                 const std::vector<Tensor>& input_tensors,
+                                 std::vector<Tensor>* input_shm_tensors,
+                                 thread::ThreadPool* thread_pool) {
+  if (TF_PREDICT_TRUE(runtime_io->use_shm())) {
+    CHECK_VALID_PTR(input_shm_tensors);
+    CHECK_SIZES_MATCH(input_shm_tensors->size(), input_tensors.size());
+    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+      Tensor* dst = &input_shm_tensors->at(idx);
+      TF_RETURN_IF_ERROR(tensor_copy(dst, input_tensors.at(idx), thread_pool));
+    }
+  }
+  return runtime_io->copy_input_tensors(input_tensors);
+}
+
+static Status copy_input_tensors(RuntimeIO* runtime_io,
+                                 const std::vector<Tensor>& input_tensors,
+                                 AttrList& input_shuffles,
+                                 std::vector<Tensor>* shuffle_buffers,
+                                 std::vector<Tensor>* input_shm_tensors) {
+  uint64 start_timestamp = Env::Default()->NowMicros();
+  CHECK_SIZES_MATCH(input_shuffles.tensor_size(), input_tensors.size());
+  if (TF_PREDICT_TRUE(runtime_io->use_shm())) {
+    CHECK_VALID_PTR(input_shm_tensors);
+    CHECK_SIZES_MATCH(input_shm_tensors->size(), input_tensors.size());
+    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+      Tensor* dst = &input_shm_tensors->at(idx);
+      const TensorProto& shuffle = input_shuffles.tensor(idx);
+      TF_RETURN_IF_ERROR(tensor_shuffle(dst, input_tensors.at(idx), shuffle));
+    }
+    TF_RETURN_IF_ERROR(runtime_io->copy_input_tensors(input_tensors));
+  } else {
+    if (TF_PREDICT_FALSE(nullptr == shuffle_buffers)) {
+      return errors::Internal(
+          "need allocated input shuffle buffers for non-shared-memory");
+    }
+    if (TF_PREDICT_FALSE(shuffle_buffers->size() != input_tensors.size())) {
+      return errors::Internal(
+          "wrong number of allocated input shuffle buffers");
+    }
+    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+      Tensor* dst = &shuffle_buffers->at(idx);
+      const TensorProto& shuffle = input_shuffles.tensor(idx);
+      TF_RETURN_IF_ERROR(tensor_shuffle(dst, input_tensors.at(idx), shuffle));
+    }
+    TF_RETURN_IF_ERROR(runtime_io->copy_input_tensors(*shuffle_buffers));
+  }
+  uint64 elapsed = Env::Default()->NowMicros() - start_timestamp;
+  VLOG(1) << "input copy and shuffle for " << input_tensors.size()
+          << " tensors took " << elapsed << " us";
+  return Status::OK();
 }
 
 static Status copy_input_tensors_with_shuffle(
     OpKernelContext* ctx, const NodeDef& node_def,
-    thread::ThreadPool* thread_pool,
-    const std::vector<Tensor>& input_tensors, ScopedRuntimeIO* scoped_io,
-    std::vector<Tensor>* input_shm_tensors) {
+    thread::ThreadPool* thread_pool, const std::vector<Tensor>& input_tensors,
+    RuntimeIO* runtime_io, std::vector<Tensor>* input_shm_tensors) {
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   if (attr.count("_input_shuffles")) {
     AttrList& input_shuffles = attr.at("_input_shuffles").list();
     std::vector<Tensor> buffers;
-    if (TF_PREDICT_FALSE(!scoped_io->runtime_io_.use_shm())) {
+    if (TF_PREDICT_FALSE(!runtime_io->use_shm())) {
       buffers.resize(input_tensors.size());
       for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
         const Tensor& src = input_tensors.at(idx);
@@ -183,12 +234,12 @@ static Status copy_input_tensors_with_shuffle(
         TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
       }
     }
-    RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(
-        input_tensors, input_shuffles, &buffers, input_shm_tensors));
+    RIE_IGNORE_ABORTED(copy_input_tensors(runtime_io, input_tensors,
+                                          input_shuffles, &buffers,
+                                          input_shm_tensors));
   } else {
-    RIE_IGNORE_ABORTED(
-        scoped_io->copy_input_tensors(input_tensors, input_shm_tensors,
-                                      thread_pool));
+    RIE_IGNORE_ABORTED(copy_input_tensors(runtime_io, input_tensors,
+                                          input_shm_tensors, thread_pool));
   }
   return Status::OK();
 }
@@ -468,21 +519,21 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       for (size_t i = 0; i < output_tensors.size(); ++i) {
         output_ptrs[i] = &sliced_outputs.at(i);
       }
-      ScopedRuntimeIO scoped_io;
+      RuntimeIO runtime_io;
       std::vector<Tensor> input_shm_tensors;
       std::vector<Tensor> output_shm_tensors;
       std::vector<StringPiece> input_paths;
       std::vector<StringPiece> output_paths;
       SHARD_LOG_IGNORE_ABORTED(
           status_sd,
-          setup_runtime_io(&scoped_io.runtime_io_, &h2d_transfer_pool_,
-                           node_def, sliced_inputs, &input_shm_tensors,
-                           output_ptrs, &output_shm_tensors, nn_id_,
+          setup_runtime_io(&runtime_io, &h2d_transfer_pool_, node_def,
+                           sliced_inputs, &input_shm_tensors, output_ptrs,
+                           &output_shm_tensors, nn_id_,
                            neuron_engine_->shm_alloc_));
 
       // copy input tensors with optional input_shuffles
       SHARD_VLOG_TIME("in shard before input copy");
-      if (k_batch_size > 1 && scoped_io.runtime_io_.use_shm()) {
+      if (k_batch_size > 1 && runtime_io.use_shm()) {
         auto CopyInputShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
           std::vector<Tensor> input_slices(sliced_inputs.size());
           for (size_t i = 0; i < input_slices.size(); ++i) {
@@ -501,16 +552,18 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
               input_shm_slices[i] = shm_tensor;
             }
           }
-          SHARD_LOG_IGNORE_ABORTED(status_sd, copy_input_tensors_with_shuffle(
-              ctx, node_def, nullptr, input_slices, &scoped_io,
-              &input_shm_slices));
+          SHARD_LOG_IGNORE_ABORTED(
+              status_sd, copy_input_tensors_with_shuffle(
+                             ctx, node_def, nullptr, input_slices, &runtime_io,
+                             &input_shm_slices));
         };
         h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit,
                                        std::move(CopyInputShardFunc));
       } else {
-        SHARD_LOG_IGNORE_ABORTED(status_sd, copy_input_tensors_with_shuffle(
-            ctx, node_def, &h2d_transfer_pool_, sliced_inputs, &scoped_io,
-            &input_shm_tensors));
+        SHARD_LOG_IGNORE_ABORTED(
+            status_sd, copy_input_tensors_with_shuffle(
+                           ctx, node_def, &h2d_transfer_pool_, sliced_inputs,
+                           &runtime_io, &input_shm_tensors));
       }
 
       // run inference
@@ -519,12 +572,12 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         VLOG(1) << "enabling profiler in shard";
         SHARD_LOG_IGNORE_ABORTED(
             status_sd,
-            neuron_engine_->infer_with_profiling(&scoped_io, &profile_));
+            neuron_engine_->infer_with_profiling(&runtime_io, &profile_));
       } else {
-        SHARD_LOG_IGNORE_ABORTED(status_sd, neuron_engine_->infer(&scoped_io));
+        SHARD_LOG_IGNORE_ABORTED(status_sd, neuron_engine_->infer(&runtime_io));
       }
       SHARD_VLOG_TIME("in shard after infer");
-      SHARD_LOG_IGNORE_ABORTED(status_sd, scoped_io.finish());
+      SHARD_LOG_IGNORE_ABORTED(status_sd, runtime_io.finish());
       SHARD_VLOG_TIME("in shard exit");
     };
 #undef SHARD_LOG_IGNORE_ABORTED
@@ -550,18 +603,17 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     RIE_IGNORE_ABORTED(status_sd);
   } else {
     TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
-    ScopedRuntimeIO scoped_io;
+    RuntimeIO runtime_io;
     std::vector<Tensor> input_shm_tensors;
     std::vector<Tensor> output_shm_tensors;
-    RIE_IGNORE_ABORTED(setup_runtime_io(&scoped_io.runtime_io_, thread_pool,
-                                        node_def, input_tensors,
-                                        &input_shm_tensors, output_tensors,
-                                        &output_shm_tensors, nn_id_,
-                                        neuron_engine_->shm_alloc_));
+    RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, thread_pool, node_def,
+                                        input_tensors, &input_shm_tensors,
+                                        output_tensors, &output_shm_tensors,
+                                        nn_id_, neuron_engine_->shm_alloc_));
 
     // copy input tensors with optional input_shuffles
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
-        ctx, node_def, thread_pool, input_tensors, &scoped_io,
+        ctx, node_def, thread_pool, input_tensors, &runtime_io,
         &input_shm_tensors));
 
     // run inference
@@ -569,12 +621,12 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     if (TF_PREDICT_FALSE(profile_.enabled_)) {
       VLOG(1) << "profile enabled -- lock stop/start/infer altogether";
       RIE_IGNORE_ABORTED(
-          neuron_engine_->infer_with_profiling(&scoped_io, &profile_));
+          neuron_engine_->infer_with_profiling(&runtime_io, &profile_));
     } else {
-      RIE_IGNORE_ABORTED(neuron_engine_->infer(&scoped_io));
+      RIE_IGNORE_ABORTED(neuron_engine_->infer(&runtime_io));
     }
     VLOG_TIME("after infer");
-    RIE_IGNORE_ABORTED(scoped_io.finish());
+    RIE_IGNORE_ABORTED(runtime_io.finish());
   }
   VLOG_TIME("exiting compute");
 #undef VLOG_TIME

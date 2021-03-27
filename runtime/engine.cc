@@ -380,8 +380,7 @@ void NeuronEngine::unload(const uint32_t nn_id) {
   VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
-Status NeuronEngine::infer(ScopedRuntimeIO* scoped_io) {
-  RuntimeIO* runtime_io = &scoped_io->runtime_io_;
+Status NeuronEngine::infer(RuntimeIO* runtime_io) {
   uint32_t nn_id = runtime_io->get_nn_id();
   SemResQueue sem_res_queue;
   {
@@ -397,9 +396,8 @@ Status NeuronEngine::infer(ScopedRuntimeIO* scoped_io) {
   return runtime_.infer_wait(runtime_io);
 }
 
-Status NeuronEngine::infer_with_profiling(ScopedRuntimeIO* scoped_io,
+Status NeuronEngine::infer_with_profiling(RuntimeIO* runtime_io,
                                           ProfilerInterface* profile) {
-  RuntimeIO* runtime_io = &scoped_io->runtime_io_;
   uint32_t nn_id = runtime_io->get_nn_id();
   tensorflow::mutex_lock lock(mutex_eg_);
   TF_RETURN_IF_ERROR(start_model_unsafe(nn_id));

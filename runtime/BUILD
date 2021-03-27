@@ -50,8 +50,6 @@ cc_library(
         "shared_memory.cc",
         "runtime_grpc.h",
         "runtime_grpc.cc",
-        "runtime_io.h",
-        "runtime_io.cc",
         "version.h",
     ],
     hdrs = ["engine.h"],

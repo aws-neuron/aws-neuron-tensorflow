@@ -19,7 +19,6 @@ limitations under the License.
 #include <queue>
 #include "profiler.h"
 #include "runtime_grpc.h"
-#include "runtime_io.h"
 #include "semaphore.h"
 #include "shared_memory.h"
 #include "tensor_util.h"
@@ -39,8 +38,8 @@ class NeuronEngine {
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
-  Status infer(ScopedRuntimeIO* scoped_io);
-  Status infer_with_profiling(ScopedRuntimeIO* scoped_io,
+  Status infer(RuntimeIO* runtime_io);
+  Status infer_with_profiling(RuntimeIO* runtime_io,
                               ProfilerInterface* profile);
   void unload(const uint32_t nn_id);
   void clear(bool from_global_state = false);
