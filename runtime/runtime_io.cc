@@ -19,67 +19,16 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-Status ScopedRuntimeIO::setup(
-    AttrList& input_names, const std::vector<Tensor>& input_tensors,
-    AttrList& output_names, const std::vector<size_t>& output_tensor_sizes,
-    const std::vector<Tensor*>& output_tensors, const uint32_t nn_id,
-    thread::ThreadPool* thread_pool,
-    std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
-  shm_alloc_ = shm_alloc;
-  thread_pool_ = thread_pool;
-  bool use_shm = false;
-  std::vector<StringPiece> input_paths;
-  std::vector<StringPiece> output_paths;
-  if (nullptr != shm_alloc_ && shm_alloc_->is_valid()) {
-    input_shm_tensors_.reserve(input_tensors.size());
-    std::vector<SharedMemoryPtr> input_shm_bufs;
-    std::vector<SharedMemoryPtr> output_shm_bufs;
-    for (const Tensor& tensor : input_tensors) {
-      TensorShape shape = tensor.shape();
-      DataType dtype = tensor.dtype();
-      AllocationAttributes attr;
-      input_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
-      const Tensor& shm_tensor = input_shm_tensors_.back();
-      SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr(shm_tensor);
-      input_shm_bufs.push_back(shm_buf);
-    }
-    for (size_t buf_size : output_tensor_sizes) {
-      TensorShape shape({buf_size});
-      DataType dtype(DT_UINT8);
-      AllocationAttributes attr;
-      output_shm_tensors_.emplace_back(shm_alloc_.get(), dtype, shape, attr);
-      const Tensor& shm_tensor = output_shm_tensors_.back();
-      SharedMemoryPtr shm_buf = shm_alloc_->get_shm_ptr(shm_tensor);
-      output_shm_bufs.push_back(shm_buf);
-    }
-    for (auto shm_buf : input_shm_bufs) {
-      input_paths.push_back(shm_buf->get_path());
-    }
-    for (auto shm_buf : output_shm_bufs) {
-      output_paths.push_back(shm_buf->get_path());
-    }
-    use_shm = true;
-  } else {
-    for (size_t buf_size : output_tensor_sizes) {
-      TensorShape shape({buf_size});
-      DataType dtype(DT_UINT8);
-      output_shm_tensors_.emplace_back(dtype, shape);
-    }
-  }
-  return runtime_io_.setup(input_names, output_names, output_tensors,
-                           &output_shm_tensors_, nn_id, use_shm, input_paths,
-                           output_paths, thread_pool);
-}
-
 Status ScopedRuntimeIO::copy_input_tensors(
     const std::vector<Tensor>& input_tensors,
-    std::vector<Tensor>* input_shm_tensors) {
+    std::vector<Tensor>* input_shm_tensors,
+    thread::ThreadPool* thread_pool) {
   if (TF_PREDICT_TRUE(runtime_io_.use_shm())) {
     CHECK_VALID_PTR(input_shm_tensors);
     CHECK_SIZES_MATCH(input_shm_tensors->size(), input_tensors.size());
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       Tensor* dst = &input_shm_tensors->at(idx);
-      TF_RETURN_IF_ERROR(tensor_copy(dst, input_tensors.at(idx), thread_pool_));
+      TF_RETURN_IF_ERROR(tensor_copy(dst, input_tensors.at(idx), thread_pool));
     }
   }
   return runtime_io_.copy_input_tensors(input_tensors);
