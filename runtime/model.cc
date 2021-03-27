@@ -168,10 +168,9 @@ static Status setup_runtime_io(
 
 static Status copy_input_tensors_with_shuffle(
     OpKernelContext* ctx, const NodeDef& node_def,
+    thread::ThreadPool* thread_pool,
     const std::vector<Tensor>& input_tensors, ScopedRuntimeIO* scoped_io,
     std::vector<Tensor>* input_shm_tensors) {
-  thread::ThreadPool* thread_pool =
-      ctx->device()->tensorflow_cpu_worker_threads()->workers;
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   if (attr.count("_input_shuffles")) {
     AttrList& input_shuffles = attr.at("_input_shuffles").list();
@@ -502,16 +501,16 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
               input_shm_slices[i] = shm_tensor;
             }
           }
-          SHARD_LOG_IGNORE_ABORTED(
-              status_sd,
-              copy_input_tensors_with_shuffle(ctx, node_def, input_slices,
-                                              &scoped_io, &input_shm_slices));
+          SHARD_LOG_IGNORE_ABORTED(status_sd, copy_input_tensors_with_shuffle(
+              ctx, node_def, nullptr, input_slices, &scoped_io,
+              &input_shm_slices));
         };
         h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit,
                                        std::move(CopyInputShardFunc));
       } else {
         SHARD_LOG_IGNORE_ABORTED(status_sd, copy_input_tensors_with_shuffle(
-            ctx, node_def, sliced_inputs, &scoped_io, &input_shm_tensors));
+            ctx, node_def, &h2d_transfer_pool_, sliced_inputs, &scoped_io,
+            &input_shm_tensors));
       }
 
       // run inference
@@ -562,7 +561,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 
     // copy input tensors with optional input_shuffles
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
-        ctx, node_def, input_tensors, &scoped_io, &input_shm_tensors));
+        ctx, node_def, thread_pool, input_tensors, &scoped_io,
+        &input_shm_tensors));
 
     // run inference
     VLOG_TIME("before infer");
