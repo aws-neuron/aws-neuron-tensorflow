@@ -166,6 +166,34 @@ static Status setup_runtime_io(
       nn_id, use_shm, input_paths, output_paths, thread_pool);
 }
 
+static Status copy_input_tensors_with_shuffle(
+    OpKernelContext* ctx, const NodeDef& node_def,
+    const std::vector<Tensor>& input_tensors, ScopedRuntimeIO* scoped_io,
+    std::vector<Tensor>* input_shm_tensors) {
+  thread::ThreadPool* thread_pool =
+      ctx->device()->tensorflow_cpu_worker_threads()->workers;
+  const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
+  if (attr.count("_input_shuffles")) {
+    AttrList& input_shuffles = attr.at("_input_shuffles").list();
+    std::vector<Tensor> buffers;
+    if (TF_PREDICT_FALSE(!scoped_io->runtime_io_.use_shm())) {
+      buffers.resize(input_tensors.size());
+      for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+        const Tensor& src = input_tensors.at(idx);
+        Tensor* dst = &buffers.at(idx);
+        TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
+      }
+    }
+    RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(
+        input_tensors, input_shuffles, &buffers, input_shm_tensors));
+  } else {
+    RIE_IGNORE_ABORTED(
+        scoped_io->copy_input_tensors(input_tensors, input_shm_tensors,
+                                      thread_pool));
+  }
+  return Status::OK();
+}
+
 NeuronModel::NeuronModel()
     : h2d_transfer_pool_(Env::Default(), "neuron_h2d", H2D_POOL_SIZE) {
   VLOG(1) << "NeuronModel contructor " << this;
@@ -232,34 +260,6 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   // check argument sizes
   TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "input"));
   TF_RETURN_IF_ERROR(get_io_tensor_sizes(nullptr, node_def, "output"));
-  return Status::OK();
-}
-
-static Status copy_input_tensors_with_shuffle(
-    OpKernelContext* ctx, const NodeDef& node_def,
-    const std::vector<Tensor>& input_tensors, ScopedRuntimeIO* scoped_io,
-    std::vector<Tensor>* input_shm_tensors) {
-  thread::ThreadPool* thread_pool =
-      ctx->device()->tensorflow_cpu_worker_threads()->workers;
-  const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
-  if (attr.count("_input_shuffles")) {
-    AttrList& input_shuffles = attr.at("_input_shuffles").list();
-    std::vector<Tensor> buffers;
-    if (TF_PREDICT_FALSE(!scoped_io->runtime_io_.use_shm())) {
-      buffers.resize(input_tensors.size());
-      for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-        const Tensor& src = input_tensors.at(idx);
-        Tensor* dst = &buffers.at(idx);
-        TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
-      }
-    }
-    RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(
-        input_tensors, input_shuffles, &buffers, input_shm_tensors));
-  } else {
-    RIE_IGNORE_ABORTED(
-        scoped_io->copy_input_tensors(input_tensors, input_shm_tensors,
-                                      thread_pool));
-  }
   return Status::OK();
 }
 
