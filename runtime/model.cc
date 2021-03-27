@@ -168,9 +168,13 @@ static Status setup_runtime_io(
       output_paths.push_back(shm_buf->get_path());
     }
   }
+  std::vector<Tensor*> output_shm_ptrs;
+  for (Tensor& shm_tensor : *output_shm_tensors) {
+    output_shm_ptrs.push_back(&shm_tensor);
+  }
   return runtime_io->setup(input_names, output_names, output_tensors,
                            nn_id, use_shm, input_paths, output_paths,
-                           output_shm_tensors, thread_pool);
+                           output_shm_ptrs, thread_pool);
 }
 
 static Status copy_input_tensors(RuntimeIO* runtime_io,

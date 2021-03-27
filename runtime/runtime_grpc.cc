@@ -26,7 +26,7 @@ Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
                         const uint32_t nn_id, bool use_shm,
                         const std::vector<StringPiece>& input_paths,
                         const std::vector<StringPiece>& output_paths,
-                        std::vector<Tensor>* output_shm_tensors,
+                        const std::vector<Tensor*>& output_shm_tensors,
                         thread::ThreadPool* thread_pool) {
   CHECK_SIZES_MATCH(output_names.s_size(), output_tensors.size());
   thread_pool_ = thread_pool;
@@ -91,12 +91,12 @@ Status RuntimeIO::finish() {
           "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
     }
   } else {
-    CHECK_SIZES_MATCH(output_names_->s_size(), output_shm_tensors_->size());
+    CHECK_SIZES_MATCH(output_names_->s_size(), output_shm_tensors_.size());
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
-      Tensor* out_tensor = output_tensors_[idx];
-      const Tensor& shm_tensor = output_shm_tensors_->at(idx);
+      Tensor* out_tensor = output_tensors_.at(idx);
+      Tensor* shm_tensor = output_shm_tensors_.at(idx);
       TF_RETURN_WITH_CONTEXT_IF_ERROR(
-          tensor_copy(out_tensor, shm_tensor, thread_pool_),
+          tensor_copy(out_tensor, *shm_tensor, thread_pool_),
           "tensor_copy failure on tensor name: ", output_names_->s(idx));
     }
   }
