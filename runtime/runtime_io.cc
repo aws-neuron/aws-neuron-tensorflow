@@ -66,13 +66,8 @@ Status ScopedRuntimeIO::setup(
       output_shm_tensors_.emplace_back(dtype, shape);
     }
   }
-  std::vector<Tensor*> output_shm_tensors;
-  output_shm_tensors.reserve(output_shm_tensors_.size());
-  for (auto& tensor : output_shm_tensors_) {
-    output_shm_tensors.push_back(&tensor);
-  }
   return runtime_io_.setup(input_names, output_names, output_tensors,
-                           output_shm_tensors, nn_id, use_shm, input_paths,
+                           &output_shm_tensors_, nn_id, use_shm, input_paths,
                            output_paths, thread_pool);
 }
 

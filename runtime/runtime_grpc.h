@@ -80,7 +80,7 @@ class RuntimeIO {
   RuntimeIO() {}
   Status setup(AttrList& input_names, AttrList& output_names,
                const std::vector<Tensor*>& output_tensors,
-               const std::vector<Tensor*>& output_shm_tensors,
+               std::vector<Tensor>* output_shm_tensors,
                const uint32_t nn_id, bool use_shm,
                const std::vector<StringPiece>& input_paths,
                const std::vector<StringPiece>& output_paths,
@@ -111,7 +111,7 @@ class RuntimeIO {
   grpc::Status wait_status_;
   AttrList* output_names_;
   std::vector<Tensor*> output_tensors_;
-  std::vector<Tensor*> output_shm_tensors_;
+  std::vector<Tensor>* output_shm_tensors_;
   bool use_shm_ = false;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };

@@ -23,13 +23,13 @@ namespace neuron {
 
 Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
                         const std::vector<Tensor*>& output_tensors,
-                        const std::vector<Tensor*>& output_shm_tensors,
+                        std::vector<Tensor>* output_shm_tensors,
                         const uint32_t nn_id, bool use_shm,
                         const std::vector<StringPiece>& input_paths,
                         const std::vector<StringPiece>& output_paths,
                         thread::ThreadPool* thread_pool) {
   CHECK_SIZES_MATCH(output_names.s_size(), output_tensors.size());
-  CHECK_SIZES_MATCH(output_tensors.size(), output_shm_tensors.size());
+  CHECK_SIZES_MATCH(output_tensors.size(), output_shm_tensors->size());
   thread_pool_ = thread_pool;
   use_shm_ = use_shm;
   output_shm_tensors_ = output_shm_tensors;
@@ -94,7 +94,7 @@ Status RuntimeIO::finish() {
   } else {
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
       Tensor* out_tensor = output_tensors_[idx];
-      const Tensor& shm_tensor = *output_shm_tensors_.at(idx);
+      const Tensor& shm_tensor = output_shm_tensors_->at(idx);
       TF_RETURN_WITH_CONTEXT_IF_ERROR(
           tensor_copy(out_tensor, shm_tensor, thread_pool_),
           "tensor_copy failure on tensor name: ", output_names_->s(idx));
