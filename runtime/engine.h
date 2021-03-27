@@ -39,14 +39,6 @@ class NeuronEngine {
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
-  Status setup_scoped_runtime_io(ScopedRuntimeIO* scoped_io,
-                                 AttrList& input_names,
-                                 const std::vector<Tensor>& input_tensors,
-                                 AttrList& output_names,
-                                 const std::vector<size_t>& output_tensor_sizes,
-                                 const std::vector<Tensor*>& output_tensors,
-                                 const uint32_t nn_id,
-                                 thread::ThreadPool* thread_pool);
   Status infer(ScopedRuntimeIO* scoped_io);
   Status infer_with_profiling(ScopedRuntimeIO* scoped_io,
                               ProfilerInterface* profile);
@@ -55,6 +47,7 @@ class NeuronEngine {
   size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
   uint32_t num_cores() { return num_cores_; };
   std::shared_ptr<RuntimeSession> get_session() { return session_; }
+  std::shared_ptr<SharedMemoryAllocator> shm_alloc_ = nullptr;
 
  private:
   Status start_model_unsafe(const uint32_t nn_id);
@@ -70,7 +63,6 @@ class NeuronEngine {
   uint64_t session_id_ = RuntimeSession::INVALID_ID;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
   std::vector<uint32_t> vec_eg_id_;
-  std::shared_ptr<SharedMemoryAllocator> shm_alloc_ = nullptr;
   uint32_t running_nn_id_;
   uint32_t num_cores_ = 0;
   std::string nrtd_address_ = "";

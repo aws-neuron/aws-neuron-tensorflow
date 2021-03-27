@@ -415,9 +415,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       ScopedRuntimeIO scoped_io;
       SHARD_LOG_IGNORE_ABORTED(
           status_sd,
-          neuron_engine_->setup_scoped_runtime_io(
-              &scoped_io, input_names, sliced_inputs, output_names,
-              output_tensor_sizes, output_ptrs, nn_id_, &h2d_transfer_pool_));
+          scoped_io.setup(input_names, sliced_inputs, output_names,
+                          output_tensor_sizes, output_ptrs, nn_id_,
+                          &h2d_transfer_pool_, neuron_engine_->shm_alloc_));
 
       // copy input tensors with optional input_shuffles
       SHARD_VLOG_TIME("in shard before input copy");
@@ -493,9 +493,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   } else {
     TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
     ScopedRuntimeIO scoped_io;
-    RIE_IGNORE_ABORTED(neuron_engine_->setup_scoped_runtime_io(
-        &scoped_io, input_names, input_tensors, output_names,
-        output_tensor_sizes, output_tensors, nn_id_, thread_pool));
+    RIE_IGNORE_ABORTED(scoped_io.setup(
+        input_names, input_tensors, output_names, output_tensor_sizes,
+        output_tensors, nn_id_, thread_pool, neuron_engine_->shm_alloc_));
 
     // copy input tensors with optional input_shuffles
     std::vector<Tensor>* input_shm_tensors = scoped_io.get_input_shm_tensors();
