@@ -14,6 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "model.h"
+#include "device.h"
 #include "engine.h"
 #include "model_config.h"
 
@@ -111,8 +112,9 @@ static Status check_input_tensors(const std::vector<Tensor>& input_tensors,
 }
 
 static Status setup_runtime_io(
-    RuntimeIO* runtime_io, thread::ThreadPool* thread_pool,
-    const NodeDef& node_def, const std::vector<Tensor>& input_tensors,
+    RuntimeIO* runtime_io, OpKernelContext* ctx,
+    thread::ThreadPool* thread_pool, const NodeDef& node_def,
+    const std::vector<Tensor>& input_tensors,
     std::vector<Tensor>* input_shm_tensors,
     const std::vector<Tensor*>& output_tensors,
     std::vector<Tensor>* output_shm_tensors, uint32_t nn_id,
@@ -133,24 +135,29 @@ static Status setup_runtime_io(
     use_shm &= buf_size != 0;
   }
   if (use_shm) {
-    input_shm_tensors->reserve(input_tensors.size());
+    input_shm_tensors->resize(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
     std::vector<SharedMemoryPtr> output_shm_bufs;
-    for (const Tensor& tensor : input_tensors) {
+    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+      const Tensor& tensor = input_tensors.at(idx);
       TensorShape shape = tensor.shape();
       DataType dtype = tensor.dtype();
-      AllocationAttributes attr;
-      input_shm_tensors->emplace_back(shm_allocator, dtype, shape, attr);
-      const Tensor& shm_tensor = input_shm_tensors->back();
+      AllocatorAttributes attr;
+      NeuronDevice::set_on_shm(&attr, true);
+      Tensor& shm_tensor = input_shm_tensors->at(idx);
+      TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
       input_shm_bufs.push_back(shm_buf);
     }
-    for (size_t buf_size : output_tensor_sizes) {
+    output_shm_tensors->resize(output_tensor_sizes.size());
+    for (size_t idx = 0; idx < output_tensor_sizes.size(); ++idx) {
+      size_t buf_size = output_tensor_sizes.at(idx);
       TensorShape shape({buf_size});
       DataType dtype(DT_UINT8);
-      AllocationAttributes attr;
-      output_shm_tensors->emplace_back(shm_allocator, dtype, shape, attr);
-      const Tensor& shm_tensor = output_shm_tensors->back();
+      AllocatorAttributes attr;
+      NeuronDevice::set_on_shm(&attr, true);
+      Tensor& shm_tensor = output_shm_tensors->at(idx);
+      TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
       output_shm_bufs.push_back(shm_buf);
     }
@@ -528,7 +535,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       std::vector<StringPiece> output_paths;
       SHARD_LOG_IGNORE_ABORTED(
           status_sd,
-          setup_runtime_io(&runtime_io, &h2d_transfer_pool_, node_def,
+          setup_runtime_io(&runtime_io, ctx, &h2d_transfer_pool_, node_def,
                            sliced_inputs, &input_shm_tensors, output_ptrs,
                            &output_shm_tensors, nn_id_,
                            shm_allocator));
@@ -608,7 +615,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     RuntimeIO runtime_io;
     std::vector<Tensor> input_shm_tensors;
     std::vector<Tensor> output_shm_tensors;
-    RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, thread_pool, node_def,
+    RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, ctx, thread_pool, node_def,
                                         input_tensors, &input_shm_tensors,
                                         output_tensors, &output_shm_tensors,
                                         nn_id_, shm_allocator));

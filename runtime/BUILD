@@ -65,6 +65,7 @@ cc_library(
     deps = [
         ":utils",
         ":engine",
+        ":device",
     ],
 )
 
