@@ -178,17 +178,6 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   return Status::OK();
 }
 
-static Status allocate_shuffle_buffers(
-    OpKernelContext* ctx, std::vector<Tensor>* shuffle_buffers,
-    const std::vector<Tensor>& input_tensors) {
-  for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-    const Tensor& src = input_tensors.at(idx);
-    Tensor* dst = &shuffle_buffers->at(idx);
-    TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
-  }
-  return Status::OK();
-}
-
 static Status copy_input_tensors_with_shuffle(
     OpKernelContext* ctx, const NodeDef& node_def,
     const std::vector<Tensor>& input_tensors, ScopedRuntimeIO* scoped_io,
@@ -199,8 +188,11 @@ static Status copy_input_tensors_with_shuffle(
     std::vector<Tensor> buffers;
     if (TF_PREDICT_FALSE(!scoped_io->runtime_io_.use_shm())) {
       buffers.resize(input_tensors.size());
-      TF_RETURN_IF_ERROR(
-          allocate_shuffle_buffers(ctx, &buffers, input_tensors));
+      for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
+        const Tensor& src = input_tensors.at(idx);
+        Tensor* dst = &buffers.at(idx);
+        TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
+      }
     }
     RIE_IGNORE_ABORTED(scoped_io->copy_input_tensors(
         input_tensors, input_shuffles, &buffers, input_shm_tensors));
