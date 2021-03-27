@@ -36,8 +36,9 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-// magic number for uninitialized batch size
+// some magic numbers
 static const int64 UNINIT_BATCH_SIZE = -8;
+static const int64 STATIC_BATCH_AXIS = -1;
 static const int64 H2D_POOL_SIZE = 8;
 
 static size_t get_tensor_size(const DataType dype,
@@ -331,25 +332,23 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   int64_t k_batch_size = UNINIT_BATCH_SIZE;
   std::vector<bool> is_batch_inputs(input_tensors.size());
   std::vector<bool> is_batch_outputs(ctx->num_outputs());
-  bool use_dynamic_batch_size = false;
   AttrList& output_names = attr.at("output_names").list();
   AttrList& input_batch_axis = attr.at("input_batch_axis").list();
   AttrList& output_batch_axis = attr.at("output_batch_axis").list();
-  bool enable_dynamic_batch_size = false;
-  for (auto idx = 0; idx < input_batch_axis.i_size(); ++idx) {
-    if (-1 != input_batch_axis.i(idx)) {
-      enable_dynamic_batch_size = true;
-      break;
+  bool found_batch_axis = false;
+  if (TF_PREDICT_TRUE(input_names.s_size() == input_batch_axis.i_size())) {
+    if (TF_PREDICT_TRUE(output_names.s_size() == output_batch_axis.i_size())) {
+      for (int64 batch_axis : input_batch_axis.i()) {
+        if (batch_axis != STATIC_BATCH_AXIS) {
+          found_batch_axis = true;
+          break;
+        }
+      }
     }
   }
-  if (TF_PREDICT_FALSE(input_names.s_size() != input_batch_axis.i_size())) {
-    enable_dynamic_batch_size = false;
-  }
-  if (TF_PREDICT_FALSE(output_names.s_size() != output_batch_axis.i_size())) {
-    enable_dynamic_batch_size = false;
-  }
+  bool use_dynamic_batch_size = false;
   int64 input_copy_cost_per_unit = 0;
-  if (enable_dynamic_batch_size) {
+  if (found_batch_axis) {
     AttrList& input_shapes = attr.at("input_shapes").list();
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       bool is_batch_tensor = false;
@@ -382,7 +381,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         shape.RemoveDim(0);
         k_shape.RemoveDim(0);
         is_batch_tensor = batch_size != k_batch_size;
-        use_dynamic_batch_size = is_batch_tensor;
+        use_dynamic_batch_size |= is_batch_tensor;
       }
       TFNN_ASSERT(
           shape == k_shape,
@@ -408,6 +407,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
                 output_names.s(idx), ", Neuron tensor shape ",
                 k_shape.DebugString(), ", Neuron batch size ", k_batch_size));
         is_batch_tensor = batch_size != k_shape.dim_size(0);
+        use_dynamic_batch_size |= is_batch_tensor;
       }
       is_batch_outputs[idx] = is_batch_tensor;
     }
