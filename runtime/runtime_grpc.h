@@ -80,10 +80,10 @@ class RuntimeIO {
   RuntimeIO() {}
   Status setup(AttrList& input_names, AttrList& output_names,
                const std::vector<Tensor*>& output_tensors,
-               std::vector<Tensor>* output_shm_tensors,
                const uint32_t nn_id, bool use_shm,
                const std::vector<StringPiece>& input_paths,
                const std::vector<StringPiece>& output_paths,
+               std::vector<Tensor>* output_shm_tensors,
                thread::ThreadPool* thread_pool = nullptr);
   bool use_shm() { return use_shm_; }
   Status copy_input_tensors(const std::vector<Tensor>& input_tensors);

@@ -153,16 +153,10 @@ static Status setup_runtime_io(
     for (auto shm_buf : output_shm_bufs) {
       output_paths.push_back(shm_buf->get_path());
     }
-  } else {
-    for (size_t buf_size : output_tensor_sizes) {
-      TensorShape shape({buf_size});
-      DataType dtype(DT_UINT8);
-      output_shm_tensors->emplace_back(dtype, shape);
-    }
   }
   return runtime_io->setup(input_names, output_names, output_tensors,
-                           output_shm_tensors, nn_id, use_shm, input_paths,
-                           output_paths, thread_pool);
+                           nn_id, use_shm, input_paths, output_paths,
+                           output_shm_tensors, thread_pool);
 }
 
 static Status copy_input_tensors(RuntimeIO* runtime_io,
