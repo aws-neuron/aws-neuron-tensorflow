@@ -48,9 +48,9 @@ NeuronEngineManager::NeuronEngineManager() {
   runtime_status_ = session_->initialize(nrtd_address_);
 
   // shared memory allocator
-  shm_alloc_ = std::make_shared<SharedMemoryAllocator>();
+  shm_allocator_ = std::make_shared<SharedMemoryAllocator>();
   if (runtime_status_.ok()) {
-    shm_alloc_->initialize(session_->get_id(), nrtd_address_);
+    shm_allocator_->initialize(session_->get_id(), nrtd_address_);
   }
 }
 
@@ -133,7 +133,7 @@ Status NeuronEngineManager::init_engines(
       return errors::Internal("neuron runtime session is not initialized");
     }
     status = engine_array_[idx].initialize(nrtd_address_, num_cores_req,
-                                           num_dup, session_, shm_alloc_);
+                                           num_dup, session_);
     if (!status.ok()) {
       if (status.code() != tensorflow::error::Code::ABORTED) {
         LOG(WARNING) << "Cannot initialize NeuronCore Group with "
@@ -259,8 +259,7 @@ Status NeuronEngineManager::apply_for_engine(NeuronEngine** engine,
 
 Status NeuronEngine::initialize(
     const std::string& nrtd_address, const int num_cores_req, const int num_dup,
-    std::shared_ptr<RuntimeSession> session,
-    std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
+    std::shared_ptr<RuntimeSession> session) {
   tensorflow::mutex_lock lock(mutex_eg_);
   if (closed_) {
     return errors::Aborted("neuron_engine is closed");
@@ -292,7 +291,6 @@ Status NeuronEngine::initialize(
     }
   }
   running_nn_id_ = NRT_INVALID_NN_ID;
-  shm_alloc_ = shm_alloc;
   return Status::OK();
 }
 

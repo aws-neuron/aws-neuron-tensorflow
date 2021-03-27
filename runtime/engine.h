@@ -33,8 +33,7 @@ class NeuronEngine {
  public:
   NeuronEngine() {}
   Status initialize(const std::string& nrtd_address, const int num_cores_req,
-                    const int num_dup, std::shared_ptr<RuntimeSession> session,
-                    std::shared_ptr<SharedMemoryAllocator> shm_alloc);
+                    const int num_dup, std::shared_ptr<RuntimeSession> session);
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
@@ -46,7 +45,6 @@ class NeuronEngine {
   size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
   uint32_t num_cores() { return num_cores_; };
   std::shared_ptr<RuntimeSession> get_session() { return session_; }
-  std::shared_ptr<SharedMemoryAllocator> shm_alloc_ = nullptr;
 
  private:
   Status start_model_unsafe(const uint32_t nn_id);
@@ -75,6 +73,7 @@ class NeuronEngine {
 class NeuronEngineManager {
  public:
   static NeuronEngineManager& GetNeuronEngineManager();
+  SharedMemoryAllocator* get_shm_allocator() { return shm_allocator_.get(); }
   Status apply_for_engine(NeuronEngine** engine,
                           const std::string& session_handle,
                           const int64_t opt_engine_size,
@@ -99,7 +98,7 @@ class NeuronEngineManager {
   static const int DEFAULT_NUM_CORES = -65536;  // any number < -MAX_NUM_CORES
   std::string nrtd_address_;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
-  std::shared_ptr<SharedMemoryAllocator> shm_alloc_ = nullptr;
+  std::shared_ptr<SharedMemoryAllocator> shm_allocator_ = nullptr;
   std::array<NeuronEngine, MAX_NUM_CORES> engine_array_;
   std::unordered_map<std::string, size_t> session_handle_to_engine_index_;
   size_t engine_index_ = 0;

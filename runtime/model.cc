@@ -115,14 +115,14 @@ static Status setup_runtime_io(
     std::vector<Tensor>* input_shm_tensors,
     const std::vector<Tensor*>& output_tensors,
     std::vector<Tensor>* output_shm_tensors, uint32_t nn_id,
-    std::shared_ptr<SharedMemoryAllocator> shm_alloc) {
+    SharedMemoryAllocator* shm_allocator) {
   std::vector<size_t> output_tensor_sizes;
   TF_RETURN_IF_ERROR(
       get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   AttrList& input_names = attr.at("input_names").list();
   AttrList& output_names = attr.at("output_names").list();
-  bool use_shm = shm_alloc->is_valid();
+  bool use_shm = shm_allocator->is_valid();
   std::vector<StringPiece> input_paths;
   std::vector<StringPiece> output_paths;
   if (use_shm) {
@@ -133,18 +133,18 @@ static Status setup_runtime_io(
       TensorShape shape = tensor.shape();
       DataType dtype = tensor.dtype();
       AllocationAttributes attr;
-      input_shm_tensors->emplace_back(shm_alloc.get(), dtype, shape, attr);
+      input_shm_tensors->emplace_back(shm_allocator, dtype, shape, attr);
       const Tensor& shm_tensor = input_shm_tensors->back();
-      SharedMemoryPtr shm_buf = shm_alloc->get_shm_ptr(shm_tensor);
+      SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
       input_shm_bufs.push_back(shm_buf);
     }
     for (size_t buf_size : output_tensor_sizes) {
       TensorShape shape({buf_size});
       DataType dtype(DT_UINT8);
       AllocationAttributes attr;
-      output_shm_tensors->emplace_back(shm_alloc.get(), dtype, shape, attr);
+      output_shm_tensors->emplace_back(shm_allocator, dtype, shape, attr);
       const Tensor& shm_tensor = output_shm_tensors->back();
-      SharedMemoryPtr shm_buf = shm_alloc->get_shm_ptr(shm_tensor);
+      SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
       output_shm_bufs.push_back(shm_buf);
     }
     for (auto shm_buf : input_shm_bufs) {
@@ -311,6 +311,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
                             const std::vector<Tensor>& input_tensors) {
   uint64 start_time = Env::Default()->NowMicros();
 #define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
+  SharedMemoryAllocator* shm_allocator =
+      NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
   thread::ThreadPool* thread_pool =
       ctx->device()->tensorflow_cpu_worker_threads()->workers;
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
@@ -523,7 +525,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           setup_runtime_io(&runtime_io, &h2d_transfer_pool_, node_def,
                            sliced_inputs, &input_shm_tensors, output_ptrs,
                            &output_shm_tensors, nn_id_,
-                           neuron_engine_->shm_alloc_));
+                           shm_allocator));
 
       // copy input tensors with optional input_shuffles
       SHARD_VLOG_TIME("in shard before input copy");
@@ -603,7 +605,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, thread_pool, node_def,
                                         input_tensors, &input_shm_tensors,
                                         output_tensors, &output_shm_tensors,
-                                        nn_id_, neuron_engine_->shm_alloc_));
+                                        nn_id_, shm_allocator));
 
     // copy input tensors with optional input_shuffles
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
