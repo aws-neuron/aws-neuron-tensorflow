@@ -122,11 +122,13 @@ static Status setup_runtime_io(RuntimeIO* runtime_io, const NodeDef& node_def,
   AttrList& output_names = attr.at("output_names").list();
   std::vector<StringPiece> input_paths;
   std::vector<StringPiece> output_paths;
-  if (use_shm) {
+  if (TF_PREDICT_TRUE(use_shm)) {
+    input_paths.reserve(input_shm_tensors.size());
     for (const Tensor& shm_tensor : input_shm_tensors) {
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
       input_paths.push_back(shm_buf->get_path());
     }
+    output_paths.reserve(output_shm_tensors.size());
     for (const Tensor* shm_tensor : output_shm_tensors) {
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(*shm_tensor);
       output_paths.push_back(shm_buf->get_path());
@@ -504,7 +506,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       for (size_t buf_size : output_tensor_sizes) {
         use_shm &= buf_size != 0;
       }
-      if (use_shm) {
+      if (TF_PREDICT_TRUE(use_shm)) {
         input_shm_tensors.resize(sliced_inputs.size());
         for (size_t idx = 0; idx < sliced_inputs.size(); ++idx) {
           const Tensor& tensor = sliced_inputs.at(idx);
@@ -626,7 +628,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     for (size_t buf_size : output_tensor_sizes) {
       use_shm &= buf_size != 0;
     }
-    if (use_shm) {
+    if (TF_PREDICT_TRUE(use_shm)) {
       input_shm_tensors.resize(input_tensors.size());
       for (size_t idx = 0; idx < input_shm_tensors.size(); ++idx) {
         const Tensor& tensor = input_tensors.at(idx);
