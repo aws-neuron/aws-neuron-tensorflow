@@ -414,8 +414,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     }
   } else {
     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+      AllocatorAttributes attr;
+      NeuronDevice::set_on_shm(&attr, shm_allocator->is_valid());
       TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
-                                              &output_tensors[idx]));
+                                              &output_tensors[idx], attr));
     }
   }
 
@@ -639,23 +641,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         Tensor& shm_tensor = input_shm_tensors.at(idx);
         TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
       }
-      output_shm_tensors.resize(output_tensors.size());
-      for (size_t idx = 0; idx < output_shm_tensors.size(); ++idx) {
-        Tensor* tensor = output_tensors.at(idx);
-        TensorShape shape(tensor->shape());
-        DataType dtype(tensor->dtype());
-        AllocatorAttributes attr;
-        NeuronDevice::set_on_shm(&attr, true);
-        Tensor& shm_tensor = output_shm_tensors.at(idx);
-        TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
-      }
-    }
-    std::vector<Tensor*> output_shm_ptrs;
-    for (Tensor& shm_tensor : output_shm_tensors) {
-      output_shm_ptrs.push_back(&shm_tensor);
     }
     RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, node_def,
-                                        input_shm_tensors, output_shm_ptrs,
+                                        input_shm_tensors, output_tensors,
                                         nn_id_, shm_allocator, use_shm));
 
     // copy input tensors with optional input_shuffles
@@ -673,8 +661,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       RIE_IGNORE_ABORTED(neuron_engine_->infer(&runtime_io));
     }
     VLOG_TIME("after infer");
-    RIE_IGNORE_ABORTED(
-        runtime_io.finish(&output_tensors, output_shm_tensors, thread_pool));
+    if (TF_PREDICT_FALSE(!shm_allocator->is_valid())) {
+      RIE_IGNORE_ABORTED(
+          runtime_io.finish(&output_tensors, output_shm_tensors, thread_pool));
+    }
   }
   VLOG_TIME("exiting compute");
 #undef VLOG_TIME
