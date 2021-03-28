@@ -264,6 +264,11 @@ size_t SharedMemoryAllocator::AllocatedSizeSlow(const void* ptr) const {
   return shm->get_size();
 }
 
+bool SharedMemoryAllocator::is_shm_tensor(const Tensor& tensor) {
+  return DataTypeCanUseMemcpy(tensor.dtype()) &&
+         ptr_to_id_.count(tensor.tensor_data().data());
+}
+
 SharedMemoryPtr SharedMemoryAllocator::get_shm_ptr(const Tensor& tensor) {
   const void* ptr = tensor.tensor_data().data();
   tensorflow::mutex_lock lock(mutex_);

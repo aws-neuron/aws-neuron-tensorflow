@@ -37,6 +37,9 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
+// some keys
+const char kInputShuffles[] = "_input_shuffles";
+
 // some magic numbers
 static const int64 UNINIT_BATCH_SIZE = -8;
 static const int64 STATIC_BATCH_AXIS = -1;
@@ -126,11 +129,13 @@ static Status setup_runtime_io(RuntimeIO* runtime_io, const NodeDef& node_def,
     input_paths.reserve(input_shm_tensors.size());
     for (const Tensor& shm_tensor : input_shm_tensors) {
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
+      CHECK_VALID_PTR(shm_buf);
       input_paths.push_back(shm_buf->get_path());
     }
     output_paths.reserve(output_shm_tensors.size());
     for (const Tensor* shm_tensor : output_shm_tensors) {
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(*shm_tensor);
+      CHECK_VALID_PTR(shm_buf);
       output_paths.push_back(shm_buf->get_path());
     }
   }
@@ -140,14 +145,17 @@ static Status setup_runtime_io(RuntimeIO* runtime_io, const NodeDef& node_def,
 
 static Status copy_input_tensors(RuntimeIO* runtime_io,
                                  const std::vector<Tensor>& input_tensors,
+                                 const std::vector<bool>& need_copy_inputs,
                                  std::vector<Tensor>* input_shm_tensors,
                                  thread::ThreadPool* thread_pool) {
   if (TF_PREDICT_TRUE(runtime_io->use_shm())) {
     CHECK_VALID_PTR(input_shm_tensors);
     CHECK_SIZES_MATCH(input_shm_tensors->size(), input_tensors.size());
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-      Tensor* dst = &input_shm_tensors->at(idx);
-      TF_RETURN_IF_ERROR(tensor_copy(dst, input_tensors.at(idx), thread_pool));
+      if (need_copy_inputs.at(idx)) {
+        Tensor* dst = &input_shm_tensors->at(idx);
+        TF_RETURN_IF_ERROR(tensor_copy(dst, input_tensors.at(idx), thread_pool));
+      }
     }
   }
   return runtime_io->copy_input_tensors(input_tensors);
@@ -194,10 +202,11 @@ static Status copy_input_tensors(RuntimeIO* runtime_io,
 static Status copy_input_tensors_with_shuffle(
     OpKernelContext* ctx, const NodeDef& node_def,
     thread::ThreadPool* thread_pool, const std::vector<Tensor>& input_tensors,
+    const std::vector<bool>& need_copy_inputs,
     RuntimeIO* runtime_io, std::vector<Tensor>* input_shm_tensors) {
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
-  if (attr.count("_input_shuffles")) {
-    AttrList& input_shuffles = attr.at("_input_shuffles").list();
+  if (attr.count(kInputShuffles)) {
+    AttrList& input_shuffles = attr.at(kInputShuffles).list();
     std::vector<Tensor> buffers;
     if (TF_PREDICT_FALSE(!runtime_io->use_shm())) {
       buffers.resize(input_tensors.size());
@@ -212,6 +221,7 @@ static Status copy_input_tensors_with_shuffle(
                                           input_shm_tensors));
   } else {
     RIE_IGNORE_ABORTED(copy_input_tensors(runtime_io, input_tensors,
+                                          need_copy_inputs,
                                           input_shm_tensors, thread_pool));
   }
   return Status::OK();
@@ -232,8 +242,8 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
 
   // validate input shuffles
-  if (attr.count("_input_shuffles")) {
-    AttrList& input_shuffles = attr.at("_input_shuffles").list();
+  if (attr.count(kInputShuffles)) {
+    AttrList& input_shuffles = attr.at(kInputShuffles).list();
     AttrList& input_shapes = attr.at("input_shapes").list();
     if (input_shuffles.tensor_size() != input_shapes.shape_size()) {
       return errors::InvalidArgument(
@@ -299,8 +309,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   AttrList& output_shapes = attr.at("output_shapes").list();
   TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
               errors::InvalidArgument("incorrect number of input tensors"));
-  if (attr.count("_input_shuffles")) {
-    AttrList& input_shuffles = attr.at("_input_shuffles").list();
+  if (attr.count(kInputShuffles)) {
+    AttrList& input_shuffles = attr.at(kInputShuffles).list();
     TFNN_ASSERT(input_shuffles.tensor_size() == (int64)input_tensors.size(),
                 errors::InvalidArgument("illegal _input_shuffles attribute"));
   }
@@ -548,6 +558,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 
       // copy input tensors with optional input_shuffles
       SHARD_VLOG_TIME("in shard before input copy");
+      std::vector<bool> need_copy_inputs(sliced_inputs.size(), true);
       if (k_batch_size > 1 && runtime_io.use_shm()) {
         auto CopyInputShardFunc = [&](int64 dim0_start, int64 dim0_limit) {
           std::vector<Tensor> input_slices(sliced_inputs.size());
@@ -569,8 +580,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           }
           SHARD_LOG_IGNORE_ABORTED(
               status_sd, copy_input_tensors_with_shuffle(
-                             ctx, node_def, nullptr, input_slices, &runtime_io,
-                             &input_shm_slices));
+                             ctx, node_def, nullptr, input_slices,
+                             need_copy_inputs,&runtime_io, &input_shm_slices));
         };
         h2d_transfer_pool_.ParallelFor(k_batch_size, input_copy_cost_per_unit,
                                        std::move(CopyInputShardFunc));
@@ -578,7 +589,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         SHARD_LOG_IGNORE_ABORTED(
             status_sd, copy_input_tensors_with_shuffle(
                            ctx, node_def, &h2d_transfer_pool_, sliced_inputs,
-                           &runtime_io, &input_shm_tensors));
+                           need_copy_inputs, &runtime_io, &input_shm_tensors));
       }
 
       // run inference
@@ -620,6 +631,15 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     RIE_IGNORE_ABORTED(status_sd);
   } else {
     TF_RETURN_IF_ERROR(check_input_tensors(input_tensors, node_def));
+    std::vector<bool> need_copy_inputs(input_tensors.size(), true);
+    bool need_input_shuffles = attr.count(kInputShuffles);
+    if (TF_PREDICT_TRUE(shm_allocator->is_valid() && !need_input_shuffles)) {
+      for (size_t idx = 0; idx < need_copy_inputs.size(); ++idx) {
+        const Tensor& tensor = input_tensors.at(idx);
+        need_copy_inputs[idx] = !shm_allocator->is_shm_tensor(tensor);
+        VLOG(1) << "input " << idx << " need copy " << need_copy_inputs[idx];
+      }
+    }
     RuntimeIO runtime_io;
     std::vector<Tensor> input_shm_tensors;
     std::vector<Tensor> output_shm_tensors;
@@ -634,12 +654,16 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       input_shm_tensors.resize(input_tensors.size());
       for (size_t idx = 0; idx < input_shm_tensors.size(); ++idx) {
         const Tensor& tensor = input_tensors.at(idx);
-        TensorShape shape = tensor.shape();
-        DataType dtype = tensor.dtype();
-        AllocatorAttributes attr;
-        NeuronDevice::set_on_shm(&attr, true);
-        Tensor& shm_tensor = input_shm_tensors.at(idx);
-        TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+        if (need_copy_inputs.at(idx)) {
+          TensorShape shape = tensor.shape();
+          DataType dtype = tensor.dtype();
+          AllocatorAttributes attr;
+          NeuronDevice::set_on_shm(&attr, true);
+          Tensor& shm_tensor = input_shm_tensors.at(idx);
+          TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+        } else {
+          input_shm_tensors[idx] = tensor;
+        }
       }
     }
     RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, node_def,
@@ -648,7 +672,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 
     // copy input tensors with optional input_shuffles
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
-        ctx, node_def, thread_pool, input_tensors, &runtime_io,
+        ctx, node_def, thread_pool, input_tensors, need_copy_inputs, &runtime_io,
         &input_shm_tensors));
 
     // run inference

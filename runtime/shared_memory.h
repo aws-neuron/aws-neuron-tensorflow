@@ -60,6 +60,7 @@ class SharedMemoryAllocator : public Allocator {
   void* AllocateRaw(size_t alignment, size_t num_bytes) override;
   void DeallocateRaw(void* ptr) override;
   size_t AllocatedSizeSlow(const void* ptr) const override;
+  bool is_shm_tensor(const Tensor& tensor);
   SharedMemoryPtr get_shm_ptr(const Tensor& tensor);
 
  private:
