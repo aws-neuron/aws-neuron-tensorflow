@@ -111,47 +111,32 @@ static Status check_input_tensors(const std::vector<Tensor>& input_tensors,
   return Status::OK();
 }
 
-static Status setup_runtime_io(
-    RuntimeIO* runtime_io, OpKernelContext* ctx,
-    thread::ThreadPool* thread_pool, const NodeDef& node_def,
-    const std::vector<Tensor>& input_tensors,
-    std::vector<Tensor>* input_shm_tensors,
-    const std::vector<Tensor*>& output_tensors,
-    const std::vector<Tensor*>& output_shm_tensors, uint32_t nn_id,
-    SharedMemoryAllocator* shm_allocator, bool use_shm) {
+static Status setup_runtime_io(RuntimeIO* runtime_io,
+                               thread::ThreadPool* thread_pool,
+                               const NodeDef& node_def,
+                               const std::vector<Tensor>& input_shm_tensors,
+                               const std::vector<Tensor*>& output_tensors,
+                               const std::vector<Tensor*>& output_shm_tensors,
+                               uint32_t nn_id,
+                               SharedMemoryAllocator* shm_allocator,
+                               bool use_shm) {
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   AttrList& input_names = attr.at("input_names").list();
   AttrList& output_names = attr.at("output_names").list();
   std::vector<StringPiece> input_paths;
   std::vector<StringPiece> output_paths;
   if (use_shm) {
-    input_shm_tensors->resize(input_tensors.size());
-    std::vector<SharedMemoryPtr> input_shm_bufs;
-    std::vector<SharedMemoryPtr> output_shm_bufs;
-    for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
-      const Tensor& tensor = input_tensors.at(idx);
-      TensorShape shape = tensor.shape();
-      DataType dtype = tensor.dtype();
-      AllocatorAttributes attr;
-      NeuronDevice::set_on_shm(&attr, true);
-      Tensor& shm_tensor = input_shm_tensors->at(idx);
-      TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+    for (const Tensor& shm_tensor : input_shm_tensors) {
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(shm_tensor);
-      input_shm_bufs.push_back(shm_buf);
+      input_paths.push_back(shm_buf->get_path());
     }
     for (const Tensor* shm_tensor : output_shm_tensors) {
       SharedMemoryPtr shm_buf = shm_allocator->get_shm_ptr(*shm_tensor);
-      output_shm_bufs.push_back(shm_buf);
-    }
-    for (auto shm_buf : input_shm_bufs) {
-      input_paths.push_back(shm_buf->get_path());
-    }
-    for (auto shm_buf : output_shm_bufs) {
       output_paths.push_back(shm_buf->get_path());
     }
   }
-  return runtime_io->setup(input_names, output_names, output_tensors,
-                           nn_id, use_shm, input_paths, output_paths,
+  return runtime_io->setup(input_names, output_names, output_tensors, nn_id,
+                           use_shm, input_paths, output_paths,
                            output_shm_tensors, thread_pool);
 }
 
@@ -524,6 +509,17 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         use_shm &= buf_size != 0;
       }
       if (use_shm) {
+        input_shm_tensors.resize(sliced_inputs.size());
+        for (size_t idx = 0; idx < sliced_inputs.size(); ++idx) {
+          const Tensor& tensor = sliced_inputs.at(idx);
+          TensorShape shape = tensor.shape();
+          DataType dtype = tensor.dtype();
+          AllocatorAttributes attr;
+          NeuronDevice::set_on_shm(&attr, true);
+          Tensor& shm_tensor = input_shm_tensors.at(idx);
+          SHARD_LOG_ERROR(status_sd,
+                          ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+        }
         output_shm_tensors.resize(sliced_outputs.size());
         for (size_t idx = 0; idx < output_shm_tensors.size(); ++idx) {
           const Tensor& tensor = sliced_outputs.at(idx);
@@ -537,8 +533,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           AllocatorAttributes attr;
           NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = output_shm_tensors.at(idx);
-          SHARD_LOG_ERROR(status_sd, ctx->allocate_temp(dtype, shape,
-                                                        &shm_tensor, attr));
+          SHARD_LOG_ERROR(status_sd,
+                          ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
         }
       }
       std::vector<Tensor*> output_shm_ptrs;
@@ -546,10 +542,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         output_shm_ptrs.push_back(&shm_tensor);
       }
       SHARD_LOG_IGNORE_ABORTED(
-          status_sd,
-          setup_runtime_io(&runtime_io, ctx, &h2d_transfer_pool_, node_def,
-                           sliced_inputs, &input_shm_tensors, output_ptrs,
-                           output_shm_ptrs, nn_id_, shm_allocator, use_shm));
+          status_sd, setup_runtime_io(&runtime_io, &h2d_transfer_pool_,
+                                      node_def, input_shm_tensors, output_ptrs,
+                                      output_shm_ptrs, nn_id_, shm_allocator,
+                                      use_shm));
 
       // copy input tensors with optional input_shuffles
       SHARD_VLOG_TIME("in shard before input copy");
@@ -634,6 +630,16 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       use_shm &= buf_size != 0;
     }
     if (use_shm) {
+      input_shm_tensors.resize(input_tensors.size());
+      for (size_t idx = 0; idx < input_shm_tensors.size(); ++idx) {
+        const Tensor& tensor = input_tensors.at(idx);
+        TensorShape shape = tensor.shape();
+        DataType dtype = tensor.dtype();
+        AllocatorAttributes attr;
+        NeuronDevice::set_on_shm(&attr, true);
+        Tensor& shm_tensor = input_shm_tensors.at(idx);
+        TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+      }
       output_shm_tensors.resize(output_tensors.size());
       for (size_t idx = 0; idx < output_shm_tensors.size(); ++idx) {
         Tensor* tensor = output_tensors.at(idx);
@@ -649,10 +655,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     for (Tensor& shm_tensor : output_shm_tensors) {
       output_shm_ptrs.push_back(&shm_tensor);
     }
-    RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, ctx, thread_pool, node_def,
-                                        input_tensors, &input_shm_tensors,
-                                        output_tensors, output_shm_ptrs,
-                                        nn_id_, shm_allocator, use_shm));
+    RIE_IGNORE_ABORTED(setup_runtime_io(
+        &runtime_io, thread_pool, node_def, input_shm_tensors, output_tensors,
+        output_shm_ptrs, nn_id_, shm_allocator, use_shm));
 
     // copy input tensors with optional input_shuffles
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
