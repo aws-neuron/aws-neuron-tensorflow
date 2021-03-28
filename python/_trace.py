@@ -113,20 +113,14 @@ def _get_shape_feed_dict(func, inputs):
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
     # produce GraphDef by running grappler passes
-    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
-    sig_def = mgu.build_signature_def(cfunc.inputs, cfunc.outputs)
-    meta_graph_def.signature_def['serving_default'].CopyFrom(sig_def)
-    opt_config = config_pb2.ConfigProto()
+    opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
     rewriter_config = opt_config.graph_options.rewrite_options
-    rewriter_config.meta_optimizer_iterations = 1
-    rewriter_config.min_graph_nodes = -1
-    graph_passes = [
-        'debug_stripper',
-        'pruning',
-        'dependency',
-        'aws_neuron_static_shape_inference',
-    ]
-    rewriter_config.optimizers.extend(graph_passes)
+    optimizers = rewriter_config.optimizers
+    optimizers.append('debug_stripper')
+    pruning_passes = ['pruning', 'dependency']
+    if subgraph_builder_function is None:
+        optimizers.extend(pruning_passes)
+    optimizers.append('aws_neuron_static_shape_inference')
 
     # configure operator fusion
     fuser_config = rewriter_config.custom_optimizers.add()
@@ -152,7 +146,24 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
     # call all grappler passes
     with utils.change_grappler_logging_level_according_to_cc_flags():
         graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    if subgraph_builder_function is not None:
+        opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+        optimizers = opt_config.graph_options.rewrite_options.optimizers
+        optimizers.extend(pruning_passes)
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
     return graph_def
+
+
+def _build_optimize_graph_args(graph_def, cfunc):
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    sig_def = mgu.build_signature_def(cfunc.inputs, cfunc.outputs)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(sig_def)
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = -1
+    return opt_config, meta_graph_def
 
 
 def _find_pad_ops_preceding_conv2d(graph):

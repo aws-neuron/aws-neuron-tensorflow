@@ -191,6 +191,33 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
+    def test_func_conv_relu_cpu_conv_relu(self):
+        kernel0 = tf.random.uniform([1, 1, 64, 64])
+        kernel1 = tf.random.uniform([1, 1, 64, 64])
+        bias1 = tf.random.uniform([64])
+
+        def func(tensor):
+            tensor = tf.nn.conv2d(tensor, kernel0, padding='VALID', strides=[1, 1, 1, 1])
+            tensor = tf.nn.relu(tensor)
+            tensor = tf.identity(tensor)
+            tensor = tf.nn.conv2d(tensor, kernel1, padding='VALID', strides=[1, 1, 1, 1])
+            bias = tf.nn.sigmoid(bias1)
+            tensor = tf.nn.bias_add(tensor, bias)
+            return tensor
+
+        def subgraph_builder_function(node):
+            return node.op in {'BiasAdd', 'Const', 'Conv2D', 'Relu'}
+
+        input_tensor = tf.random.uniform([1, 128, 128, 64])
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        wfunc = func_neuron.aws_neuron_function
+        _assert_compiler_success_func(wfunc)
+        assert len([op for op in wfunc.graph.get_operations() if op.type == 'NeuronOp']) == 2
+        result_func_ref = func(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
+
     def test_func_rtr_conv_multiple_consumers(self):
         kernel0 = tf.random.uniform([7, 7, 3, 64])
         kernel0 = tf.cast(kernel0, tf.float16)
