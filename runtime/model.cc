@@ -111,11 +111,8 @@ static Status check_input_tensors(const std::vector<Tensor>& input_tensors,
   return Status::OK();
 }
 
-static Status setup_runtime_io(RuntimeIO* runtime_io,
-                               thread::ThreadPool* thread_pool,
-                               const NodeDef& node_def,
+static Status setup_runtime_io(RuntimeIO* runtime_io, const NodeDef& node_def,
                                const std::vector<Tensor>& input_shm_tensors,
-                               const std::vector<Tensor*>& output_tensors,
                                const std::vector<Tensor*>& output_shm_tensors,
                                uint32_t nn_id,
                                SharedMemoryAllocator* shm_allocator,
@@ -135,9 +132,8 @@ static Status setup_runtime_io(RuntimeIO* runtime_io,
       output_paths.push_back(shm_buf->get_path());
     }
   }
-  return runtime_io->setup(input_names, output_names, output_tensors, nn_id,
-                           use_shm, input_paths, output_paths,
-                           output_shm_tensors, thread_pool);
+  return runtime_io->setup(input_names, output_names, nn_id, use_shm,
+                           input_paths, output_paths);
 }
 
 static Status copy_input_tensors(RuntimeIO* runtime_io,
@@ -542,8 +538,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         output_shm_ptrs.push_back(&shm_tensor);
       }
       SHARD_LOG_IGNORE_ABORTED(
-          status_sd, setup_runtime_io(&runtime_io, &h2d_transfer_pool_,
-                                      node_def, input_shm_tensors, output_ptrs,
+          status_sd, setup_runtime_io(&runtime_io, node_def, input_shm_tensors,
                                       output_shm_ptrs, nn_id_, shm_allocator,
                                       use_shm));
 
@@ -593,7 +588,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         SHARD_LOG_IGNORE_ABORTED(status_sd, neuron_engine_->infer(&runtime_io));
       }
       SHARD_VLOG_TIME("in shard after infer");
-      SHARD_LOG_IGNORE_ABORTED(status_sd, runtime_io.finish());
+      SHARD_LOG_IGNORE_ABORTED(
+          status_sd, runtime_io.finish(&output_ptrs, output_shm_tensors,
+                                       &h2d_transfer_pool_));
       SHARD_VLOG_TIME("in shard exit");
     };
 #undef SHARD_LOG_IGNORE_ABORTED
@@ -655,9 +652,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     for (Tensor& shm_tensor : output_shm_tensors) {
       output_shm_ptrs.push_back(&shm_tensor);
     }
-    RIE_IGNORE_ABORTED(setup_runtime_io(
-        &runtime_io, thread_pool, node_def, input_shm_tensors, output_tensors,
-        output_shm_ptrs, nn_id_, shm_allocator, use_shm));
+    RIE_IGNORE_ABORTED(setup_runtime_io(&runtime_io, node_def,
+                                        input_shm_tensors, output_shm_ptrs,
+                                        nn_id_, shm_allocator, use_shm));
 
     // copy input tensors with optional input_shuffles
     RIE_IGNORE_ABORTED(copy_input_tensors_with_shuffle(
@@ -674,7 +671,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       RIE_IGNORE_ABORTED(neuron_engine_->infer(&runtime_io));
     }
     VLOG_TIME("after infer");
-    RIE_IGNORE_ABORTED(runtime_io.finish());
+    RIE_IGNORE_ABORTED(
+        runtime_io.finish(&output_tensors, output_shm_tensors, thread_pool));
   }
   VLOG_TIME("exiting compute");
 #undef VLOG_TIME

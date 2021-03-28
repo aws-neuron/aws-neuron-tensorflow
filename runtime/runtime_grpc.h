@@ -79,23 +79,21 @@ class RuntimeIO {
  public:
   RuntimeIO() {}
   Status setup(AttrList& input_names, AttrList& output_names,
-               const std::vector<Tensor*>& output_tensors,
                const uint32_t nn_id, bool use_shm,
                const std::vector<StringPiece>& input_paths,
-               const std::vector<StringPiece>& output_paths,
-               const std::vector<Tensor*>& output_shm_tensors,
-               thread::ThreadPool* thread_pool = nullptr);
+               const std::vector<StringPiece>& output_paths);
   bool use_shm() { return use_shm_; }
   Status copy_input_tensors(const std::vector<Tensor>& input_tensors);
   void set_nn_id(const uint32_t nn_id) {
     request_.mutable_h_nn()->set_id(nn_id);
   }
   uint32_t get_nn_id() { return request_.mutable_h_nn()->id(); }
-  Status finish();
+  Status finish(std::vector<Tensor*>* output_tensors,
+                const std::vector<Tensor>& output_shm_tensors,
+                thread::ThreadPool* thread_pool);
 
  private:
   friend class RuntimeGRPC;
-  thread::ThreadPool* thread_pool_;
   grpc::ClientContext post_context_;
   grpc::CompletionQueue cq_;
   std::unique_ptr<grpc::ClientAsyncResponseReader<nrt::infer_post_response> >
@@ -110,8 +108,6 @@ class RuntimeIO {
   nrt::infer_response response_;
   grpc::Status wait_status_;
   AttrList* output_names_;
-  std::vector<Tensor*> output_tensors_;
-  std::vector<Tensor*> output_shm_tensors_;
   bool use_shm_ = false;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(RuntimeIO);
 };

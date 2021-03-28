@@ -22,16 +22,10 @@ namespace tensorflow {
 namespace neuron {
 
 Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
-                        const std::vector<Tensor*>& output_tensors,
                         const uint32_t nn_id, bool use_shm,
                         const std::vector<StringPiece>& input_paths,
-                        const std::vector<StringPiece>& output_paths,
-                        const std::vector<Tensor*>& output_shm_tensors,
-                        thread::ThreadPool* thread_pool) {
-  CHECK_SIZES_MATCH(output_names.s_size(), output_tensors.size());
-  thread_pool_ = thread_pool;
+                        const std::vector<StringPiece>& output_paths) {
   use_shm_ = use_shm;
-  output_shm_tensors_ = output_shm_tensors;
   for (auto idx = 0; idx < input_names.s_size(); ++idx) {
     nrt::infer_io* infer_io = request_.add_ifmap();
     infer_io->set_name(input_names.s(idx));
@@ -53,7 +47,6 @@ Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
   }
   request_.mutable_h_nn()->set_id(nn_id);
   output_names_ = &output_names;
-  output_tensors_ = output_tensors;
   return Status::OK();
 }
 
@@ -69,7 +62,10 @@ Status RuntimeIO::copy_input_tensors(const std::vector<Tensor>& input_tensors) {
   return Status::OK();
 }
 
-Status RuntimeIO::finish() {
+Status RuntimeIO::finish(std::vector<Tensor*>* output_tensors,
+                         const std::vector<Tensor>& output_shm_tensors,
+                         thread::ThreadPool* thread_pool) {
+  CHECK_SIZES_MATCH(output_names_->s_size(), output_tensors->size());
   if (TF_PREDICT_FALSE(!use_shm_)) {
     std::vector<StringPiece> raw_output_tensors;
     std::unordered_map<std::string, StringPiece> map_name_raw;
@@ -84,19 +80,19 @@ Status RuntimeIO::finish() {
       raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
     }
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
-      Tensor* out_tensor = output_tensors_[idx];
+      Tensor* out_tensor = output_tensors->at(idx);
       StringPiece out_tensor_raw = raw_output_tensors.at(idx);
       TF_RETURN_WITH_CONTEXT_IF_ERROR(
-          tensor_memcpy(out_tensor, out_tensor_raw, thread_pool_),
+          tensor_memcpy(out_tensor, out_tensor_raw, thread_pool),
           "tensor_memcpy failure on tensor name: ", output_names_->s(idx));
     }
   } else {
-    CHECK_SIZES_MATCH(output_names_->s_size(), output_shm_tensors_.size());
+    CHECK_SIZES_MATCH(output_names_->s_size(), output_shm_tensors.size());
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
-      Tensor* out_tensor = output_tensors_.at(idx);
-      Tensor* shm_tensor = output_shm_tensors_.at(idx);
+      Tensor* out_tensor = output_tensors->at(idx);
+      const Tensor& shm_tensor = output_shm_tensors.at(idx);
       TF_RETURN_WITH_CONTEXT_IF_ERROR(
-          tensor_copy(out_tensor, *shm_tensor, thread_pool_),
+          tensor_copy(out_tensor, shm_tensor, thread_pool),
           "tensor_copy failure on tensor name: ", output_names_->s(idx));
     }
   }
