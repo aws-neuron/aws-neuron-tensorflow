@@ -20,6 +20,7 @@ from tensorflow.python.eager import def_function
 from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import convert_to_constants
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.tensor_spec import TensorSpec
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.keras.engine.training import Model
 from tensorflow.python.platform import tf_logging as logging
@@ -43,7 +44,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     if not isinstance(example_inputs, tuple):
         example_inputs = (example_inputs,)
     if not isinstance(func, (def_function.Function, function.ConcreteFunction)):
-        func = def_function.function(func)
+        input_signature = None
+        if all(isinstance(item, ops.Tensor) for item in example_inputs):
+            input_signature = [TensorSpec(ts.shape, ts.dtype) for ts in example_inputs]
+        func = def_function.function(input_signature=input_signature)(func)
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
 
