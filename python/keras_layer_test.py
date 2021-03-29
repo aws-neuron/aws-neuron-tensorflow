@@ -104,7 +104,10 @@ class KerasLayerGenerator(RemoveTestSession):
                     output_channels_last = layer_channels_last(example_inputs_channels_last)
                     output = tf.transpose(output_channels_last, perm_last_to_first)
                 print('layer config:', layer.get_config())
-                print('output shape:', output.shape)
+                if isinstance(output, list):
+                    print('output shapes:', [out.shape for out in output])
+                else:
+                    print('output shape:', output.shape)
                 layer_neuron = tfn.trace(layer, example_inputs)
                 # assert everything is on Neuron
                 graph = layer_neuron.aws_neuron_function.graph
@@ -254,6 +257,15 @@ def get_layer_generators():
         input_shapes=[(1, 6, 6, 6, 6)],
         input_dtypes=float_types,
     )
+    rnn_gen = ProductGenerator(
+        input_shapes=[(1, 32, 16)],
+        input_dtypes=[tf.float32],
+        units=[8],
+        use_bias=[True],
+        stateful=[False],   # True triggers 'ValueError: Input ... incompatible with expected resource.'
+        unroll=[True],      # False generates many uninferrable shapes
+        time_major=[False],
+    )
 
     # define all generators here
     layer_generators = dict(
@@ -348,7 +360,10 @@ def get_layer_generators():
             input_shapes=[(1, 2, 3)],
             input_dtypes=float_types,
         ),
-        GRU=None,
+        GRU=ProductGenerator(
+            **rnn_gen,
+            reset_after=[True],  # False triggers 'assert isinstance(v, Access)'
+        ),
         GRUCell=None,
         GaussianDropout=None,
         GaussianNoise=None,
@@ -360,7 +375,7 @@ def get_layer_generators():
         GlobalMaxPool3D=global_pooling_3d_gen,
         InputLayer=None,
         InputSpec=None,
-        LSTM=None,
+        LSTM=rnn_gen,
         LSTMCell=None,
         Lambda=None,
         Layer=None,
