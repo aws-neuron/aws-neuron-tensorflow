@@ -68,6 +68,7 @@ Mean
 Mul
 Neg
 NotEqual
+Pack
 Pad
 Pow
 RealDiv
@@ -82,6 +83,7 @@ Softplus
 Softsign
 SpaceToBatchND
 Split
+SplitV
 Square
 SquaredDifference
 Squeeze
@@ -91,6 +93,7 @@ Sum
 Tanh
 Tile
 Transpose
+Unpack
 '''
 
 
