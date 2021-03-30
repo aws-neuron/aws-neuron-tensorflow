@@ -81,7 +81,7 @@ class KerasLayerGenerator(RemoveTestSession):
                 output = output > 0.0
             return output
 
-        def gen_test(input_shape, input_dtype, layer_type, layer_kwargs):
+        def gen_test(input_shape, input_dtype, layer_type, layer_kwargs, rtol, atol):
             def test(self):
                 example_inputs = get_input(input_shape, input_dtype)
                 layer = layer_type(**layer_kwargs)
@@ -114,7 +114,7 @@ class KerasLayerGenerator(RemoveTestSession):
                 op_type_set = {op.type for op in graph.get_operations()}
                 assert op_type_set == {'Placeholder', 'IdentityN', 'NeuronOp'}
                 output_neuron = layer_neuron(*inputs)
-                self.assertAllClose(output_neuron, output, rtol=1e-2, atol=1e-2)
+                self.assertAllClose(output_neuron, output, rtol=rtol, atol=atol)
             return test
 
         empty_default = inspect.signature(lambda x: None).parameters['x'].default
@@ -132,6 +132,9 @@ class KerasLayerGenerator(RemoveTestSession):
             allowed_layer_kwargs = layer_gen.copy()
             input_shapes = allowed_layer_kwargs.pop('input_shapes')
             input_dtypes = allowed_layer_kwargs.pop('input_dtypes')
+            # default tolerances are from TestCase.assertAllClose
+            rtol = allowed_layer_kwargs.pop('rtol', 1e-06)
+            atol = allowed_layer_kwargs.pop('atol', 1e-06)
             skipper = allowed_layer_kwargs.pop('skipper', lambda kwargs: False)
             for key, value in params.items():
                 value_default = value.default
@@ -157,7 +160,7 @@ class KerasLayerGenerator(RemoveTestSession):
                 layer_kwargs = dict(zip(keys, args))
                 if skipper(layer_kwargs):
                     continue
-                test_func = gen_test(in_shape, in_dtype, layer_type, layer_kwargs)
+                test_func = gen_test(in_shape, in_dtype, layer_type, layer_kwargs, rtol, atol)
                 if layer_name in skip_layer_names:
                     test_func = unittest.skip('Not implemented')(test_func)
                 dct[test_name] = test_func
@@ -193,6 +196,8 @@ def get_layer_generators():
         input_shapes=[([(1, 8, 32), (1, 16, 32), (1, 16, 32)], [(1, 8), (1, 16)])],
         input_dtypes=[(tf.float32, tf.bool), (tf.float16, tf.bool)],
         causal=[False, True],
+        rtol=1e-3,
+        atol=5e-5,
     )
     pooling_gen_common = dict(
         input_dtypes=[tf.float32],
@@ -224,6 +229,8 @@ def get_layer_generators():
         filters=[16],
         kernel_size=[1, 3],
         strides=[1, 2],
+        rtol=5e-3,
+        atol=5e-5,
     )
     conv2d_gen = ProductGenerator(
         input_shapes=[(1, 28, 28, 3), (1, 9, 9, 32)],
@@ -235,6 +242,8 @@ def get_layer_generators():
         dilation_rate=[1, 2],
         use_bias=[False],
         skipper=skip_strides_and_dilation_rate,
+        rtol=5e-3,
+        atol=5e-5,
     )
     conv3d_gen = ProductGenerator(
         input_shapes=[(1, 8, 8, 8, 4)],
@@ -244,6 +253,8 @@ def get_layer_generators():
         strides=[1, 2],
         padding=['valid'],
         use_bias=[False],
+        rtol=1e-3,
+        atol=5e-5,
     )
     global_pooling_1d_gen = ProductGenerator(
         input_shapes=[(1, 16, 8)],
@@ -265,6 +276,8 @@ def get_layer_generators():
         stateful=[False],   # True triggers 'ValueError: Input ... incompatible with expected resource.'
         unroll=[True],      # False generates many uninferrable shapes
         time_major=[False],
+        rtol=1e-5,
+        atol=5e-5,
     )
 
     # define all generators here
@@ -328,6 +341,8 @@ def get_layer_generators():
             input_shapes=[(1, 64)],
             input_dtypes=float_types,
             units=[32],
+            rtol=1e-3,
+            atol=5e-5,
         ),
         DenseFeatures=None,
         DepthwiseConv2D=ProductGenerator(
@@ -337,11 +352,15 @@ def get_layer_generators():
             strides=[1, 2],
             depth_multiplier=[1, 2],
             use_bias=[False],
+            rtol=5e-3,
+            atol=5e-5,
         ),
         Dot=ZipLongestGenerator(
             input_shapes=[[(1, 5, 2), (1, 2, 5)], [(5, 2), (5, 2)]],
             input_dtypes=[tf.float32, tf.float16],
             axes=[(1, 2), 1],
+            rtol=1e-3,
+            atol=1e-5,
         ),
         Dropout=None,
         ELU=ProductGenerator(
@@ -379,7 +398,11 @@ def get_layer_generators():
         LSTMCell=None,
         Lambda=None,
         Layer=None,
-        LayerNormalization=normalization_gen,
+        LayerNormalization=ProductGenerator(
+            **normalization_gen,
+            rtol=1e-3,
+            atol=1e-5,
+        ),
         LeakyReLU=ProductGenerator(
             input_shapes=[(1, 8, 8, 6)],
             input_dtypes=float_types,
@@ -390,6 +413,8 @@ def get_layer_generators():
             filters=[4],
             kernel_size=[1, 3],
             strides=[1, 2],
+            rtol=1e-3,
+            atol=5e-5,
         ),
         LocallyConnected2D=ProductGenerator(
             input_shapes=[(1, 8, 8, 6)],
@@ -397,6 +422,8 @@ def get_layer_generators():
             filters=[4],
             kernel_size=[(1, 1), (3, 3)],
             strides=[1, 2],
+            rtol=1e-3,
+            atol=5e-5,
         ),
         Masking=ProductGenerator(
             input_shapes=[(1, 8, 32)],
@@ -445,6 +472,8 @@ def get_layer_generators():
             strides=[1, 2],
             depth_multiplier=[1, 2],
             use_bias=[False],
+            rtol=1e-2,
+            atol=1e-5,
         ),
         SeparableConv2D=ProductGenerator(
             input_shapes=[(1, 20, 20, 32)],
@@ -454,6 +483,8 @@ def get_layer_generators():
             strides=[1, 2],
             depth_multiplier=[1, 2],
             use_bias=[False],
+            rtol=1e-3,
+            atol=5e-5,
         ),
         SimpleRNN=None,
         SimpleRNNCell=None,
@@ -525,6 +556,8 @@ def get_layer_generators():
                 input_dtypes=[(tf.float32, tf.float32), (tf.float16, tf.float16)],
                 num_heads=[2],
                 key_dim=[2],
+                rtol=1e-3,
+                atol=1e-5,
             ),
         )
 
