@@ -238,6 +238,8 @@ void* SharedMemoryAllocator::AllocateRaw(size_t alignment, size_t num_bytes) {
                  << 100 * kLargeAllocationWarningThreshold
                  << "% of system memory.";
   }
+  VLOG(1) << "allocating alignment " << alignment << ", num_bytes " << num_bytes
+          << " from SharedMemoryAllocator::AllocateRaw";
   return allocate_shm(alignment, num_bytes)->get_ptr();
 }
 

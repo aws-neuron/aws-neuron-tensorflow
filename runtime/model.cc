@@ -126,6 +126,12 @@ static Status setup_runtime_io(
   bool use_shm = shm_allocator->is_valid();
   std::vector<StringPiece> input_paths;
   std::vector<StringPiece> output_paths;
+  for (const Tensor& tensor : input_tensors) {
+    use_shm &= tensor.NumElements() != 0;
+  }
+  for (size_t buf_size : output_tensor_sizes) {
+    use_shm &= buf_size != 0;
+  }
   if (use_shm) {
     input_shm_tensors->reserve(input_tensors.size());
     std::vector<SharedMemoryPtr> input_shm_bufs;
