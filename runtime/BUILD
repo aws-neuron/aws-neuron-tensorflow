@@ -37,27 +37,52 @@ cc_library(
     ],
     hdrs = ["model.h"],
     deps = [
+        ":utils",
         ":engine",
     ],
 )
 
 cc_library(
     name = "engine",
-    srcs = [
-        "engine.cc",
-        "engine.h",
-        "device.cc",
-        "device.h",
-        "shared_memory.h",
-        "shared_memory.cc",
-        "runtime_grpc.h",
-        "runtime_grpc.cc",
-        "version.h",
-    ],
+    srcs = ["engine.cc"],
     hdrs = ["engine.h"],
     deps = [
         ":utils",
+        ":device",
+    ],
+)
+
+cc_library(
+    name = "device",
+    srcs = ["device.cc"],
+    hdrs = ["device.h"],
+    deps = [
+        ":utils",
+        ":shared_memory",
         "@org_tensorflow//tensorflow/core:core_cpu",
+    ],
+    alwayslink=1,  # for linking device into tf-serving
+)
+
+cc_library(
+    name = "shared_memory",
+    srcs = ["shared_memory.cc"],
+    hdrs = ["shared_memory.h"],
+    deps = [
+        ":utils",
+        ":runtime_grpc",
+    ],
+)
+
+cc_library(
+    name = "runtime_grpc",
+    srcs = [
+        "runtime_grpc.cc",
+        "version.h",
+    ],
+    hdrs = ["runtime_grpc.h"],
+    deps = [
+        ":utils",
     ],
 )
 
