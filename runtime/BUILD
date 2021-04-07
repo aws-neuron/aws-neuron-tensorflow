@@ -10,6 +10,7 @@ cc_library(
     deps = [
         ":neuron_op_op_lib",
         ":neuron_op_kernel",
+        ":identity_op",
     ],
 )
 
@@ -25,6 +26,17 @@ tf_kernel_library(
     hdrs = ["kernels/neuron_op.h"],
     deps = [
         ":model",
+        ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "identity_op",
+    srcs = [
+        "kernels/identity_op.cc",
+    ],
+    deps = [
+        ":device",
         ":registration",
     ],
 )

@@ -105,8 +105,7 @@ tf_custom_op_library(
     name = "aws_neuron_plugin",
     per_os_targets = True,
     deps = [
-        "//tensorflow/neuron/runtime:neuron_op_op_lib",
-        "//tensorflow/neuron/runtime:neuron_op_kernel",
+        "//tensorflow/neuron/runtime:all_ops",
         "//tensorflow/neuron/grappler:passes",
     ],
 )
