@@ -30,8 +30,15 @@ static KernelDef* neuron_kernel(const std::string& type,
   kernel->clear_host_memory_arg();
   kernel->clear_label();
   kernel->clear_priority();
-  int64 kernel_size = GetRegisteredKernelsForOp(type).kernel_size();
-  kernel->set_op(kernel_size ? "_no_register" : type);
+  KernelList type_kernel_list = GetRegisteredKernelsForOp(type);
+  bool is_registered = false;
+  for (const auto& type_kernel : type_kernel_list.kernel()) {
+    if (type_kernel.device_type() == device_type) {
+      is_registered = true;
+      break;
+    }
+  }
+  kernel->set_op(is_registered ? "_no_register" : type);
   kernel->set_device_type(device_type);
   return kernel;
 }
