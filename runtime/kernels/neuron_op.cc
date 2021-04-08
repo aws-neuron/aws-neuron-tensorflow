@@ -14,35 +14,10 @@ limitations under the License.
 ==============================================================================*/
 
 #include "neuron_op.h"
+#include "registration.h"
 #include "../device.h"
 
 namespace tensorflow {
-namespace register_kernel {
-
-static KernelDef* neuron_kernel(const std::string& type) {
-  // Need to allocate from an existing one to workaround the bug that setting
-  // one attribute can affect other attributes
-  auto identity_n_kernel = GetRegisteredKernelsForOp("IdentityN").kernel(0);
-  KernelDef* kernel = new KernelDef(identity_n_kernel);
-  kernel->clear_op();
-  kernel->clear_device_type();
-  kernel->clear_constraint();
-  kernel->clear_host_memory_arg();
-  kernel->clear_label();
-  kernel->clear_priority();
-  int64 kernel_size = GetRegisteredKernelsForOp(type).kernel_size();
-  kernel->set_op(kernel_size ? "_no_register" : type);
-  kernel->set_device_type(neuron::DEVICE_NEURON);
-  return kernel;
-}
-
-class NeuronName {
- public:
-  const KernelDef* Build() { return neuron_kernel("NeuronOp"); }
-};
-
-}  // namespace register_kernel
-
 namespace neuron {
 
 void NeuronOp::Compute(OpKernelContext* ctx) {
@@ -53,14 +28,7 @@ void NeuronOp::Compute(OpKernelContext* ctx) {
   OP_REQUIRES_OK(ctx, model_.compute(ctx, def(), input_tensors));
 }
 
-// need to override kernel_builder as NeuronName to prevent multiple kernel
-// registrations
-#if TF_VERSION_LESS_THAN(2, 4)
-REGISTER_KERNEL_BUILDER(NeuronName(), neuron::NeuronOp);
-#else
-REGISTER_KERNEL_BUILDER_IMPL_2("NeuronOp", register_kernel::NeuronName(), false,
-                               NeuronOp);
-#endif
+NEURON_REGISTER_KERNEL_BUILDER("NeuronOp", DEVICE_NEURON, NeuronOp);
 
 }  // namespace neuron
 }  // namespace tensorflow

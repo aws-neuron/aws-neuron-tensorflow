@@ -25,6 +25,7 @@ tf_kernel_library(
     hdrs = ["kernels/neuron_op.h"],
     deps = [
         ":model",
+        ":registration",
     ],
 )
 
@@ -116,6 +117,15 @@ cc_library(
     name = "macros",
     srcs = ["macros.h"],
     hdrs = ["macros.h"],
+)
+
+cc_library(
+    name = "registration",
+    srcs = ["kernels/registration.h"],
+    hdrs = ["kernels/registration.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
 )
 
 # nrt proto libraries
