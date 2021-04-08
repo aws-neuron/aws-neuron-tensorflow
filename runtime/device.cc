@@ -134,7 +134,16 @@ class NeuronDeviceFactory : public DeviceFactory {
   }
 };
 
-REGISTER_LOCAL_DEVICE_FACTORY(DEVICE_NEURON, NeuronDeviceFactory);
+template <class Factory>
+class NeuronRegistrar {
+ public:
+  explicit NeuronRegistrar(const std::string& device_type) {
+    int32 priority = DeviceFactory::DevicePriority(DEVICE_NEURON);
+    DeviceFactory::Register(device_type, new Factory(), priority + 1);
+  }
+};
+
+static NeuronRegistrar<NeuronDeviceFactory> neuron_device(DEVICE_NEURON);
 
 }  // namespace neuron
 }  // namespace tensorflow
