@@ -160,13 +160,15 @@ class NeuronDeviceFactory : public DeviceFactory {
 template <class Factory>
 class NeuronRegistrar {
  public:
-  explicit NeuronRegistrar(const std::string& device_type) {
-    int32 priority = DeviceFactory::DevicePriority(DEVICE_NEURON);
-    DeviceFactory::Register(device_type, new Factory(), priority + 1);
+  explicit NeuronRegistrar(const std::string& device_type, int32 priority) {
+    if (nullptr == DeviceFactory::GetFactory(device_type)) {
+      // only register if device_type is still unregistered
+      DeviceFactory::Register(device_type, new Factory(), priority);
+    }
   }
 };
 
-static NeuronRegistrar<NeuronDeviceFactory> neuron_device(DEVICE_NEURON);
+static NeuronRegistrar<NeuronDeviceFactory> neuron_device(DEVICE_NEURON, 100);
 
 }  // namespace neuron
 }  // namespace tensorflow
