@@ -24,6 +24,7 @@ class IdentityOp : public OpKernel {
   explicit IdentityOp(OpKernelConstruction* context) : OpKernel(context) {}
 
   void Compute(OpKernelContext* context) override {
+    VLOG(1) << "executing Neuron identity implementation";
     if (IsRefType(context->input_dtype(0))) {
       context->forward_ref_input_to_ref_output(0, 0);
     } else {

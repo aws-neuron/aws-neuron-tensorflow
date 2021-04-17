@@ -18,6 +18,7 @@ limitations under the License.
 
 #include "device.h"
 #include "engine.h"
+#include "env.h"
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/process_state.h"
 #include "tensorflow/core/framework/tensor_util.h"
@@ -160,15 +161,20 @@ class NeuronDeviceFactory : public DeviceFactory {
 template <class Factory>
 class NeuronRegistrar {
  public:
-  explicit NeuronRegistrar(const std::string& device_type, int32 priority) {
+  explicit NeuronRegistrar(const std::string& device_type) {
     if (nullptr == DeviceFactory::GetFactory(device_type)) {
       // only register if device_type is still unregistered
+      std::string priority_str = env_get("AWS_NEURON_DEVICE_PRIORITY", "50");
+      int32 priority = stoi_no_throw(priority_str);
+      // priority value higher than that of GPUCompatibleCPU (70) would let
+      // tensorflow runtime to dispatch ops on us automatically, which then
+      // encourages XLA to try to compile for us and crash
       DeviceFactory::Register(device_type, new Factory(), priority);
     }
   }
 };
 
-static NeuronRegistrar<NeuronDeviceFactory> neuron_device(DEVICE_NEURON, 100);
+static NeuronRegistrar<NeuronDeviceFactory> neuron_device(DEVICE_NEURON);
 
 }  // namespace neuron
 }  // namespace tensorflow
