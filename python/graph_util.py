@@ -480,7 +480,10 @@ def compile_subgraphs(graph_def,
     if neuron_cc is None:
         return graph_def
     subgraph_info_format = '{{subgraph {} with input tensors {}, output tensors {}}}'.format
-    for node in gdu.get_neuron_nodes(graph_def):
+    neuron_nodes = gdu.get_neuron_nodes(graph_def)
+    if not neuron_nodes:
+        return graph_def
+    for node in neuron_nodes:
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
         subgraph_info = subgraph_info_format(node.name, *_io_tensor_info(node))
