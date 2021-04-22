@@ -93,6 +93,9 @@ class AwsNeuronModel(Model):
 
     def call(self, inputs, *args):
         flat_inputs = nest.flatten((inputs, args))
+        if isinstance(inputs, abc.Mapping) and not args:
+            if set(inputs.keys()) == set(self.aws_neuron_function._arg_keywords):
+                flat_inputs = [inputs[kw] for kw in self.aws_neuron_function._arg_keywords]
         outputs = self.aws_neuron_function(*flat_inputs)
         if self._aws_neuron_output_type is not None:
             outputs = self._aws_neuron_output_type(**outputs)
@@ -104,9 +107,12 @@ def _get_shape_feed_dict(func, inputs):
         inputs, = inputs
     if isinstance(inputs, abc.Mapping):
         func_args, func_kwargs = func.structured_input_signature
-        if len(func_args) != 1:
-            raise NotImplementedError('function with multiple dictionary inputs is not supported')
-        input_dict, = func_args
+        if func_args:
+            if len(func_args) != 1:
+                raise NotImplementedError('function with multiple dictionary inputs is not supported')
+            input_dict, = func_args
+        else:
+            input_dict = {akw: ts.op for akw, ts in zip(func._arg_keywords, func.inputs)}
         return {'{}:0'.format(spec.name): inputs[name].shape for name, spec in input_dict.items()}
     else:
         input_names = _get_input_names(func)
