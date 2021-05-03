@@ -11,6 +11,7 @@ cc_library(
         ":neuron_op_op_lib",
         ":neuron_op_kernel",
         ":identity_op",
+        ":avgpooling_op",
         ":constant_op",
     ],
 )
@@ -36,6 +37,17 @@ tf_kernel_library(
     name = "identity_op",
     srcs = [
         "kernels/identity_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "avgpooling_op",
+    srcs = [
+        "kernels/avgpooling_op.cc",
     ],
     deps = [
         ":device",
