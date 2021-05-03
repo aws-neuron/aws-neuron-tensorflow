@@ -73,6 +73,7 @@ Pad
 Pow
 RealDiv
 Relu
+Relu6
 Reshape
 Rsqrt
 SelectV2
