@@ -75,7 +75,7 @@ def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch
                                                legacy_init_op=legacy_init_op)
 
 
-def _infer_input_shapes(input_tensors, batch_size, signature_def):
+def _infer_input_shapes(input_tensors, batch_size, signature_def=None):
     """Infer/guess the shape of the inputs using batch_size.
     Args:
         input_tensors: Iterable of input tensors
@@ -85,7 +85,10 @@ def _infer_input_shapes(input_tensors, batch_size, signature_def):
             shape as a list as the value corresponding to it.
     Raises: ValueError if input tensor shapes are not inferrable only using batch size
     """
-    signature_shapes = {tp.name: tp.tensor_shape for tp in signature_def.inputs.values()}
+    if signature_def is None:
+        signature_shapes = {}
+    else:
+        signature_shapes = {tp.name: tp.tensor_shape for tp in signature_def.inputs.values()}
     shape_feed_dict = {}
     for tensor in input_tensors:
         shape = tensor.shape
