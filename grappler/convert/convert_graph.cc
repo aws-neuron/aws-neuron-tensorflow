@@ -747,15 +747,19 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
                                              graph_def.library());
 
   // Build output tensor names
-  std::unordered_map<std::string, std::string> op_name_to_type;
+  std::unordered_map<std::string, const NodeDef*> op_name_to_node;
   for (const auto& node : graph_def.node()) {
-    op_name_to_type[node.name()] = node.op();
+    op_name_to_node[node.name()] = &node;
   }
   std::vector<std::string> outputs;
   for (const auto& op_name : output_op_names) {
     const tensorflow::OpRegistrationData* op_reg_data;
-    TF_RETURN_IF_ERROR(flib.LookUp(op_name_to_type[op_name], &op_reg_data));
+    const NodeDef* node = op_name_to_node[op_name];
+    TF_RETURN_IF_ERROR(flib.LookUp(node->op(), &op_reg_data));
     int64 num_outputs = op_reg_data->op_def.output_arg_size();
+    if ("Split" == node->op()) {
+      num_outputs = node->attr().at("num_split").i();
+    }
     VLOG(1) << "Output " << op_name << " contains " << num_outputs
             << " outputs";
     for (int64 idx = 0; idx < num_outputs; ++idx) {
