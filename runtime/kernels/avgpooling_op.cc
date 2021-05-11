@@ -97,8 +97,11 @@ class AvgPoolingOp : public UnaryOp<T> {
     int rowStrideLen;
     int colStrideLen;
 
+    TensorShape outputshape;
+    TensorShape newinputshape;
+    Tensor paddedTensor;
+
     if (data_format_ == FORMAT_NHWC) {
-      VLOG(1) << "im in this if statement";
       rows = tensor_in.shape().dim_size(1);
       cols = tensor_in.shape().dim_size(2);
       channels = tensor_in.shape().dim_size(3);
@@ -116,39 +119,157 @@ class AvgPoolingOp : public UnaryOp<T> {
       colStrideLen = stride_[3];
     } else
       VLOG(1) << "unrecognized format, but didn't get caught by error checking";
+    if (padding_ == 1) {
+      VLOG(1) << "Valid Padding";
 
-    // now we must calculate the actual newNumRows/Cols if striding is in play
-    newNumRows = rows - rowKernelSize + 1;
-    newNumCols = cols - colKernelSize + 1;
-    // ceiling(newNumRows/rowStrideLen)
-    newNumRows = (newNumRows + rowStrideLen - 1) / rowStrideLen;
-    // ceiling(newNumRows/rowStrideLen)
-    newNumCols = (newNumCols + colStrideLen - 1) / colStrideLen;
+      // now we must calculate the actual newNumRows/Cols if striding is in play
+      newNumRows = rows - rowKernelSize + 1;
+      newNumCols = cols - colKernelSize + 1;
+      // ceiling(newNumRows/rowStrideLen)
+      newNumRows = (newNumRows + rowStrideLen - 1) / rowStrideLen;
+      // ceiling(newNumRows/rowStrideLen)
+      newNumCols = (newNumCols + colStrideLen - 1) / colStrideLen;
 
-    VLOG(1) << ksize_[0] << " " << ksize_[1] << " " << ksize_[2] << " "
-            << ksize_[3] << " " << channels;
-    TensorShape outputshape;
+    } else if (padding_ == 2) {
+      VLOG(1) << "Same Padding";
+      VLOG(1) << "something is wrong";
+      // int row_offset = rowKernelSize / 2;
+      // int col_offset = colKernelSize / 2;
+      int totalRowPadding = rowKernelSize - 1;
+      int totalColPadding = colKernelSize - 1;
+      int paddedRowLen = rows + totalRowPadding;
+      int paddedColLen = cols + totalColPadding;
+      // ceiling(paddedRowLen/rowStrideLen)
+      newNumRows = ((paddedRowLen - rowKernelSize) / rowStrideLen) + 1;
+      newNumCols = ((paddedColLen - colKernelSize) / colStrideLen) + 1;
+      // newNumRows and newNumCols to be used later when generating output shape
+
+      // floor(totalRowPadding / 2)
+      int row_offset_up = (totalRowPadding) / 2;
+      // ceil(totalRowPadding / 2)
+      int row_offset_down = (totalRowPadding + 1) / 2;
+      // floor(totalColPadding / 2)
+      int col_offset_left = (totalColPadding) / 2;
+      // ceil(totalColPadding / 2)
+      int col_offset_right = (totalColPadding + 1) / 2;
+
+      if (data_format_ == FORMAT_NHWC) {
+        newinputshape =
+            TensorShape{batch_size, paddedRowLen, paddedColLen, channels};
+      } else {
+        newinputshape =
+            TensorShape{batch_size, channels, paddedRowLen, paddedColLen};
+      }
+
+      VLOG(1) << "must be related to allocation";
+      OP_REQUIRES_OK(context, context->allocate_temp(DT_FLOAT, newinputshape,
+                                                     &paddedTensor));
+      VLOG(1) << "must be related to allocation";
+
+      auto newmatrix = paddedTensor.tensor<float, 4>();
+      auto t = tensor_in.tensor<float, 4>();
+      float inf = std::numeric_limits<float>::infinity();
+
+      if (data_format_ == FORMAT_NHWC) {
+        // create the padded tensor surrounded with proper padding
+        for (int b = 0; b < batch_size; b++) {
+          for (int r = 0; r < paddedRowLen; r++) {
+            for (int c = 0; c < paddedColLen; c++) {
+              for (int ch = 0; ch < channels; ch++) {
+                if ((r < row_offset_up || c < col_offset_left) ||
+                    (r >= paddedRowLen - row_offset_down ||
+                     c >= paddedColLen - col_offset_right)) {
+                  newmatrix(b, r, c, ch) = inf;
+                } else {
+                  newmatrix(b, r, c, ch) =
+                      t(b, r - row_offset_up, c - col_offset_left, ch);
+                }
+              }
+            }
+          }
+        }
+      } else {
+        for (int b = 0; b < batch_size; b++) {
+          for (int ch = 0; ch < channels; ch++) {
+            for (int r = 0; r < paddedRowLen; r++) {
+              for (int c = 0; c < paddedColLen; c++) {
+                if ((r < row_offset_up || c < col_offset_left) ||
+                    (r >= paddedRowLen - row_offset_down ||
+                     c >= paddedColLen - col_offset_right)) {
+                  newmatrix(b, ch, r, c) = inf;
+                } else {
+                  newmatrix(b, ch, r, c) =
+                      t(b, ch, r - row_offset_up, c - col_offset_left);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
     if (data_format_ == FORMAT_NHWC) {
       outputshape = TensorShape{batch_size, newNumRows, newNumCols, channels};
     } else {
       outputshape = TensorShape{batch_size, channels, newNumRows, newNumCols};
     }
-
     OP_REQUIRES_OK(context, context->allocate_output(0, outputshape, &output));
-
-    VLOG(1) << "before or after?";
     auto outmatrix = output->tensor<float, 4>();
 
-    for (int b = 0; b < batch_size; b++) {
-      for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
-        for (int c = 0, c1 = 0; c1 < newNumCols; c += colStrideLen, c1++) {
+    // VALID PADDING
+    if (padding_ == 1) {
+      if (data_format_ == FORMAT_NHWC) {
+        for (int b = 0; b < batch_size; b++) {
+          for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
+            for (int c = 0, c1 = 0; c1 < newNumCols; c += colStrideLen, c1++) {
+              for (int ch = 0; ch < channels; ch++) {
+                outmatrix(b, r1, c1, ch) = calculate_sum_and_average_valid(
+                    tensor_in, b, r, c, ch, rowKernelSize, colKernelSize, true);
+              }
+            }
+          }
+        }
+      } else {
+        for (int b = 0; b < batch_size; b++) {
           for (int ch = 0; ch < channels; ch++) {
-            if (data_format_ == FORMAT_NHWC) {
-              outmatrix(b, r1, c1, ch) = calculate_sum_and_average(
-                  tensor_in, b, r, c, ch, rowKernelSize, colKernelSize, true);
-            } else
-              outmatrix(b, ch, r1, c1) = calculate_sum_and_average(
-                  tensor_in, b, r, c, ch, rowKernelSize, colKernelSize, false);
+            for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
+              for (int c = 0, c1 = 0; c1 < newNumCols;
+                   c += colStrideLen, c1++) {
+                outmatrix(b, ch, r1, c1) = calculate_sum_and_average_valid(
+                    tensor_in, b, r, c, ch, rowKernelSize, colKernelSize,
+                    false);
+              }
+            }
+          }
+        }
+      }
+    }
+    // SAME PADDING
+    else if (padding_ == 2) {
+      VLOG(1) << "we at least get to here";
+      if (data_format_ == FORMAT_NHWC) {
+        for (int b = 0; b < batch_size; b++) {
+          for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
+            for (int c = 0, c1 = 0; c1 < newNumCols; c += colStrideLen, c1++) {
+              for (int ch = 0; ch < channels; ch++) {
+                outmatrix(b, r1, c1, ch) = calculate_sum_and_average_same(
+                    paddedTensor, b, r, c, ch, rowKernelSize, colKernelSize,
+                    true);
+              }
+            }
+          }
+        }
+      } else {
+        for (int b = 0; b < batch_size; b++) {
+          for (int ch = 0; ch < channels; ch++) {
+            for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
+              for (int c = 0, c1 = 0; c1 < newNumCols;
+                   c += colStrideLen, c1++) {
+                outmatrix(b, ch, r1, c1) = calculate_sum_and_average_same(
+                    paddedTensor, b, r, c, ch, rowKernelSize, colKernelSize,
+                    false);
+              }
+            }
           }
         }
       }
@@ -157,19 +278,63 @@ class AvgPoolingOp : public UnaryOp<T> {
     // context->set_output(0, context->input(0));
     // SpatialAvgPool<Device, T>(context, output, tensor_in, params, padding_);
   }
-  static float calculate_sum_and_average(const Tensor& tensor_in, int b, int r,
-                                         int c, int ch, int rowKernelSize,
-                                         int colKernelSize, bool channelsLast) {
+  static float calculate_sum_and_average_valid(const Tensor& tensor_in, int b,
+                                               int r, int c, int ch,
+                                               int rowKernelSize,
+                                               int colKernelSize,
+                                               bool channelsLast) {
     auto t = tensor_in.tensor<float, 4>();
     float sum = 0;
     float total = rowKernelSize * colKernelSize;
-
-    for (int r_offset = 0; r_offset < rowKernelSize; r_offset++) {
-      for (int c_offset = 0; c_offset < colKernelSize; c_offset++) {
-        if (channelsLast)
+    if (channelsLast) {
+      for (int r_offset = 0; r_offset < rowKernelSize; r_offset++) {
+        for (int c_offset = 0; c_offset < colKernelSize; c_offset++) {
           sum += t(b, r + r_offset, c + c_offset, ch);
-        else {
+        }
+      }
+    }
+
+    else {
+      for (int r_offset = 0; r_offset < rowKernelSize; r_offset++) {
+        for (int c_offset = 0; c_offset < colKernelSize; c_offset++) {
           sum += t(b, ch, r + r_offset, c + c_offset);
+        }
+      }
+    }
+    return sum / total;
+  }
+  static float calculate_sum_and_average_same(const Tensor& tensor_in, int b,
+                                              int r, int c, int ch,
+                                              int rowKernelSize,
+                                              int colKernelSize,
+                                              bool channelsLast) {
+    auto t = tensor_in.tensor<float, 4>();
+    float sum = 0;
+    float total = rowKernelSize * colKernelSize;
+    float value;
+    float inf = std::numeric_limits<float>::infinity();
+    if (channelsLast) {
+      for (int r_offset = 0; r_offset < rowKernelSize; r_offset++) {
+        for (int c_offset = 0; c_offset < colKernelSize; c_offset++) {
+          value = t(b, r + r_offset, c + c_offset, ch);
+          if (value == inf) {
+            total--;
+          } else {
+            sum += value;
+          }
+        }
+      }
+    }
+
+    else {
+      for (int r_offset = 0; r_offset < rowKernelSize; r_offset++) {
+        for (int c_offset = 0; c_offset < colKernelSize; c_offset++) {
+          value = t(b, ch, r + r_offset, c + c_offset);
+          if (value == inf) {
+            total--;
+          } else {
+            sum += value;
+          }
         }
       }
     }
