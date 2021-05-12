@@ -318,6 +318,18 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   TF_RETURN_IF_ERROR(
       get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
 
+  // lambda for enabling shared memory
+  auto UseShmForIO = [&](const std::vector<Tensor>& input_tensors) {
+    bool use_shm = shm_allocator->is_valid();
+    for (const Tensor& tensor : input_tensors) {
+      use_shm &= tensor.NumElements() != 0;
+    }
+    for (size_t buf_size : output_tensor_sizes) {
+      use_shm &= buf_size != 0;
+    }
+    return use_shm;
+  };
+
   // enable/disable dynamic batch size
   int64_t batch_size = UNINIT_BATCH_SIZE;
   int64_t k_batch_size = UNINIT_BATCH_SIZE;
@@ -511,13 +523,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       RuntimeIO runtime_io;
       std::vector<Tensor> input_shm_tensors;
       std::vector<Tensor> output_shm_tensors;
-      bool use_shm = shm_allocator->is_valid();
-      for (const Tensor& tensor : sliced_inputs) {
-        use_shm &= tensor.NumElements() != 0;
-      }
-      for (size_t buf_size : output_tensor_sizes) {
-        use_shm &= buf_size != 0;
-      }
+      bool use_shm = UseShmForIO(sliced_inputs);
       if (TF_PREDICT_TRUE(use_shm)) {
         input_shm_tensors.resize(sliced_inputs.size());
         for (size_t idx = 0; idx < sliced_inputs.size(); ++idx) {
@@ -643,13 +649,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     RuntimeIO runtime_io;
     std::vector<Tensor> input_shm_tensors;
     std::vector<Tensor> output_shm_tensors;
-    bool use_shm = shm_allocator->is_valid();
-    for (const Tensor& tensor : input_tensors) {
-      use_shm &= tensor.NumElements() != 0;
-    }
-    for (size_t buf_size : output_tensor_sizes) {
-      use_shm &= buf_size != 0;
-    }
+    bool use_shm = UseShmForIO(input_tensors);
     if (TF_PREDICT_TRUE(use_shm)) {
       input_shm_tensors.resize(input_tensors.size());
       for (size_t idx = 0; idx < input_shm_tensors.size(); ++idx) {
