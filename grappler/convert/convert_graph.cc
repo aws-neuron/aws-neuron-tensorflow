@@ -759,6 +759,8 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
     int64 num_outputs = op_reg_data->op_def.output_arg_size();
     if ("Split" == node->op()) {
       num_outputs = node->attr().at("num_split").i();
+    } else if ("Unpack" == node->op()) {
+      num_outputs = node->attr().at("num").i();
     }
     VLOG(1) << "Output " << op_name << " contains " << num_outputs
             << " outputs";
