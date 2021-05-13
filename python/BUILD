@@ -159,6 +159,7 @@ py_library(
         "saved_model_v2_test.py",
         "tf2_keras_test.py",
         "keras_layer_test.py",
+        "avg_pool_test.py",
     ],
     deps = [
         ":graph_util_py",

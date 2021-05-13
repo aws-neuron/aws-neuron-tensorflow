@@ -75,6 +75,7 @@ class AvgPoolingOp : public UnaryOp<T> {
   }
 
   void Compute(OpKernelContext* context) override {
+    VLOG(1) << "Starting AvgPool compute.";
     const Tensor& tensor_in = context->input(0);
     if (!context->status().ok()) {
       return;
@@ -118,7 +119,7 @@ class AvgPoolingOp : public UnaryOp<T> {
       rowStrideLen = stride_[2];
       colStrideLen = stride_[3];
     } else
-      VLOG(1) << "unrecognized format, but didn't get caught by error checking";
+      VLOG(1) << "Unrecognized format, but didn't get caught by error checking";
     if (padding_ == 1) {
       VLOG(1) << "Valid Padding";
 
@@ -132,7 +133,6 @@ class AvgPoolingOp : public UnaryOp<T> {
 
     } else if (padding_ == 2) {
       VLOG(1) << "Same Padding";
-      VLOG(1) << "something is wrong";
       // int row_offset = rowKernelSize / 2;
       // int col_offset = colKernelSize / 2;
       int totalRowPadding = rowKernelSize - 1;
@@ -161,16 +161,16 @@ class AvgPoolingOp : public UnaryOp<T> {
             TensorShape{batch_size, channels, paddedRowLen, paddedColLen};
       }
 
-      VLOG(1) << "must be related to allocation";
       OP_REQUIRES_OK(context, context->allocate_temp(DT_FLOAT, newinputshape,
                                                      &paddedTensor));
-      VLOG(1) << "must be related to allocation";
+      VLOG(1) << "Successfully allocated the paddedTensor for same paddding.";
 
       auto newmatrix = paddedTensor.tensor<float, 4>();
       auto t = tensor_in.tensor<float, 4>();
       float inf = std::numeric_limits<float>::infinity();
 
       if (data_format_ == FORMAT_NHWC) {
+        VLOG(1) << "Channels last padded tensor being created";
         // create the padded tensor surrounded with proper padding
         for (int b = 0; b < batch_size; b++) {
           for (int r = 0; r < paddedRowLen; r++) {
@@ -189,6 +189,7 @@ class AvgPoolingOp : public UnaryOp<T> {
           }
         }
       } else {
+        VLOG(1) << "Channels First padded tensor being created";
         for (int b = 0; b < batch_size; b++) {
           for (int ch = 0; ch < channels; ch++) {
             for (int r = 0; r < paddedRowLen; r++) {
@@ -208,17 +209,44 @@ class AvgPoolingOp : public UnaryOp<T> {
       }
     }
 
+    VLOG(1) << "paddedTensor shape: " << paddedTensor.DebugString();
+
     if (data_format_ == FORMAT_NHWC) {
       outputshape = TensorShape{batch_size, newNumRows, newNumCols, channels};
     } else {
       outputshape = TensorShape{batch_size, channels, newNumRows, newNumCols};
     }
+
     OP_REQUIRES_OK(context, context->allocate_output(0, outputshape, &output));
+
+    VLOG(1) << "Output Shape: " << output->DebugString();
     auto outmatrix = output->tensor<float, 4>();
+
+    // this is a special case where we just average the whole input tensor
+    if (newNumRows == 1 && newNumCols == 1) {
+      VLOG(1) << "Using the special case!";
+      for (int b = 0; b < batch_size; b++) {
+        for (int ch = 0; ch < channels; ch++) {
+          // less efficient here because I think we can get away with it as it
+          // is only 1x1 image
+          if (data_format_ == FORMAT_NHWC) {
+            outmatrix(b, 0, 0, ch) =
+                special_case(tensor_in, b, ch, rows, cols, true);
+          } else {
+            outmatrix(b, ch, 0, 0) =
+                special_case(tensor_in, b, ch, rows, cols, false);
+          }
+        }
+      }
+      //don't need to do any more calculations
+      return;
+    }
 
     // VALID PADDING
     if (padding_ == 1) {
+      VLOG(1) << "Valid padding AVGPool step";
       if (data_format_ == FORMAT_NHWC) {
+        VLOG(1) << "Using channels last format";
         for (int b = 0; b < batch_size; b++) {
           for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
             for (int c = 0, c1 = 0; c1 < newNumCols; c += colStrideLen, c1++) {
@@ -230,6 +258,7 @@ class AvgPoolingOp : public UnaryOp<T> {
           }
         }
       } else {
+        VLOG(1) << "Using channels first format";
         for (int b = 0; b < batch_size; b++) {
           for (int ch = 0; ch < channels; ch++) {
             for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
@@ -246,8 +275,9 @@ class AvgPoolingOp : public UnaryOp<T> {
     }
     // SAME PADDING
     else if (padding_ == 2) {
-      VLOG(1) << "we at least get to here";
+      VLOG(1) << "Same padding AVG pool step.";
       if (data_format_ == FORMAT_NHWC) {
+        VLOG(1) << "Using channels last format";
         for (int b = 0; b < batch_size; b++) {
           for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
             for (int c = 0, c1 = 0; c1 < newNumCols; c += colStrideLen, c1++) {
@@ -260,6 +290,7 @@ class AvgPoolingOp : public UnaryOp<T> {
           }
         }
       } else {
+        VLOG(1) << "Using channels first format";
         for (int b = 0; b < batch_size; b++) {
           for (int ch = 0; ch < channels; ch++) {
             for (int r = 0, r1 = 0; r1 < newNumRows; r += rowStrideLen, r1++) {
@@ -335,6 +366,25 @@ class AvgPoolingOp : public UnaryOp<T> {
           } else {
             sum += value;
           }
+        }
+      }
+    }
+    return sum / total;
+  }
+
+  static float special_case(const Tensor& tensor_in, int b, int ch, int r,
+                            int c, bool channelsLast) {
+    auto t = tensor_in.tensor<float, 4>();
+    float sum = 0;
+    float total = r * c;
+    for (int i = 0; i < r; i++) {
+      for (int j = 0; j < c; j++) {
+        // called very little so I think we can get away with if inside the for
+        // loops here
+        if (channelsLast) {
+          sum += t(b, i, j, ch);
+        } else {
+          sum += t(b, ch, i, j);
         }
       }
     }

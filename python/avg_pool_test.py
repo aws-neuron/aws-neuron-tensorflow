@@ -3,7 +3,6 @@ import unittest
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
 
-@unittest.expectedFailure
 class TestAvgPool(TestV2Only):
     def test_channels_first_simple(self):
         neuron_result = None
@@ -240,7 +239,7 @@ class TestAvgPool(TestV2Only):
         tfcpu_result_transposed = tf.transpose(tfcpu_result, perm=[0, 3, 1, 2])
 
         with tf.device('/device:AWS_NEURON:0'):
-            neuron_result = tf.nn.avg_pool(orig_input_transposed, ksize, strides, 'SAME', data_format='NHWC')
+            neuron_result = tf.nn.avg_pool(orig_input_transposed, ksize, strides, 'SAME', data_format='NCHW')
 
         np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
