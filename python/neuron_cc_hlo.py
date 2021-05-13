@@ -76,6 +76,7 @@ Relu
 Relu6
 Reshape
 Rsqrt
+Select
 SelectV2
 Selu
 Sigmoid
