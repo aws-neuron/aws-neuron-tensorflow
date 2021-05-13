@@ -39,6 +39,8 @@ namespace neuron {
 
 // some keys
 const char kInputShuffles[] = "_input_shuffles";
+const char kInputCanUseShm[] = "_input_can_use_shm";
+const char kOutputCanUseShm[] = "_output_can_use_shm";
 
 // some magic numbers
 static const int64 UNINIT_BATCH_SIZE = -8;
@@ -306,6 +308,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       ctx->device()->tensorflow_cpu_worker_threads()->workers;
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   AttrList& input_names = attr.at("input_names").list();
+  AttrList& output_names = attr.at("output_names").list();
   AttrList& output_shapes = attr.at("output_shapes").list();
   TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
               errors::InvalidArgument("incorrect number of input tensors"));
@@ -318,6 +321,28 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   TF_RETURN_IF_ERROR(
       get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
 
+  // can_use_shm directives
+  AttrValue_ListValue input_can_use_shm;
+  if (attr.count(kInputCanUseShm)) {
+    VLOG(1) << "reading input_can_use_shm compiler directive";
+    input_can_use_shm = attr.at(kInputCanUseShm).list();
+  } else {
+    VLOG(1) << "initializing input_can_use_shm to all true";
+    for (const auto& name : input_names.s()) {
+      input_can_use_shm.mutable_b()->Add(true);
+    }
+  }
+  AttrValue_ListValue output_can_use_shm;
+  if (attr.count(kInputCanUseShm)) {
+    VLOG(1) << "reading output_can_use_shm compiler directive";
+    output_can_use_shm = attr.at(kOutputCanUseShm).list();
+  } else {
+    VLOG(1) << "initializing output_can_use_shm to all true";
+    for (const auto& name : output_names.s()) {
+      output_can_use_shm.mutable_b()->Add(true);
+    }
+  }
+
   // lambda for enabling shared memory
   auto UseShmForIO = [&](const std::vector<Tensor>& input_tensors) {
     bool use_shm = shm_allocator->is_valid();
@@ -327,6 +352,12 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     for (size_t buf_size : output_tensor_sizes) {
       use_shm &= buf_size != 0;
     }
+    for (bool can_use_shm : input_can_use_shm.b()) {
+      use_shm &= can_use_shm;
+    }
+    for (bool can_use_shm : output_can_use_shm.b()) {
+      use_shm &= can_use_shm;
+    }
     return use_shm;
   };
 
@@ -335,7 +366,6 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   int64_t k_batch_size = UNINIT_BATCH_SIZE;
   std::vector<bool> is_batch_inputs(input_tensors.size());
   std::vector<bool> is_batch_outputs(ctx->num_outputs());
-  AttrList& output_names = attr.at("output_names").list();
   AttrList& input_batch_axis = attr.at("input_batch_axis").list();
   AttrList& output_batch_axis = attr.at("output_batch_axis").list();
   bool found_batch_axis = false;
@@ -435,9 +465,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       output_tensors[idx] = batch_out_tensor;
     }
   } else {
+    bool use_shm = UseShmForIO(input_tensors);
     for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
       AllocatorAttributes attr;
-      NeuronDevice::set_on_shm(&attr, shm_allocator->is_valid());
+      NeuronDevice::set_on_shm(&attr, use_shm);
       TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
                                               &output_tensors[idx], attr));
     }
@@ -685,7 +716,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       RIE_IGNORE_ABORTED(neuron_engine_->infer(&runtime_io));
     }
     VLOG_TIME("after infer");
-    if (TF_PREDICT_FALSE(!shm_allocator->is_valid())) {
+    if (TF_PREDICT_FALSE(!use_shm)) {
       RIE_IGNORE_ABORTED(
           runtime_io.finish(&output_tensors, output_shm_tensors, thread_pool));
     }

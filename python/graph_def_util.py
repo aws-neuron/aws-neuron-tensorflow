@@ -269,6 +269,14 @@ def run_compiler_on_subgraphs(graph_def):
                         if [dim.size for dim in shape.dim] != ts.shape:
                             for dim, size in zip(shape.dim, ts.shape):
                                 dim.size = size
+            try:
+                input_can_use_shm = [ts.can_use_shm for ts in inputs]
+                output_can_use_shm = [ts.can_use_shm for ts in outputs]
+            except AttributeError:
+                pass
+            else:
+                node.attr['_input_can_use_shm'].list.b[:] = input_can_use_shm
+                node.attr['_output_can_use_shm'].list.b[:] = output_can_use_shm
     return graph_def
 
 
