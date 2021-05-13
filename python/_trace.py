@@ -19,6 +19,7 @@ from tensorflow.python.eager import function
 from tensorflow.python.eager import def_function
 from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import convert_to_constants
+from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.tensor_spec import TensorSpec
 from tensorflow.python.grappler import tf_optimizer
@@ -146,6 +147,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
             no_fuse_ops = []
         else:
             no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
+            no_fuse_ops.extend(_find_int64_select_ops(cfunc.graph))
     else:
         force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
         fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
@@ -193,6 +195,11 @@ def _find_pad_ops_preceding_conv2d(graph):
                     no_fuse_ops.append(op.inputs[1].op.name)
                     no_fuse_ops.extend(piop.name for piop in pad_input_ops)
     return no_fuse_ops
+
+
+def _find_int64_select_ops(graph):
+    predicate = lambda op: op.type == 'Select' and op.get_attr('T') == dtypes.int64
+    return [op.name for op in graph.get_operations() if predicate(op)]
 
 
 def _get_input_names(func):
