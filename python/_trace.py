@@ -185,7 +185,7 @@ def _find_pad_ops_preceding_conv2d(graph):
     for op in graph.get_operations():
         if op.type == 'Pad':
             consumers = op.outputs[0].consumers()
-            if consumers[0].type == 'Conv2D':
+            if consumers and consumers[0].type == 'Conv2D':
                 curr_op = op
                 pad_input_ops = [curr_op]
                 while curr_op.inputs and curr_op.type in supported_op_types:
