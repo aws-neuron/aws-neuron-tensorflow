@@ -86,6 +86,7 @@ Softsign
 SpaceToBatchND
 Split
 SplitV
+Sqrt
 Square
 SquaredDifference
 Squeeze
