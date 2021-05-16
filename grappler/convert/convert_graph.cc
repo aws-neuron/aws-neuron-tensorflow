@@ -692,13 +692,15 @@ static Status FindConstantFoldableNodes(
   for (const auto& node : graph_def.node()) {
     bool foldable = false;
     if (node.op() == "Shape") {
-      const NodeDef* in_node = name_to_node.at(node.input(0));
+      VLOG(1) << "looking at input " << node.input(0);
+      auto in_name_port = ParseTensorName(node.input(0));
+      std::string in_name = in_name_port.first;
+      int in_port = in_name_port.second;
+      const NodeDef* in_node = name_to_node.at(in_name);
       const auto& attr = in_node->attr();
-      const auto& shape_list = attr.at(kNeuronInferredShapes).list().shape();
-      auto predicate = [](const TensorShapeProto& sp) {
-        return PartialTensorShape(sp).IsFullyDefined();
-      };
-      foldable = std::all_of(shape_list.begin(), shape_list.end(), predicate);
+      const auto& shape = attr.at(kNeuronInferredShapes).list().shape(in_port);
+      foldable = PartialTensorShape(shape).IsFullyDefined();
+      VLOG(1) << "node " << node.name() << ", foldable " << foldable;
     } else {
       const auto& inputs = node.input();
       auto predicate = [foldable_nodes,
@@ -712,6 +714,7 @@ static Status FindConstantFoldableNodes(
         if (index_start != std::string::npos) {
           node_name = node_name.substr(0, index_start);
         }
+        VLOG(1) << "determining status of node " << node_name;
         return foldable_nodes->count(node_name) ||
                name_to_node.at(node_name)->op() == "Const";
       };
