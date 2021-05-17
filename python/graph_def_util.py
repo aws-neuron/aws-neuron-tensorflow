@@ -176,7 +176,7 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
 def convert_shape_to_constant(graph_def):
     name_to_node = {node.name: node for node in graph_def.node}
     for node in graph_def.node:
-        if node.op == 'Shape':
+        if node.op in {'Shape', 'Size'}:
             input_name = node.input[0]
             if ':' in input_name:
                 input_node_name, index = input_name.split(':')
@@ -188,18 +188,22 @@ def convert_shape_to_constant(graph_def):
             shape_proto = input_node.attr[kNeuronInferredShapes].list.shape[index]
             shape = TensorShape(shape_proto)
             if shape.is_fully_defined():
-                node.op = 'Const'
                 node.input[:] = []
                 dtype_enum = node.attr['out_type'].type
                 node.attr['dtype'].type = dtype_enum
                 node.attr.pop('T')
                 node.attr.pop('out_type')
                 dtype = dtypes.as_dtype(dtype_enum)
-                shape_tensor = convert_to_tensor(shape.as_list(), dtype)
                 tensor_proto = node.attr['value'].tensor
                 tensor_proto.dtype = dtype_enum
+                if node.op == 'Shape':
+                    tensor_content = shape.as_list()
+                elif node.op == 'Size':
+                    tensor_content = shape.num_elements()
+                shape_tensor = convert_to_tensor(tensor_content, dtype)
                 tensor_proto.tensor_shape.CopyFrom(shape_tensor.shape.as_proto())
                 tensor_proto.tensor_content = shape_tensor.numpy().tobytes()
+                node.op = 'Const'
     return graph_def
 
 

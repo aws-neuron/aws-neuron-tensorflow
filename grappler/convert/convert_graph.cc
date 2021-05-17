@@ -691,7 +691,7 @@ static Status FindConstantFoldableNodes(
   }
   for (const auto& node : graph_def.node()) {
     bool foldable = false;
-    if (node.op() == "Shape") {
+    if (node.op() == "Shape" || node.op() == "Size") {
       VLOG(1) << "looking at input " << node.input(0);
       auto in_name_port = ParseTensorName(node.input(0));
       std::string in_name = in_name_port.first;
