@@ -22,6 +22,7 @@ from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.neuron.python.neuron_cc import compile_savetemps
 from tensorflow.neuron.python import neff_util
+from tensorflow.neuron.python import utils
 
 
 tNeuronOp = 'NeuronOp'
@@ -459,6 +460,24 @@ def maybe_relax_placeholder_shapes(graph_def):
                 dims = node.attr['shape'].shape.dim
                 if dims:
                     dims[0].size = -1
+    return graph_def
+
+
+def prefix_node_names(graph_def):
+    name_change_map = {}
+    for node in get_neuron_nodes(graph_def):
+        prefix = utils.most_popular_namescope(sn.name for sn in get_subgraph_def(node).node)
+        if not prefix:
+            continue
+        new_op_name = '/'.join([prefix, node.name])
+        num_tensor = len(node.attr[knOutputNames].list.s)
+        for idx in range(num_tensor):
+            tensor_name = format_tensor_name('{}:{}'.format(node.name, idx))
+            new_tensor_name = format_tensor_name('{}:{}'.format(new_op_name, idx))
+            name_change_map[tensor_name] = new_tensor_name
+        node.name = new_op_name
+    for node in graph_def.node:
+        node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
     return graph_def
 
 

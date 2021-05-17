@@ -258,20 +258,7 @@ def inference_graph_from_session(
         compiled_graph_def, dynamic_batch_size = set_dynamic_batch_size(compiled_graph_def)
 
     # rename NeuronOp's for better visualization
-    name_change_map = {}
-    for node in gdu.get_neuron_nodes(compiled_graph_def):
-        prefix = utils.most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
-        if not prefix:
-            continue
-        new_op_name = '/'.join([prefix, node.name])
-        num_tensor = len(node.attr['output_names'].list.s)
-        for idx in range(num_tensor):
-            tensor_name = gdu.format_tensor_name('{}:{}'.format(node.name, idx))
-            new_tensor_name = gdu.format_tensor_name('{}:{}'.format(new_op_name, idx))
-            name_change_map[tensor_name] = new_tensor_name
-        node.name = new_op_name
-    for node in compiled_graph_def.node:
-        node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
+    compiled_graph_def = gdu.prefix_node_names(compiled_graph_def)
 
     # raise exception if NeuronOp is still uncompiled after fallback pass
     uncompiled_node_names = []
