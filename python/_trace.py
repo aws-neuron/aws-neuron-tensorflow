@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 from collections import abc
 from distutils.version import LooseVersion
 from tensorflow.core.protobuf import config_pb2
@@ -54,6 +55,13 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         func = def_function.function(input_signature=input_signature)(func)
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
+    tfn_args, _ = utils.parse_neuron_cc_flags()
+
+    def maybe_dump_as(graph_def, filename):
+        if tfn_args.dump_prefix is not None:
+            os.makedirs(tfn_args.dump_prefix, exist_ok=True)
+            with open(os.path.join(tfn_args.dump_prefix, filename), 'wb') as f:
+                f.write(graph_def.SerializeToString())
 
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
@@ -68,13 +76,16 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
+    maybe_dump_as(graph_def, 'graph_def_shaped.pb')
 
     # call main-graph grappler passes
     graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function)
+    maybe_dump_as(graph_def, 'graph_def_fused.pb')
 
     # call graph_def_util/meta_graph_util passes
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def)
+    maybe_dump_as(graph_def, 'graph_def_fused_optimized.pb')
     graph_def = gdu.run_compiler_on_subgraphs(graph_def)
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
