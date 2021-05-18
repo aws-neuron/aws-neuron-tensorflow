@@ -53,6 +53,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         if all(isinstance(item, ops.Tensor) for item in example_inputs):
             input_signature = [TensorSpec(ts.shape, ts.dtype) for ts in example_inputs]
         func = def_function.function(input_signature=input_signature)(func)
+    original_func = func
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
     tfn_args, _ = utils.parse_neuron_cc_flags()
@@ -70,6 +71,9 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         else:
             cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
+    if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
+        logging.warning('{} does not seem to have any input; returning an uncompiled callable'.format(func))
+        return original_func
     original_graph_def = graph_def
 
     # encode known shapes
