@@ -749,29 +749,6 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
                                              graph_def.library());
 
-  // Build output tensor names
-  std::unordered_map<std::string, const NodeDef*> op_name_to_node;
-  for (const auto& node : graph_def.node()) {
-    op_name_to_node[node.name()] = &node;
-  }
-  std::vector<std::string> outputs;
-  for (const auto& op_name : output_op_names) {
-    const tensorflow::OpRegistrationData* op_reg_data;
-    const NodeDef* node = op_name_to_node[op_name];
-    TF_RETURN_IF_ERROR(flib.LookUp(node->op(), &op_reg_data));
-    int64 num_outputs = op_reg_data->op_def.output_arg_size();
-    if ("Split" == node->op()) {
-      num_outputs = node->attr().at("num_split").i();
-    } else if ("Unpack" == node->op()) {
-      num_outputs = node->attr().at("num").i();
-    }
-    VLOG(1) << "Output " << op_name << " contains " << num_outputs
-            << " outputs";
-    for (int64 idx = 0; idx < num_outputs; ++idx) {
-      outputs.push_back(op_name + ":" + std::to_string(idx));
-    }
-  }
-
   GraphDef temp_graph_def;
   temp_graph_def.CopyFrom(graph_def);
   TF_RETURN_IF_ERROR(PreProcessingGraphDef(temp_graph_def));
@@ -780,6 +757,22 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
 
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
       tensorflow::GraphConstructorOptions(), temp_graph_def, &graph));
+
+  // Build output tensor names
+  std::unordered_map<std::string, const Node*> op_name_to_node;
+  for (const Node* node : graph.op_nodes()) {
+    op_name_to_node[node->name()] = node;
+  }
+  std::vector<std::string> outputs;
+  for (const auto& op_name : output_op_names) {
+    const Node* node = op_name_to_node[op_name];
+    int64 num_outputs = node->num_outputs();
+    VLOG(1) << "Output " << op_name << " contains " << num_outputs
+            << " outputs";
+    for (int64 idx = 0; idx < num_outputs; ++idx) {
+      outputs.push_back(op_name + ":" + std::to_string(idx));
+    }
+  }
 
   // Find "constant-foldable" nodes and claim them as supported
   std::unordered_set<std::string> foldable_nodes;
