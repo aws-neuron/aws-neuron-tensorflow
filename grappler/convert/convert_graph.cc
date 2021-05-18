@@ -28,13 +28,26 @@ namespace convert {
 
 const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
 
-// Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
+class EdgeValidator {
+ public:
+  // Return true if the specified edge is eligible to be an input edge of the
+  // Neuron segment.
+  bool operator()(const Edge* edge) const {
+    const Node* node = edge->src();
+    int port = edge->src_output();
+    DataType dtype = node->output_type(port);
+    return !illegal_dtypes_.count(dtype);
+  }
+ private:
+  const std::unordered_set<DataType> illegal_dtypes_ = {DT_INT64, DT_DOUBLE};
+};
+
 // Helper class for the segmenter to determine whether an output edge from the
-// TRT segment is valid.
+// Neuron segment is valid.
 class OutputEdgeValidator {
  public:
   // Return true if the specified edge is eligible to be an output edge of the
-  // TRT segment.
+  // Neuron segment.
   bool operator()(const Edge* out_edge) const {
     if (out_edge->IsControlEdge()) return true;
     if (out_edge->src()->type_string() == "Const") {
@@ -42,7 +55,7 @@ class OutputEdgeValidator {
               << " which is a Const.";
       return false;
     }
-    return true;
+    return EdgeValidator()(out_edge);
   }
 };
 
@@ -812,10 +825,20 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   }
 
   tensorflow::tensorrt::segment::SegmentNodesVector segments;
+  std::function<bool(const Edge*)> input_edge_validator;
+  std::function<bool(const Edge*)> output_edge_validator;
+  if (force_fuse_ops.size()) {
+    // Don't exclude edges if manual segmentation is specified
+    input_edge_validator = [](const Edge* edge) { return true; };
+    output_edge_validator = [](const Edge* edge) { return true; };
+  } else {
+    input_edge_validator = EdgeValidator();
+    output_edge_validator = OutputEdgeValidator();
+  }
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
       &graph, [](const Node* node) { return Status::OK(); },
-      [](const Edge* edge) { return true; }, OutputEdgeValidator(),
+      input_edge_validator, output_edge_validator,
       segment_options, &segments));
   if (segments.size() > 1) {
     VLOG(1) << "MULTIPLE Neuron candidate conversion: " << segments.size();
