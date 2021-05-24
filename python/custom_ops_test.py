@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
 
-def test_channels_first_simple(mode):
+def run_channels_first_simple(mode):
     neuron_result = None
     ksize = [3,3]
     strides = [1, 1]
@@ -26,7 +26,7 @@ def test_channels_first_simple(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed)
 
-def test_channels_last_simple(mode):
+def run_channels_last_simple(mode):
     ksize = [3,3]
     strides = [1, 1]
     a = tf.range(75, dtype='float32')
@@ -44,7 +44,7 @@ def test_channels_last_simple(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
 
-def test_channels_first_large(mode):
+def run_channels_first_large(mode):
     ksize = [4, 7]
     strides = [1, 1]
     a = tf.range(150528, dtype='float32')
@@ -64,7 +64,7 @@ def test_channels_first_large(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed)
     
-def test_channels_last_large(mode):
+def run_channels_last_large(mode):
     ksize = [4, 7]
     strides = [1, 1]
     a = tf.range(150528, dtype='float32')
@@ -82,7 +82,7 @@ def test_channels_last_large(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result)
 
-def test_large_stride_and_batch_size_channels_first(mode):
+def run_large_stride_and_batch_size_channels_first(mode):
     ksize = [5,5]
     strides = [4, 2]
     a = tf.range(1500, dtype='float32')
@@ -102,7 +102,7 @@ def test_large_stride_and_batch_size_channels_first(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed)
 
-def test_large_stride_and_batch_size_channels_last(mode):
+def run_large_stride_and_batch_size_channels_last(mode):
     ksize = [5,5]
     strides = [4, 2]
     a = tf.range(1500, dtype='float32')
@@ -120,7 +120,7 @@ def test_large_stride_and_batch_size_channels_last(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
     
-def test_same_padding_channels_first(mode):
+def run_same_padding_channels_first(mode):
     ksize = [3,3]
     strides = [1, 1]
     a = tf.range(75, dtype='float32')
@@ -141,7 +141,7 @@ def test_same_padding_channels_first(mode):
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
 
-def test_same_padding_channels_last(mode):
+def run_same_padding_channels_last(mode):
     ksize = [3,3]
     strides = [1, 1]
     a = tf.range(75, dtype='float32')
@@ -159,7 +159,7 @@ def test_same_padding_channels_last(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
     
-def test_same_padding_weird_kernel_and_stride_channels_first(mode):
+def run_same_padding_weird_kernel_and_stride_channels_first(mode):
     ksize = [5,1]
     strides = [2, 3]
     a = tf.range(75, dtype='float32')
@@ -180,7 +180,7 @@ def test_same_padding_weird_kernel_and_stride_channels_first(mode):
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
     
-def test_same_padding_weird_kernel_and_stride_channels_last(mode):
+def run_same_padding_weird_kernel_and_stride_channels_last(mode):
     ksize = [5,1]
     strides = [2, 3]
     a = tf.range(75, dtype='float32')
@@ -197,7 +197,7 @@ def test_same_padding_weird_kernel_and_stride_channels_last(mode):
             neuron_result = tf.nn.max_pool(orig_input, ksize, strides, 'SAME', data_format='NHWC')
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
 
-def test_same_padding_even_kernel_channels_first(mode):
+def run_same_padding_even_kernel_channels_first(mode):
     ksize = [2,4]
     strides = [1, 1]
     a = tf.range(75, dtype='float32')
@@ -217,7 +217,7 @@ def test_same_padding_even_kernel_channels_first(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
-def test_same_padding_even_kernel_channels_last(mode):
+def run_same_padding_even_kernel_channels_last(mode):
     ksize = [2,4]
     strides = [1, 1]
     a = tf.range(75, dtype='float32')
@@ -234,7 +234,7 @@ def test_same_padding_even_kernel_channels_last(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
 
-def test_same_padding_even_kernel_stride_channels_first(mode):
+def run_same_padding_even_kernel_stride_channels_first(mode):
     ksize = [4,6]
     strides = [3, 4]
     a = tf.range(300, dtype='float32')
@@ -254,7 +254,7 @@ def test_same_padding_even_kernel_stride_channels_first(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
-def test_same_padding_even_kernel_stride_channels_last(mode):
+def run_same_padding_even_kernel_stride_channels_last(mode):
     ksize = [4,6]
     strides = [3, 4]
     a = tf.range(300, dtype='float32')
@@ -273,7 +273,7 @@ def test_same_padding_even_kernel_stride_channels_last(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
 
-def test_larger_kernel_channels_first(mode):
+def run_larger_kernel_channels_first(mode):
     ksize = [11,12]
     strides = [3, 4]
     a = tf.range(300, dtype='float32')
@@ -294,7 +294,7 @@ def test_larger_kernel_channels_first(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
-def test_larger_kernel_channels_last(mode):
+def run_larger_kernel_channels_last(mode):
     ksize = [11,12]
     strides = [3, 4]
     a = tf.range(300, dtype='float32')
@@ -312,7 +312,7 @@ def test_larger_kernel_channels_last(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result) 
 
-def test_larger_stride_same_padding_channels_first(mode):
+def run_larger_stride_same_padding_channels_first(mode):
     ksize = [6,6]
     strides = [10, 10]
     a = tf.range(75, dtype='float32')
@@ -334,7 +334,7 @@ def test_larger_stride_same_padding_channels_first(mode):
 
     np.testing.assert_allclose(neuron_result, tfcpu_result_transposed) 
 
-def test_larger_stride_same_padding_channels_last(mode):
+def run_larger_stride_same_padding_channels_last(mode):
     ksize = [6,6]
     strides = [10, 10]
     a = tf.range(75, dtype='float32')
@@ -355,119 +355,118 @@ def test_larger_stride_same_padding_channels_last(mode):
 
 class TestAvgPool(TestV2Only):
     def test_channels_first_simple_avg_pool(self):
-        test_channels_first_simple('avgpool')
+        run_channels_first_simple('avgpool')
         
 
     def test_channels_last_simple_avg_pool(self):
-        test_channels_last_simple('avgpool')
-
+        run_channels_last_simple('avgpool')
 
     def test_channels_first_large_avg_pool(self):
-        test_channels_first_large('avgpool')
+        run_channels_first_large('avgpool')
        
     def test_channels_last_large_avg_pool(self):
-        test_channels_last_large('avgpool')
+        run_channels_last_large('avgpool')
 
     def test_large_stride_and_batch_size_channels_first_avg_pool(self):
-        test_large_stride_and_batch_size_channels_first('avgpool')
+        run_large_stride_and_batch_size_channels_first('avgpool')
 
     def test_large_stride_and_batch_size_channels_last_avg_pool(self):
-        test_large_stride_and_batch_size_channels_last('avgpool')
+        run_large_stride_and_batch_size_channels_last('avgpool')
         
     def test_same_padding_channels_first_avg_pool(self):
-        test_same_padding_channels_first('avgpool')
+        run_same_padding_channels_first('avgpool')
 
 
     def test_same_padding_channels_last_avg_pool(self):
-        test_same_padding_channels_last('avgpool')
+        run_same_padding_channels_last('avgpool')
         
     def test_same_padding_weird_kernel_and_stride_channels_first_avg_pool(self):
-        test_same_padding_weird_kernel_and_stride_channels_first('avgpool')
+        run_same_padding_weird_kernel_and_stride_channels_first('avgpool')
 
         
     def test_same_padding_weird_kernel_and_stride_channels_last_avg_pool(self):
-        test_same_padding_weird_kernel_and_stride_channels_last('avgpool')
+        run_same_padding_weird_kernel_and_stride_channels_last('avgpool')
 
     def test_same_padding_even_kernel_channels_first_avg_pool(self):
-        test_same_padding_even_kernel_channels_first('avgpool')
+        run_same_padding_even_kernel_channels_first('avgpool')
 
     def test_same_padding_even_kernel_channels_last_avg_pool(self):
-        test_same_padding_even_kernel_channels_last('avgpool')
+        run_same_padding_even_kernel_channels_last('avgpool')
 
     def test_same_padding_even_kernel_stride_channels_first_avg_pool(self):
-        test_same_padding_even_kernel_stride_channels_first('avgpool')
+        run_same_padding_even_kernel_stride_channels_first('avgpool')
 
     def test_same_padding_even_kernel_stride_channels_last_avg_pool(self):
-        test_same_padding_even_kernel_stride_channels_last('avgpool')
+        run_same_padding_even_kernel_stride_channels_last('avgpool')
 
     def test_larger_kernel_channels_first_avg_pool(self):
-        test_larger_kernel_channels_first('avgpool')
+        run_larger_kernel_channels_first('avgpool')
 
     def test_larger_kernel_channels_last_avg_pool(self):
-        test_larger_kernel_channels_last('avgpool')
+        run_larger_kernel_channels_last('avgpool')
 
     def test_larger_stride_same_padding_channels_first_avg_pool(self):
-        test_larger_stride_same_padding_channels_first('avgpool')
+        run_larger_stride_same_padding_channels_first('avgpool')
 
     def test_larger_stride_same_padding_channels_last_avg_pool(self):
-        test_larger_stride_same_padding_channels_last('avgpool')
+        run_larger_stride_same_padding_channels_last('avgpool')
 
 
 class TestMaxPool(TestV2Only):
     def test_channels_first_simple_max_pool(self):
-        test_channels_first_simple('maxpool')
+        run_channels_first_simple('maxpool')
         
 
     def test_channels_last_simple_max_pool(self):
-        test_channels_last_simple('maxpool')
+        run_channels_last_simple('maxpool')
 
 
     def test_channels_first_large_max_pool(self):
-        test_channels_first_large('maxpool')
+        run_channels_first_large('maxpool')
        
     def test_channels_last_large_max_pool(self):
-        test_channels_last_large('maxpool')
+        run_channels_last_large('maxpool')
 
     def test_large_stride_and_batch_size_channels_first_max_pool(self):
-        test_large_stride_and_batch_size_channels_first('maxpool')
+        run_large_stride_and_batch_size_channels_first('maxpool')
 
     def test_large_stride_and_batch_size_channels_last_max_pool(self):
-        test_large_stride_and_batch_size_channels_last('maxpool')
+        run_large_stride_and_batch_size_channels_last('maxpool')
         
     def test_same_padding_channels_first_max_pool(self):
-        test_same_padding_channels_first('maxpool')
+        run_same_padding_channels_first('maxpool')
 
 
     def test_same_padding_channels_last_max_pool(self):
-        test_same_padding_channels_last('maxpool')
+        run_same_padding_channels_last('maxpool')
         
     def test_same_padding_weird_kernel_and_stride_channels_first_max_pool(self):
-        test_same_padding_weird_kernel_and_stride_channels_first('maxpool')
+        run_same_padding_weird_kernel_and_stride_channels_first('maxpool')
 
         
     def test_same_padding_weird_kernel_and_stride_channels_last_max_pool(self):
-        test_same_padding_weird_kernel_and_stride_channels_last('maxpool')
+        run_same_padding_weird_kernel_and_stride_channels_last('maxpool')
 
     def test_same_padding_even_kernel_channels_first_max_pool(self):
-        test_same_padding_even_kernel_channels_first('maxpool')
+        run_same_padding_even_kernel_channels_first('maxpool')
 
     def test_same_padding_even_kernel_channels_last_max_pool(self):
-        test_same_padding_even_kernel_channels_last('maxpool')
+        run_same_padding_even_kernel_channels_last('maxpool')
 
     def test_same_padding_even_kernel_stride_channels_first_max_pool(self):
-        test_same_padding_even_kernel_stride_channels_first('maxpool')
+        run_same_padding_even_kernel_stride_channels_first('maxpool')
 
     def test_same_padding_even_kernel_stride_channels_last_max_pool(self):
-        test_same_padding_even_kernel_stride_channels_last('maxpool')
+        run_same_padding_even_kernel_stride_channels_last('maxpool')
 
     def test_larger_kernel_channels_first_max_pool(self):
-        test_larger_kernel_channels_first('maxpool')
+        run_larger_kernel_channels_first('maxpool')
 
     def test_larger_kernel_channels_last_max_pool(self):
-        test_larger_kernel_channels_last('maxpool')
+        run_larger_kernel_channels_last('maxpool')
 
     def test_larger_stride_same_padding_channels_first_max_pool(self):
-        test_larger_stride_same_padding_channels_first('maxpool')
+        run_larger_stride_same_padding_channels_first('maxpool')
 
     def test_larger_stride_same_padding_channels_last_max_pool(self):
-        test_larger_stride_same_padding_channels_last('maxpool')
+        run_larger_stride_same_padding_channels_last('maxpool')
