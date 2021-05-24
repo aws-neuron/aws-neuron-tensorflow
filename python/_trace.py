@@ -13,14 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 from collections import abc
+from distutils.version import LooseVersion
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.eager import function
 from tensorflow.python.eager import def_function
 from tensorflow.python.eager import wrap_function
-from tensorflow.python.framework import convert_to_constants
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 from tensorflow.python.framework.tensor_spec import TensorSpec
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.keras.engine.training import Model
@@ -30,6 +31,7 @@ from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators
+from tensorflow_neuron import __version__
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):
@@ -54,7 +56,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
-        cfunc = convert_to_constants.convert_variables_to_constants_v2(func)
+        if LooseVersion(__version__) < LooseVersion('2.2.0'):
+            cfunc = convert_variables_to_constants_v2(func)
+        else:
+            cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     original_graph_def = graph_def
 
