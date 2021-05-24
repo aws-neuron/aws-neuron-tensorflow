@@ -53,6 +53,7 @@ tf_kernel_library(
     deps = [
         ":device",
         ":registration",
+        ":pooling_utils",
     ],
 )
 
@@ -60,6 +61,18 @@ tf_kernel_library(
     name = "maxpooling_op",
     srcs = [
         "kernels/maxpooling_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+        ":pooling_utils",
+    ],
+)
+
+tf_kernel_library(
+    name = "conv_ops",
+    srcs = [
+        "kernels/conv_ops.cc",
     ],
     deps = [
         ":device",
@@ -175,6 +188,15 @@ cc_library(
     name = "registration",
     srcs = ["kernels/registration.h"],
     hdrs = ["kernels/registration.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
+)
+
+cc_library(
+    name = "pooling_utils",
+    srcs = ["kernels/pooling_utils.h"],
+    hdrs = ["kernels/pooling_utils.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
     ],
