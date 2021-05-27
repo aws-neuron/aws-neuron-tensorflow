@@ -20,6 +20,8 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
+static const int64 DEFAULT_MAX_NUM_INFER = 2;
+
 static std::string remove_pattern(std::string data,
                                   const std::string& pattern) {
   size_t string_length = data.size();
@@ -290,6 +292,16 @@ Status NeuronEngine::initialize(
       num_cores_ = num_cores_req;
     }
   }
+  std::string pool_name = "neuron_engine_thread_pool";
+  for (uint32_t eg_id : vec_eg_id_) {
+    pool_name += "_";
+    pool_name += std::to_string(eg_id);
+  }
+  int64 pool_size = num_cores_ * num_dup * DEFAULT_MAX_NUM_INFER;
+  bool low_latency_hint = false;
+  ThreadOptions options;
+  thread_pool_ = std::unique_ptr<ThreadPool>(new ThreadPool(
+      Env::Default(), options, pool_name, pool_size, low_latency_hint));
   running_nn_id_ = NRT_INVALID_NN_ID;
   return Status::OK();
 }

@@ -45,6 +45,7 @@ class NeuronEngine {
   size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
   uint32_t num_cores() { return num_cores_; };
   std::shared_ptr<RuntimeSession> get_session() { return session_; }
+  thread::ThreadPool* get_thread_pool() { return thread_pool_.get(); }
 
  private:
   Status start_model_unsafe(const uint32_t nn_id);
@@ -55,6 +56,7 @@ class NeuronEngine {
   Status get_active(uint32_t* active_nn_id,
                     std::shared_ptr<xla::Semaphore>* sem, const uint32_t nn_id);
   tensorflow::mutex mutex_eg_;
+  std::unique_ptr<thread::ThreadPool> thread_pool_;
   bool closed_ = false;
   RuntimeGRPC runtime_;
   uint64_t session_id_ = RuntimeSession::INVALID_ID;

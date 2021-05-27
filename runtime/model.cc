@@ -304,8 +304,6 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 #define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
   SharedMemoryAllocator* shm_allocator =
       NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
-  thread::ThreadPool* thread_pool =
-      ctx->device()->tensorflow_cpu_worker_threads()->workers;
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   AttrList& input_names = attr.at("input_names").list();
   AttrList& output_names = attr.at("output_names").list();
@@ -479,6 +477,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
 
   // keep a shared pointer so that RuntimeSession outlives shared memory buffers
   std::shared_ptr<RuntimeSession> session_alive = neuron_engine_->get_session();
+
+  // get thread pool associated with the engine
+  thread::ThreadPool* thread_pool = neuron_engine_->get_thread_pool();
 
   // run inference
   if (use_dynamic_batch_size) {
