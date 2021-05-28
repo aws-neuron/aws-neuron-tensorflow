@@ -22,6 +22,7 @@ from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
+from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.framework.tensor_spec import TensorSpec
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.keras.engine.training import Model
@@ -64,11 +65,12 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     original_graph_def = graph_def
 
     # encode known shapes
-    shape_feed_dict = _get_shape_feed_dict(func, example_inputs)
+    feed_dict = _get_feed_dict(func, example_inputs)
+    shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # call main-graph grappler passes
-    graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+    graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function)
 
     # call graph_def_util/meta_graph_util passes
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
@@ -108,7 +110,7 @@ class AwsNeuronModel(Model):
         return outputs
 
 
-def _get_shape_feed_dict(func, inputs):
+def _get_feed_dict(func, inputs):
     if len(inputs) == 1:
         inputs, = inputs
     if isinstance(inputs, abc.Mapping):
@@ -119,12 +121,44 @@ def _get_shape_feed_dict(func, inputs):
             input_dict, = func_args
         else:
             input_dict = {akw: ts.op for akw, ts in zip(func._arg_keywords, func.inputs)}
-        return {'{}:0'.format(spec.name): inputs[name].shape for name, spec in input_dict.items()}
+        return {'{}:0'.format(spec.name): inputs[name] for name, spec in input_dict.items()}
     else:
         input_names = _get_input_names(func)
         inputs_list = [inputs] if isinstance(inputs, ops.Tensor) else inputs
         inputs_list = nest.flatten(inputs_list)
-        return {name: ts.shape for name, ts in zip(input_names, inputs_list)}
+        return {name: ts for name, ts in zip(input_names, inputs_list)}
+
+
+def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function):
+    new_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+    name_mapping = {}
+    for node in gdu.get_neuron_nodes(new_graph_def):
+        output_names = node.attr[gdu.knOutputNames].list.s
+        for port, name in enumerate(output_names):
+            name_mapping['{}:{}'.format(node.name, port)] = name.decode()
+    need_shape_names = []
+    for node in gdu.get_neuron_nodes(new_graph_def):
+        is_compilable, _ = gdu.neuron_node_is_compilable(node)
+        if not is_compilable:
+            input_shapes = node.attr[gdu.knInputShapes].list.shape
+            for name, shape in zip(node.input, input_shapes):
+                if not TensorShape(shape).is_fully_defined():
+                    if ':' not in name:
+                        name = '{}:0'.format(name)
+                    need_shape_names.append(name_mapping.get(name, name))
+    if need_shape_names:
+        logging.warning('determining {} tensor shapes concretely from runtime'.format(len(need_shape_names)))
+        input_names = _get_input_names(func)
+        shaper_cfunc = wrap_function.function_from_graph_def(graph_def, input_names, need_shape_names)
+        flat_inputs = [feed_dict[name] for name in input_names]
+        shaper_outputs = shaper_cfunc(*flat_inputs)
+        shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
+        shape_feed_dict.update((name, ts.shape) for name, ts in zip(need_shape_names, shaper_outputs))
+        graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
+        graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+    else:
+        graph_def = new_graph_def
+    return graph_def
 
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
