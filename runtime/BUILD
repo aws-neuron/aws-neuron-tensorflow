@@ -10,6 +10,9 @@ cc_library(
     deps = [
         ":neuron_op_op_lib",
         ":neuron_op_kernel",
+        ":identity_op",
+        ":avgpooling_op",
+        ":constant_op",
     ],
 )
 
@@ -21,27 +24,104 @@ tf_kernel_library(
     name = "neuron_op_kernel",
     srcs = [
         "kernels/neuron_op.cc",
-        "kernels/model_config.h",
     ],
     hdrs = ["kernels/neuron_op.h"],
     deps = [
+        ":model",
+        ":device",
+        ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "identity_op",
+    srcs = [
+        "kernels/identity_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "avgpooling_op",
+    srcs = [
+        "kernels/avgpooling_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "constant_op",
+    srcs = [
+        "kernels/constant_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+    ],
+)
+
+cc_library(
+    name = "model",
+    srcs = [
+        "model.cc",
+        "model.h",
+        "model_config.h",
+    ],
+    hdrs = ["model.h"],
+    deps = [
+        ":utils",
+        ":engine",
         ":device",
     ],
 )
 
 cc_library(
-    name = "device",
-    srcs = [
-        "device.cc",
-        "device.h",
-        "shared_memory_io.h",
-        "shared_memory.h",
-        "shared_memory.cc",
-        "runtime_grpc.h",
-        "runtime_grpc.cc",
-        "runtime_io.h",
+    name = "engine",
+    srcs = ["engine.cc"],
+    hdrs = ["engine.h"],
+    deps = [
+        ":utils",
+        ":shared_memory",
+        ":runtime_grpc",
     ],
+)
+
+cc_library(
+    name = "device",
+    srcs = ["device.cc"],
     hdrs = ["device.h"],
+    deps = [
+        ":utils",
+        ":shared_memory",
+        ":engine",
+        "@org_tensorflow//tensorflow/core:core_cpu",
+    ],
+    alwayslink=1,  # for linking device into tf-serving
+)
+
+cc_library(
+    name = "shared_memory",
+    srcs = ["shared_memory.cc"],
+    hdrs = ["shared_memory.h"],
+    deps = [
+        ":utils",
+        ":runtime_grpc",
+    ],
+)
+
+cc_library(
+    name = "runtime_grpc",
+    srcs = [
+        "runtime_grpc.cc",
+        "version.h",
+    ],
+    hdrs = ["runtime_grpc.h"],
     deps = [
         ":utils",
     ],
@@ -50,7 +130,6 @@ cc_library(
 cc_library(
     name = "utils",
     srcs = [
-        "timestamps.h",
         "profiler.h",
         "profiler.cc",
         "tensor_util.h",
@@ -61,7 +140,6 @@ cc_library(
         "env.cc",
     ],
     hdrs = [
-        "timestamps.h",
         "profiler.h",
         "tensor_util.h",
         "semaphore.h",
@@ -79,6 +157,15 @@ cc_library(
     name = "macros",
     srcs = ["macros.h"],
     hdrs = ["macros.h"],
+)
+
+cc_library(
+    name = "registration",
+    srcs = ["kernels/registration.h"],
+    hdrs = ["kernels/registration.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
 )
 
 # nrt proto libraries

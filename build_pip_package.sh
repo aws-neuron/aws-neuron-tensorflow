@@ -61,11 +61,19 @@ function main() {
     mkdir "${TMPDIR}/tensorflow-plugins"
     mv ${TMPDIR}/tensorflow_neuron/python/libaws_neuron_plugin.* "${TMPDIR}/tensorflow-plugins"
     mv ${TMPDIR}/tensorflow_neuron/tensorflow.py "${TMPDIR}/"
-    mkdir -p "${TMPDIR}/tensorflow_core/neuron/"
-    cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow_core/neuron/"
-    mkdir -p "${TMPDIR}/tensorflow/neuron/"
-    cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow/neuron/"
-    mv "${TMPDIR}/tensorflow_neuron/tf2hlo/" "${TMPDIR}/tensorflow/neuron/"
+
+    # whether to put api definition and aws_neuron_tf2hlo under tensorflow_core vs tensorflow
+    UNDER_TF_CORE=$(python3 -c "from distutils.version import LooseVersion; print(LooseVersion(\"${VERSION}\") < LooseVersion('2.2'))")
+    if [[ ${UNDER_TF_CORE} == "True" ]]; then
+        TF_CORE_PATH="${TMPDIR}/tensorflow_core"
+        mkdir -p "${TMPDIR}/tensorflow/neuron/"
+        cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TMPDIR}/tensorflow/neuron/"
+    else
+        TF_CORE_PATH="${TMPDIR}/tensorflow"
+    fi
+    mkdir -p "${TF_CORE_PATH}/neuron/"
+    cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TF_CORE_PATH}/neuron/"
+    mv "${TMPDIR}/tensorflow_neuron/tf2hlo/" "${TF_CORE_PATH}/neuron/"
     sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
     echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/__init__.py"
 

@@ -13,9 +13,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
+#include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/public/version.h"
-#include "tensorflow/core/framework/attr_value.pb.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -25,58 +25,67 @@ typedef const AttrValue_ListValue AttrList;
 #define NRT_INVALID_NN_ID 0
 #define NRT_INVALID_EG_ID 0
 
-#define SYS_FAIL_RETURN(failure_expr, fn_name) {                            \
-    if (failure_expr) {                                                     \
-        return errors::Internal((fn_name), " failed with errno ", errno);   \
-    }                                                                       \
-}
-
-#define SYS_FAIL_LOG(failure_expr, fn_name) {                       \
-    if (failure_expr) {                                             \
-        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
-    }                                                               \
-}
-
-#define SYS_FAIL_LOG_RETURN(failure_expr, fn_name) {                \
-    if (failure_expr) {                                             \
-        LOG(ERROR) << (fn_name) << " failed with errno " << errno;  \
-        return;                                                     \
-    }                                                               \
-}
-
-#define TF_LOG_RETURN_IF_ERROR(...) {                                   \
-    Status _status = (__VA_ARGS__);                                     \
-    if (TF_PREDICT_FALSE(!_status.ok())) {                              \
-        LOG(ERROR) << "error code " << _status.code()                   \
-                   << ", error message " << _status.error_message();    \
-        return;                                                         \
+#define SYS_FAIL_RETURN(failure_expr, fn_name)                          \
+  {                                                                     \
+    if (TF_PREDICT_FALSE(failure_expr)) {                               \
+      return errors::Internal((fn_name), " failed with errno ", errno); \
     }                                                                   \
-}
+  }
 
-#define TF_LOG_IF_ERROR(status) {   \
-    if (!(status).ok()) {           \
-        LOG(ERROR) << (status);     \
-    }                               \
-}
+#define SYS_FAIL_LOG(failure_expr, fn_name)                      \
+  {                                                              \
+    if (TF_PREDICT_FALSE(failure_expr)) {                        \
+      LOG(ERROR) << (fn_name) << " failed with errno " << errno; \
+    }                                                            \
+  }
 
-// Note: this macro must be used after ctx->allocate_output
-#define OK_IGNORE_ABORTED(CTX, ...) {                               \
-    Status status(__VA_ARGS__);                                     \
-    if (status.code() == tensorflow::error::Code::ABORTED) {        \
-        VLOG(1) << "ignored error " << status.error_message();      \
-        return;                                                     \
-    }                                                               \
-    OP_REQUIRES_OK(CTX, status);                                    \
-}
+#define SYS_FAIL_LOG_RETURN(failure_expr, fn_name)               \
+  {                                                              \
+    if (TF_PREDICT_FALSE(failure_expr)) {                        \
+      LOG(ERROR) << (fn_name) << " failed with errno " << errno; \
+      return;                                                    \
+    }                                                            \
+  }
+
+#define TF_LOG_RETURN_IF_ERROR(...)                                       \
+  {                                                                       \
+    Status _status = (__VA_ARGS__);                                       \
+    if (TF_PREDICT_FALSE(!_status.ok())) {                                \
+      LOG(ERROR) << "error code " << _status.code() << ", error message " \
+                 << _status.error_message();                              \
+      return;                                                             \
+    }                                                                     \
+  }
+
+#define TF_LOG_IF_ERROR(status)             \
+  {                                         \
+    if (TF_PREDICT_FALSE(!(status).ok())) { \
+      LOG(ERROR) << (status);               \
+    }                                       \
+  }
 
 #define TFN_DISALLOW_COPY_MOVE_ASSIGN(TypeName) \
-    TypeName(const TypeName &) = delete;        \
-    void operator=(const TypeName &) = delete;  \
-    TypeName(TypeName &&);                      \
-    void operator=(TypeName &&) = delete;
+  TypeName(const TypeName&) = delete;           \
+  void operator=(const TypeName&) = delete;     \
+  TypeName(TypeName&&);                         \
+  void operator=(TypeName&&) = delete;
 
 #define TF_VERSION_LESS_THAN(MAJOR, MINOR) \
-    (TF_MAJOR_VERSION < (MAJOR) || (TF_MAJOR_VERSION == (MAJOR) && TF_MINOR_VERSION < (MINOR)))
+  (TF_MAJOR_VERSION < (MAJOR) ||           \
+   (TF_MAJOR_VERSION == (MAJOR) && TF_MINOR_VERSION < (MINOR)))
 
-}  // neuron
-}  // tensorflow
+#define VLOG_TIME_BASE(start, lvl, msg) \
+  VLOG(lvl) << msg << " " << Env::Default()->NowMicros() - start;
+
+#define CHECK_VALID_PTR(ptr)            \
+  if (TF_PREDICT_FALSE(ptr == nullptr)) \
+    return errors::InvalidArgument("null pointer ", (#ptr), "(", (ptr), ")");
+
+#define CHECK_SIZES_MATCH(lhs_size, rhs_size)                             \
+  if (TF_PREDICT_FALSE((int64)(lhs_size) != (int64)(rhs_size)))           \
+    return errors::InvalidArgument("size mismatch: ", (#lhs_size),        \
+                                   " == ", (lhs_size), ", ", (#rhs_size), \
+                                   " == ", (rhs_size));
+
+}  // namespace neuron
+}  // namespace tensorflow

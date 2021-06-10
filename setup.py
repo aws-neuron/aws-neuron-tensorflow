@@ -54,14 +54,25 @@ def get_install_requires():
     major, minor, *_ = LooseVersion(get_version()).version
     tf_compat_version = '{}.{}.0'.format(major, minor)
     install_requires = ['tensorflow ~= {}'.format(tf_compat_version)]
-    if major < 2:
-        install_requires.append('tensorboard-neuron ~= {}'.format(tf_compat_version))
+    install_requires.append('tensorboard-plugin-neuron')
     return install_requires
 
 
-def get_package_data_tensorflow():
-    major, *_ = LooseVersion(get_version()).version
-    return ['neuron/tf2hlo/aws_neuron_tf2hlo'] if major >= 2 else []
+def get_package_data():
+    package_data = {
+        'tensorflow-plugins': ['*'],
+        'tensorflow_neuron': [
+            '../tensorflow.py',
+            'LICENSE',
+            'THIRD-PARTY-LICENSES.txt',
+        ],
+    }
+    if LooseVersion(get_version()) < LooseVersion('2.2'):
+        package_key = 'tensorflow_core'
+    else:
+        package_key = 'tensorflow'
+    package_data[package_key] = ['neuron/tf2hlo/aws_neuron_tf2hlo']
+    return package_data
 
 
 setup(
@@ -91,15 +102,7 @@ setup(
     keywords='tensorflow aws neuron',
     include_package_data=True,
     packages=PEP420PackageFinder.find(),
-    package_data={
-        'tensorflow-plugins': ['*'],
-        'tensorflow_neuron': [
-            '../tensorflow.py',
-            'LICENSE',
-            'THIRD-PARTY-LICENSES.txt',
-        ],
-        'tensorflow': get_package_data_tensorflow(),
-    },
+    package_data=get_package_data(),
     distclass=BinaryDistribution,
     cmdclass={
         'bdist_wheel': BDistWheelCommand,

@@ -75,7 +75,7 @@ def simple_save(session, export_dir, inputs, outputs, legacy_init_op=None, batch
                                                legacy_init_op=legacy_init_op)
 
 
-def _infer_input_shapes(input_tensors, batch_size):
+def _infer_input_shapes(input_tensors, batch_size, signature_def=None):
     """Infer/guess the shape of the inputs using batch_size.
     Args:
         input_tensors: Iterable of input tensors
@@ -85,14 +85,22 @@ def _infer_input_shapes(input_tensors, batch_size):
             shape as a list as the value corresponding to it.
     Raises: ValueError if input tensor shapes are not inferrable only using batch size
     """
+    if signature_def is None:
+        signature_shapes = {}
+    else:
+        signature_shapes = {tp.name: tp.tensor_shape for tp in signature_def.inputs.values()}
     shape_feed_dict = {}
     for tensor in input_tensors:
         shape = tensor.shape
-        if shape.rank is None:
-            raise ValueError('input tensor {} must have known rank'.format(tensor.name))
         if not shape.is_fully_defined():
-            shape_proto = shape.as_proto()
-            shape_proto.dim[0].size = batch_size
+            if shape.rank is not None:
+                shape_proto = shape.as_proto()
+            else:
+                shape_proto = signature_shapes.get(tensor.name, None)
+            if shape_proto is None or shape_proto.unknown_rank:
+                raise ValueError('input tensor {} must have known rank'.format(tensor.name))
+            if shape_proto.dim:
+                shape_proto.dim[0].size = batch_size
             shape = TensorShape(shape_proto)
         if not shape.is_fully_defined():
             raise ValueError('batch_size is not sufficient to determine the'
@@ -168,7 +176,7 @@ def convert_to_inference_model(model_dir, new_model_dir, batch_size=1,
                     inputs[key]: value for key, value in model_shape_feed_dict.items()})
             else:
                 if 'shape_feed_dict' not in kwargs and 'feed_dict' not in kwargs:
-                    kwargs.update(shape_feed_dict=_infer_input_shapes(inputs.values(), batch_size))
+                    kwargs.update(shape_feed_dict=_infer_input_shapes(inputs.values(), batch_size, signature_def))
 
         # get inference graph
         infer_graph = inference_graph_from_session.__wrapped__(
@@ -391,16 +399,22 @@ def convert_constant_to_variables(
 
     with tf_session.Session(graph=compiled_graph) as session:
         _variables = {}
+        op_names = []
+        tensor_names = []
         # Getting all the Const nodes and their values. These const nodes will be removed from the graph
         for op in session.graph.get_operations():
             if "Const" in op.type:
                 for tensor in op.values():
-                    value = session.run(tensor)
-                    total_elements = 1
-                    for x in value.shape:
-                        total_elements *= x
-                    if total_elements > constant_size_to_exclude:
-                        _variables[op.name] = value
+                    op_names.append(op.name)
+                    tensor_names.append(tensor.name)
+        
+        tensor_values = session.run(tensor_names)
+        for name, value in zip(op_names, tensor_values):
+            total_elements = 1
+            for x in value.shape:
+                total_elements *= x
+            if total_elements > constant_size_to_exclude:
+                _variables[name] = value
 
         new_nodes = []
         old_nodes_names = []

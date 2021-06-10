@@ -27,7 +27,17 @@ class TestV1Only(unittest.TestCase):
             raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
 
 
-class TestV2Only(tf.test.TestCase):
+class RemoveTestSession(type):
+
+    def __new__(mcs, name, bases, dct):
+        try:
+            del tf.test.TestCase.test_session
+        except AttributeError:
+            pass
+        return type.__new__(mcs, name, bases, dct)
+
+
+class TestV2Only(tf.test.TestCase, metaclass=RemoveTestSession):
 
     @classmethod
     def setUpClass(cls):
@@ -44,3 +54,13 @@ class TestV2Only(tf.test.TestCase):
 
         if 'NEURON_TF_COMPILE_ONLY' in os.environ:
             function.ConcreteFunction.__call__ = fake_call
+
+
+def xfail_for_versions(*versions):
+    def major_minor(ver):
+        return LooseVersion(ver).version[:2]
+    def wrapper(test_func):
+        if any(major_minor(tf.__version__) == major_minor(ver) for ver in versions):
+            test_func = unittest.expectedFailure(test_func)
+        return test_func
+    return wrapper

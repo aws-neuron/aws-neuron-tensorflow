@@ -22,9 +22,13 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-void fast_memcpy(thread::ThreadPool *thread_pool, char *char_dst, const char *char_src, int64 total_size);
-Status tensor_memcpy(thread::ThreadPool *thread_pool, Tensor *tensor, StringPiece &source, int64 memcpy_size=-1);
-Status tensor_memset(Tensor *tensor, int ch);
+using namespace tensorflow::thread;
+
+void fast_memcpy(void* dst, const void* src, int64 count, ThreadPool* pool);
+Status tensor_memcpy(Tensor* dst, const StringPiece& src, ThreadPool* pool);
+Status tensor_memset(Tensor* dst, int ch);
+Status tensor_copy(Tensor* dst, const Tensor& src, ThreadPool* pool = nullptr);
+Status tensor_shuffle(Tensor* dst, const Tensor& src, const TensorProto& shf);
 
 }  // namespace neuron
 }  // namespace tensorflow

@@ -13,28 +13,23 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "env.h"
-#include <stdexcept>
+#ifndef TENSORFLOW_NEURON_RUNTIME_VERSION_H_
+#define TENSORFLOW_NEURON_RUNTIME_VERSION_H_
 
 namespace tensorflow {
 namespace neuron {
 
-#define STOI_INVALID_RESULT -65536
+#define TFN_MAJOR_VERSION 99999
+#define TFN_MINOR_VERSION 99999
 
-std::string env_get(const char* env_var, const char* default_env_var) {
-  char* str = std::getenv(env_var);
-  return str ? str : default_env_var;
-}
+#define TFN_STR_HELPER(x) #x
+#define TFN_STR(x) TFN_STR_HELPER(x)
 
-int stoi_no_throw(const std::string& str) {
-  try {
-    return std::stoi(str);
-  } catch (std::invalid_argument&) {
-    return STOI_INVALID_RESULT;
-  } catch (std::out_of_range&) {
-    return STOI_INVALID_RESULT;
-  }
-}
+// e.g. "1.1" or "1.12".
+#define TFN_VERSION_STRING \
+  (TFN_STR(TFN_MAJOR_VERSION) "." TFN_STR(TFN_MINOR_VERSION))
 
 }  // namespace neuron
 }  // namespace tensorflow
+
+#endif  // TENSORFLOW_NEURON_RUNTIME_VERSION_H_

@@ -17,6 +17,7 @@ from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python import utils
 
 
 def build_signature_def(input_tensors, output_tensors):
@@ -30,7 +31,25 @@ def build_signature_def(input_tensors, output_tensors):
     return sdef
 
 
-def run_grappler_on_subgraphs(graph_def, passes):
+def run_grappler_on_subgraphs(graph_def):
+    passes = [
+        'constfold',
+        'debug_stripper',
+        'constfold',
+        'pruning',
+        'dependency',
+        'constfold',
+        'remap',
+        'constfold',
+        'memory',
+        'constfold',
+        'common_subgraph_elimination',
+        'constfold',
+        'arithmetic',
+        'constfold',
+        'loop',
+        'constfold',
+    ]
     for node in gdu.get_neuron_nodes(graph_def):
         is_compilable, reason = gdu.neuron_node_is_compilable(node)
         if not is_compilable:
@@ -58,6 +77,7 @@ def run_grappler_on_subgraphs(graph_def, passes):
         rewriter_config = opt_config.graph_options.rewrite_options
         rewriter_config.meta_optimizer_iterations = 1
         rewriter_config.optimizers.extend(passes)
-        subgraph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            subgraph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
         node.attr[gdu.knGraphDef].s = subgraph_def.SerializeToString()
     return graph_def

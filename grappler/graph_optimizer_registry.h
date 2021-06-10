@@ -23,30 +23,32 @@ namespace grappler {
 namespace neuron {
 
 class NeuronGraphOptimizerRegistry : CustomGraphOptimizerRegistry {
-public:
-    static void RegisterOptimizerOnce(const CustomGraphOptimizerRegistry::Creator &creator,
-                                      const std::string &name) {
-        auto opts = GetRegisteredOptimizers();
-        if (std::find(opts.begin(), opts.end(), name) == opts.end()) {
-            RegisterOptimizerOrDie(creator, name);
-        }
+ public:
+  static void RegisterOptimizerOnce(
+      const CustomGraphOptimizerRegistry::Creator& creator,
+      const std::string& name) {
+    auto opts = GetRegisteredOptimizers();
+    if (std::find(opts.begin(), opts.end(), name) == opts.end()) {
+      RegisterOptimizerOrDie(creator, name);
     }
+  }
 };
 
 class NeuronGraphOptimizerRegistrar {
-public:
-    explicit NeuronGraphOptimizerRegistrar(const CustomGraphOptimizerRegistry::Creator &creator,
-                                           const std::string &name) {
-        NeuronGraphOptimizerRegistry::RegisterOptimizerOnce(creator, name);
-    }
+ public:
+  explicit NeuronGraphOptimizerRegistrar(
+      const CustomGraphOptimizerRegistry::Creator& creator,
+      const std::string& name) {
+    NeuronGraphOptimizerRegistry::RegisterOptimizerOnce(creator, name);
+  }
 };
 
-#define REGISTER_NEURON_GRAPH_OPTIMIZER_AS(MyCustomGraphOptimizerClass, name)   \
-    namespace {                                                                 \
-    static ::tensorflow::grappler::neuron::NeuronGraphOptimizerRegistrar        \
-        MyCustomGraphOptimizerClass##_registrar(                                \
-            []() { return new MyCustomGraphOptimizerClass; }, (name));          \
-    }  // namespace
+#define REGISTER_NEURON_GRAPH_OPTIMIZER_AS(MyCustomGraphOptimizerClass, name) \
+  namespace {                                                                 \
+  static ::tensorflow::grappler::neuron::NeuronGraphOptimizerRegistrar        \
+      MyCustomGraphOptimizerClass##_registrar(                                \
+          []() { return new MyCustomGraphOptimizerClass; }, (name));          \
+  }  // namespace
 
 }  // end namespace neuron
 }  // end namespace grappler

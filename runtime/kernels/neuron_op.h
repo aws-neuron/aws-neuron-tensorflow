@@ -16,31 +16,23 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_KERNELS_NEURON_OP_H_
 #define TENSORFLOW_NEURON_RUNTIME_KERNELS_NEURON_OP_H_
 
+#include "../model.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
-#include "../device.h"
-
 
 namespace tensorflow {
 namespace neuron {
 
-
 class NeuronOp : public OpKernel {
-public:
-    explicit NeuronOp(OpKernelConstruction *ctx);
-    void Compute(OpKernelContext *ctx) override;
-    ~NeuronOp() override;
+ public:
+  explicit NeuronOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
+    VLOG(1) << "NeuronOp contructor " << this;
+  }
+  void Compute(OpKernelContext* ctx) override;
 
-private:
-    Status initialize(const std::string &session_handle);
-    tensorflow::mutex mutex_model_;
-    NeuronDevice *neuron_device_ = nullptr;
-    uint32_t nn_id_ = NRT_INVALID_NN_ID;
-    uint32_t max_num_infers_ = 5;
-    std::shared_ptr<xla::Semaphore> infer_sem_ = nullptr;
-    ProfilerInterface profile_;
+ private:
+  NeuronModel model_;
 };
-
 
 }  // namespace neuron
 }  // namespace tensorflow

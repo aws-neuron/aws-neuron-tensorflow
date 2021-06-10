@@ -619,6 +619,23 @@ class TestDynamicBatchSize(unittest.TestCase):
         _assert_compiler_success(infer_graph)
         assert infer_graph.get_operations()[-2].get_attr('input_batch_axis') == [-1]
 
+    def test_split_output(self):
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float16, [3, 3], name='input0')
+            matmul0 = tf.matmul(input0, np.random.uniform(-1, 1, size=[3, 3]).astype(np.float16), name='matmul0')
+            relu0 = tf.nn.relu(matmul0, name='relu0')
+            split0, split1, split2 = tf.split(relu0, 3, axis=0, name='split0')
+            feed_dict_compile = {
+                'input0:0': np.random.uniform(-1, 1, size=[3, 3]).astype(np.float16),
+            }
+            result_names = ['split0:0', 'split0:1', 'split0:2']
+            infer_graph = graph_util.inference_graph_from_session(
+                sess, supported_op_types={'MatMul', 'Const', 'Relu', 'Split'},
+                feed_dict=feed_dict_compile, output_tensors=result_names)
+        _assert_compiler_success(infer_graph)
+        for name in result_names:
+            infer_graph.get_tensor_by_name(name)
+
 
 class TestSpecialOperator(unittest.TestCase):
 

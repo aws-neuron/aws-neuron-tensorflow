@@ -13,20 +13,33 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_IO_H_
-#define TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_IO_H_
+#ifndef TENSORFLOW_NEURON_RUNTIME_MODEL_H_
+#define TENSORFLOW_NEURON_RUNTIME_MODEL_H_
+
+#include "engine.h"
+#include "tensorflow/core/framework/op_kernel.h"
 
 namespace tensorflow {
 namespace neuron {
 
-typedef struct SharedMemory {
-    std::vector<std::string*> input_paths_;
-    std::vector<char*> input_ptrs_;
-    std::vector<std::string*> output_paths_;
-    std::vector<char*> output_ptrs_;
-} SharedMemory;
+class NeuronModel {
+ public:
+  NeuronModel();
+  Status compute(OpKernelContext* ctx, const NodeDef& node_def,
+                 const std::vector<Tensor>& input_tensors);
+  ~NeuronModel();
+
+ private:
+  Status initialize(const NodeDef& node_def, const std::string& session_handle);
+  tensorflow::mutex mutex_model_;
+  NeuronEngine* neuron_engine_ = nullptr;
+  uint32_t nn_id_ = NRT_INVALID_NN_ID;
+  int64 estimated_cost_ = 0;
+  ProfilerInterface profile_;
+  thread::ThreadPool h2d_transfer_pool_;
+};
 
 }  // namespace neuron
 }  // namespace tensorflow
 
-#endif  // TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_IO_H_
+#endif  // TENSORFLOW_NEURON_RUNTIME_MODEL_H_

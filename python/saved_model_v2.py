@@ -14,13 +14,13 @@
 # ==============================================================================
 from tensorflow.python import saved_model
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.python.saved_model import loader_impl
+from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python._trace import trace
 
 
-def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_compile=False):
+def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None):
     """Convert a `SavedModel` to a Neuron-optimized `SavedModel`.
 
     Args:
@@ -37,7 +37,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_comp
     model = saved_model.load(model_dir, tags=tags)
 
     # get ConcreteFunction from the SavedModel
-    saved_model_proto, debug_info = loader_impl.parse_saved_model_with_debug_info(model_dir)
+    saved_model_proto = parse_saved_model(model_dir)
     signature_def = saved_model_proto.meta_graphs[0].signature_def
     signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
     if len(signature_def) == 1:
@@ -58,7 +58,7 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None, must_comp
     rev_inputs_map = {value.name: key for key, value in sig_def.inputs.items()}
     example_input_names = [sym_ts.name for sym_ts in wfunc.inputs if sym_ts.name in rev_inputs_map]
     example_inputs = [model_feed_dict[rev_inputs_map[name]] for name in example_input_names]
-    cfunc = trace(wfunc, example_inputs, must_compile=must_compile)
+    cfunc = trace(wfunc, example_inputs).aws_neuron_function
 
     # save the new ConcreteFunction as a new SavedModel
     signatures = {signature_def_key: cfunc}

@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import os
 import math
 import reprlib
 from collections import namedtuple
@@ -37,6 +36,7 @@ knInputDtypes = 'input_dtypes'
 knOutputDtypes = 'output_dtypes'
 knInputShapes = 'input_shapes'
 knOutputShapes = 'output_shapes'
+vInvalidAxis = -1
 
 
 def normalize_operators(graph_def):
@@ -211,7 +211,7 @@ def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
     return graph_def
 
 
-def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None, must_compile=False):
+def run_compiler_on_subgraphs(graph_def):
     IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)
@@ -223,12 +223,9 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None, must_
         subgraph_def = get_subgraph_def(node)
         inputs = []
         outputs = []
-        zip_inputs = zip(node.attr[knInputNames].list.s,
-                         node.attr[knInputDtypes].list.type,
-                         node.attr[knInputShapes].list.shape)
-        zip_outputs = zip(node.attr[knOutputNames].list.s,
-                          node.attr[knOutputDtypes].list.type,
-                          node.attr[knOutputShapes].list.shape)
+        nal = lambda key: node.attr[key].list
+        zip_inputs = zip(nal(knInputNames).s, nal(knInputDtypes).type, nal(knInputShapes).shape)
+        zip_outputs = zip(nal(knOutputNames).s, nal(knOutputDtypes).type, nal(knOutputShapes).shape)
         for container, tensors in zip([inputs, outputs], [zip_inputs, zip_outputs]):
             for name, dtype_enum, shape in tensors:
                 name = name.decode()
@@ -241,15 +238,37 @@ def run_compiler_on_subgraphs(graph_def, workdir=None, compiler_args=None, must_
             sg_node.attr.pop(kNeuronInferredShapes)
 
         # setup workdir and run neuron-cc
-        subgraph_workdir = None if workdir is None else os.path.join(workdir, node.name)
-        executable, input_names, output_names = compile_savetemps(
-            subgraph_def, inputs, outputs, workdir=subgraph_workdir, compiler_args=compiler_args)
+        executable, inputs, outputs = compile_savetemps(subgraph_def, inputs, outputs, node.name)
         if executable:
             node.attr[knExecutable].s = executable
-            node.attr[knInputNames].list.s[:] = [name.encode() for name in input_names]
-            node.attr[knOutputNames].list.s[:] = [name.encode() for name in output_names]
-        elif must_compile:
-            raise ValueError('Compilation failure on operator {}'.format(node.name))
+            node.attr[knInputNames].list.s[:] = [ts.name.encode() for ts in inputs]
+            node.attr[knOutputNames].list.s[:] = [ts.name.encode() for ts in outputs]
+            try:
+                input_shuffles = [inp.shuffle for inp in inputs]
+            except AttributeError:
+                input_shuffles = [None for inp in inputs]
+            do_input_shuffles = any(shuffle is not None for shuffle in input_shuffles)
+            if do_input_shuffles:
+                for shuffle in input_shuffles:
+                    idx_ts = node.attr['_input_shuffles'].list.tensor.add()
+                    idx_ts.int64_val.extend(shuffle)
+            try:
+                input_batch_axis = [ts.batch_axis for ts in inputs]
+                output_batch_axis = [ts.batch_axis for ts in outputs]
+            except AttributeError:
+                pass
+            else:
+                input_batch_axis = [vInvalidAxis if ax is None else ax for ax in input_batch_axis]
+                output_batch_axis = [vInvalidAxis if ax is None else ax for ax in output_batch_axis]
+                node.attr['input_batch_axis'].list.i[:] = input_batch_axis
+                node.attr['output_batch_axis'].list.i[:] = output_batch_axis
+                input_args = node.attr[knInputShapes].list.shape, inputs
+                output_args = node.attr[knOutputShapes].list.shape, outputs
+                for args in input_args, output_args:
+                    for shape, ts in zip(*args):
+                        if [dim.size for dim in shape.dim] != ts.shape:
+                            for dim, size in zip(shape.dim, ts.shape):
+                                dim.size = size
     return graph_def
 
 
@@ -318,13 +337,21 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
     graph_def.node.extend(
         node for node in compiled_graph_def.node if node.name not in remove_node_names)
     graph_def.node.extend(node for node in restore_nodes)
+
+    # remove illegal node names
+    node_names = {node.name for node in graph_def.node}
+    for node in graph_def.node:
+        node.input[:] = [name for name in node.input if _graph_def_op_index(name)[0] in node_names]
+
+    # preserve information for function-call operators (e. g., MapDataset)
+    graph_def.library.CopyFrom(compiled_graph_def.library)
     return graph_def
 
 
 def set_execution_plan(compiled_graph_def):
     # scan to get num neuroncores and total number of bytes of input and output tensors
     default_io_buffer_size = 128 * 1024 * 1024
-    cpu_extra_ninfer = 3
+    cpu_extra_ninfer = 1
     num_cores_tuple_map = {}
     mis_config = False
     neuron_nodes = list(get_neuron_nodes(compiled_graph_def))
@@ -408,6 +435,21 @@ def erase_large_constants(graph_def):
     return graph_def
 
 
+def maybe_relax_placeholder_shapes(graph_def):
+    need_relaxation = False
+    for node in graph_def.node:
+        if node.op == tNeuronOp:
+            if any(ax != vInvalidAxis for ax in node.attr['input_batch_axis'].list.i):
+                need_relaxation = True
+    if need_relaxation:
+        for node in graph_def.node:
+            if node.op == tPlaceholder:
+                dims = node.attr['shape'].shape.dim
+                if dims:
+                    dims[0].size = -1
+    return graph_def
+
+
 def format_tensor_name(tensor_name):
     return tensor_name.split(':')[0] if tensor_name.endswith(':0') else tensor_name
 
@@ -433,10 +475,11 @@ def compiled_graph_op_counts(graph_def):
 
 
 def _graph_def_op_index(graph_def_tensor_name):
-    comma_split = graph_def_tensor_name.split(':')
     if ':' in graph_def_tensor_name:
-        op_name, value_index = comma_split
+        op_name, value_index = graph_def_tensor_name.split(':')
         value_index = int(value_index)
     else:
-        op_name, value_index = comma_split[0], 0
+        op_name, value_index = graph_def_tensor_name, 0
+    if op_name.startswith('^'):
+        op_name = op_name[1:]
     return op_name, value_index

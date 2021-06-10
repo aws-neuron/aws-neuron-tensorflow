@@ -1,9 +1,8 @@
-package(default_visibility = ["//visibility:public"])
-
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_library")
 load("//tensorflow:tensorflow.bzl", "tf_custom_op_py_library")
 load("//tensorflow:tensorflow.bzl", "tf_gen_op_wrapper_py")
 
+package(default_visibility = ["//visibility:public"])
 
 py_library(
     name = "graph_util_py",
@@ -94,15 +93,19 @@ py_library(
     srcs = glob(["neuron_cc*.py"]),
     deps = [
         ":utils_py",
-    ]
+    ] + select({
+        "//tensorflow:api_version_2": [
+            "//tensorflow/neuron/python/tf2xla:tf2xla_proto_py",
+        ],
+        "//conditions:default": [],
+    }),
 )
 
 tf_custom_op_library(
     name = "aws_neuron_plugin",
     per_os_targets = True,
     deps = [
-        "//tensorflow/neuron/runtime:neuron_op_op_lib",
-        "//tensorflow/neuron/runtime:neuron_op_kernel",
+        "//tensorflow/neuron/runtime:all_ops",
         "//tensorflow/neuron/grappler:passes",
     ],
 )
@@ -154,7 +157,9 @@ py_library(
         "unittest_base.py",
         "trace_test.py",
         "saved_model_v2_test.py",
-        "tf2_prototype_test.py",
+        "tf2_keras_test.py",
+        "keras_layer_test.py",
+        "avg_pool_test.py",
     ],
     deps = [
         ":graph_util_py",

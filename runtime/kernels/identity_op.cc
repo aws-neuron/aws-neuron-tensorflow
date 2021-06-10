@@ -13,28 +13,29 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "env.h"
-#include <stdexcept>
+#include "registration.h"
+#include "../device.h"
 
 namespace tensorflow {
 namespace neuron {
 
-#define STOI_INVALID_RESULT -65536
+class IdentityOp : public OpKernel {
+ public:
+  explicit IdentityOp(OpKernelConstruction* context) : OpKernel(context) {}
 
-std::string env_get(const char* env_var, const char* default_env_var) {
-  char* str = std::getenv(env_var);
-  return str ? str : default_env_var;
-}
-
-int stoi_no_throw(const std::string& str) {
-  try {
-    return std::stoi(str);
-  } catch (std::invalid_argument&) {
-    return STOI_INVALID_RESULT;
-  } catch (std::out_of_range&) {
-    return STOI_INVALID_RESULT;
+  void Compute(OpKernelContext* context) override {
+    VLOG(1) << "executing Neuron identity implementation";
+    if (IsRefType(context->input_dtype(0))) {
+      context->forward_ref_input_to_ref_output(0, 0);
+    } else {
+      context->set_output(0, context->input(0));
+    }
   }
-}
+
+  bool IsExpensive() override { return false; }
+};
+
+NEURON_REGISTER_KERNEL_BUILDER("Identity", DEVICE_NEURON, IdentityOp);
 
 }  // namespace neuron
 }  // namespace tensorflow

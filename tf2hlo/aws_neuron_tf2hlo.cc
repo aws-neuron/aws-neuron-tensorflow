@@ -25,7 +25,8 @@ namespace tensorflow {
 namespace neuron {
 
 const char kUsageHeader[] =
-    "aws_neuron_tf2hlo performs ahead-of-time compilation of a TensorFlow graph,\n"
+    "aws_neuron_tf2hlo performs ahead-of-time compilation of a TensorFlow "
+    "graph,\n"
     "resulting in a serialized HloSnapshot protobuf file.\n"
     "A typical invocation looks like this:\n"
     "\n"

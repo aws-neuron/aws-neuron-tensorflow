@@ -16,123 +16,51 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
 #define TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
 
-#include <queue>
-#include "tensorflow/core/platform/mutex.h"
-#include "semaphore.h"
-#include "timestamps.h"
-#include "profiler.h"
-#include "tensor_util.h"
+#include "macros.h"
 #include "shared_memory.h"
-#include "runtime_io.h"
-#include "runtime_grpc.h"
-
+#include "tensorflow/core/common_runtime/local_device.h"
+#include "tensorflow/core/framework/allocator.h"
+#include "tensorflow/core/framework/device_base.h"
+#include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/lib/core/status.h"
 
 namespace tensorflow {
 namespace neuron {
 
+const char* const DEVICE_NEURON = "AWS_NEURON";
 
-typedef std::queue<xla::Semaphore::ScopedReservation> SemResQueue;
+// Neuron device implementation.
+class NeuronDevice : public LocalDevice {
+ public:
+  NeuronDevice(const SessionOptions& options, const DeviceAttributes& attrs);
+  ~NeuronDevice() override;
 
+  Allocator* GetAllocator(AllocatorAttributes attr) override;
+  Status MakeTensorFromProto(const TensorProto& tensor_proto,
+                             const AllocatorAttributes alloc_attrs,
+                             Tensor* tensor) override;
+  void CopyTensorInSameDevice(const Tensor* input_tensor, Tensor* output_tensor,
+                              const DeviceContext* device_context,
+                              StatusCallback done) override;
+#if TF_VERSION_LESS_THAN(2, 3)
+  Status FillContextMap(const Graph* graph,
+                        DeviceContextMap* device_context_map);
+#endif
+  Status TryGetDeviceContext(DeviceContext** out_context);
+  Status Sync() override { return Status::OK(); }
+  // From tensorflow/core/framework/allocator.h:
+  // NOTE: The upper 8 bits of the value are reserved for
+  // device-specific uses.  Implementors of a device can interpret these
+  // upper 8 bits in device-specific ways, and ops implemented for those
+  // devices are responsible for setting those 8 bits appropriately.
+  static void set_on_shm(AllocatorAttributes* attr, bool v);
+  static bool on_shm(const AllocatorAttributes& attr);
 
-class NeuronDevice {
-public:
-    NeuronDevice() {}
-    Status initialize(const std::string &nrtd_address,
-                      const int num_cores_req, const int num_dup,
-                      std::shared_ptr<RuntimeSession> session);
-    Status load(uint32_t *nn_id, const StringPiece &executable,
-                const uint32_t timeout, const uint32_t ninfer, const bool profile_enabled);
-    Status setup_scoped_runtime_io(ScopedRuntimeIO *scoped_io,
-                                   AttrList &input_names,
-                                   const std::vector<size_t> &input_tensor_sizes,
-                                   const std::vector<const Tensor*> &input_tensors,
-                                   AttrList &output_names,
-                                   const std::vector<size_t> &output_tensor_sizes,
-                                   const std::vector<Tensor*> &output_tensors,
-                                   const uint32_t nn_id,
-                                   thread::ThreadPool *thread_pool);
-    Status setup_infer_post(RuntimeIO *runtime_io, int64_t post_tag);
-    Status post_infer_post(RuntimeIO *runtime_io);
-    Status wait_infer_post(RuntimeIO *runtime_io);
-    Status setup_infer(RuntimeIO *runtime_io, int64_t post_tag);
-    Status post_infer(RuntimeIO *runtime_io);
-    Status wait_infer(RuntimeIO *runtime_io);
-    Status infer(RuntimeIO *runtime_io, Timestamps *timestamps,
-                 ProfilerInterface *profile, const uint32_t nn_id);
-    Status infer_post(RuntimeIO *runtime_io, SemResQueue *sem_res_queue,
-                      std::shared_ptr<xla::Semaphore> infer_sem, Timestamps *timestamps,
-                      const uint32_t nn_id);
-    Status infer_wait(RuntimeIO *runtime_io, Timestamps *timestamps);
-    void unload(const uint32_t nn_id);
-    void acquire_mutex(std::queue<tensorflow::mutex_lock> *mutex_lock_queue);
-    Status acquire_sem(SemResQueue *sem_res_queue, std::shared_ptr<xla::Semaphore> infer_sem);
-    Status release_sem(SemResQueue *sem_res_queue);
-    Status infer_post_unsafe(RuntimeIO *runtime_io, Timestamps *timestamps,
-                             const uint32_t nn_id);
-    void clear(bool from_global_state=false);
-    size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
-    uint32_t num_cores() { return num_cores_; };
-    Status start_model_unsafe(const uint32_t nn_id);
-    Status start_ping(const uint32_t nn_id);
-    size_t semaphore_factor() { return vec_eg_id_.size(); }
-    std::shared_ptr<RuntimeSession> get_session() { return session_; }
-private:
-    bool is_busy();
-    bool running(uint32_t nn_id);
-    void set_running(uint32_t nn_id);
-    uint32_t nn_get_current_running();
-    Status get_active(uint32_t *active_nn_id, const uint32_t nn_id);
-    tensorflow::mutex mutex_eg_;
-    bool closed_ = false;
-    RuntimeGRPC runtime_;
-    uint64_t session_id_ = RuntimeSession::INVALID_ID;
-    std::shared_ptr<RuntimeSession> session_ = nullptr;
-    std::vector<uint32_t> vec_eg_id_;
-    std::shared_ptr<SharedMemoryBufferManager> shm_buf_mgr_ = nullptr;
-    uint32_t running_nn_id_;
-    uint32_t num_cores_ = 0;
-    uint64 last_infer_timestamp_ = 0;
-    static const size_t EXEC_MAX_CHUNK_SIZE = 1024 * 1024;  // some reasonable number of bytes
-    std::string nrtd_address_ = "";
-    std::unordered_map<uint32_t, std::vector<uint32_t> > nn_id_to_all_nn_ids_;
-    std::unordered_map<uint32_t, size_t> nn_id_to_active_idx_;
-    TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDevice);
+ private:
+  Allocator* cpu_allocator_;  // Not owned
+  SharedMemoryAllocator* shm_allocator_;  // Not owned
+  static const int on_shm_shift_ = sizeof(AllocatorAttributes::value) - 1;
 };
-
-
-class NeuronDeviceManager {
-public:
-    static NeuronDeviceManager &GetNeuronDeviceManager();
-    Status apply_for_device(NeuronDevice **device,
-                            const std::string &session_handle,
-                            const int64_t opt_device_size,
-                            const int64_t max_num_duplicates,
-                            const int64_t device_index=-1);
-    void clear_if_empty();
-    void clear_from_global_state();
-    static const int64 MAX_NUM_CORES = 64;
-    static const int64 MIN_NUM_CORES = 0;
-private:
-    NeuronDeviceManager() {}
-    ~NeuronDeviceManager();
-    Status init_default_device(const int64_t opt_device_size, const int64_t max_num_duplicates);
-    Status init_devices(const std::vector<int> &num_cores_req_vector,
-                        const std::vector<int> &num_dup_vector);
-    Status initialize(const int64_t opt_device_size, const int64_t max_num_duplicates);
-    void clear();
-    tensorflow::mutex global_mutex_;
-    static const int DEFAULT_NUM_CORES = -65536;  // any negative number < -MAX_NUM_CORES
-    std::string nrtd_address_;
-    std::shared_ptr<RuntimeSession> session_ = nullptr;
-    std::array<NeuronDevice, MAX_NUM_CORES> device_array_;
-    std::unordered_map<std::string, size_t> session_handle_to_device_index_;
-    bool path_set_ = false;
-    size_t device_index_ = 0;
-    size_t num_devices_ = 0;
-    bool ready_ = false;
-    TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceManager);
-};
-
 
 }  // namespace neuron
 }  // namespace tensorflow

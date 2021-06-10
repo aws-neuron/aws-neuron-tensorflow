@@ -21,8 +21,8 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-std::string env_get(const char *env_var, const char *default_env_var="");
-int stoi_no_throw(const std::string &str);
+std::string env_get(const char* env_var, const char* default_env_var = "");
+int stoi_no_throw(const std::string& str);
 
 }  // namespace neuron
 }  // namespace tensorflow

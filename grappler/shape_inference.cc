@@ -86,7 +86,7 @@ Status PropagateShapes(Graph* graph,
           if (i < shape_list.size()) {
             PartialTensorShape shape(shape_list[i]);
             TF_RETURN_IF_ERROR(
-              context->MakeShapeFromPartialTensorShape(shape, &handle));
+                context->MakeShapeFromPartialTensorShape(shape, &handle));
             context->set_output(i, handle);
             if (shape.IsFullyDefined()) {
               std::string tensor_name = n->name() + ":" + std::to_string(i);
@@ -106,7 +106,7 @@ Status PropagateShapes(Graph* graph,
             shape.InsertDim(0, resolved_range_sizes[input1_name]);
             shape_inference::ShapeHandle handle = context->output(0);
             TF_RETURN_IF_ERROR(
-              context->MakeShapeFromPartialTensorShape(shape, &handle));
+                context->MakeShapeFromPartialTensorShape(shape, &handle));
             context->set_output(0, handle);
             VLOG(1) << "Inferred fully defined shape of " << n->name()
                     << " using TensorArray operator shape inference mechanism";
@@ -129,8 +129,8 @@ Status PropagateShapes(Graph* graph,
       if (resolved_shapes.count(input0_name)) {
         auto& shape = resolved_shapes[input0_name];
         resolved_vectors[n->name()] = shape.dim_sizes();
-        VLOG(2) << "filled resolved_vectors[" << n->name()
-                << "] with vector " << shape;
+        VLOG(2) << "filled resolved_vectors[" << n->name() << "] with vector "
+                << shape;
       }
     }
 
@@ -138,10 +138,8 @@ Status PropagateShapes(Graph* graph,
       const auto& n_def = n->def();
       const auto& attr = n_def.attr();
       if (attr.at("Index").type() == DT_INT32 &&
-          attr.at("T").type() == DT_INT32 &&
-          attr.at("begin_mask").i() == 0 &&
-          attr.at("ellipsis_mask").i() == 0 &&
-          attr.at("end_mask").i() == 0 &&
+          attr.at("T").type() == DT_INT32 && attr.at("begin_mask").i() == 0 &&
+          attr.at("ellipsis_mask").i() == 0 && attr.at("end_mask").i() == 0 &&
           attr.at("new_axis_mask").i() == 0 &&
           attr.at("shrink_axis_mask").i() == 1 &&
           resolved_vectors.count(n_def.input(0)) &&
@@ -155,8 +153,8 @@ Status PropagateShapes(Graph* graph,
         if (end - start == 1 && step == 1 && start < (int64)vector.size()) {
           int64 int_val = vector[start];
           resolved_ints[n->name()] = int_val;
-          VLOG(2) << "filled resolved_ints[" << n->name()
-                  << "] with " << int_val;
+          VLOG(2) << "filled resolved_ints[" << n->name() << "] with "
+                  << int_val;
         }
       }
     }
@@ -195,8 +193,8 @@ Status PropagateShapes(Graph* graph,
         int64 diff = end - start;
         int64 num_elements = diff / step + diff % step;
         resolved_range_sizes[n->name()] = num_elements;
-        VLOG(2) << "filled resolved_range_sizes[" << n->name()
-                << "] with " << num_elements;
+        VLOG(2) << "filled resolved_range_sizes[" << n->name() << "] with "
+                << num_elements;
       }
     }
 
