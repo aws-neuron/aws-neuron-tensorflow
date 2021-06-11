@@ -29,6 +29,7 @@ from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.keras.engine.training import Model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import nest
+from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
@@ -56,13 +57,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     original_func = func
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
-    tfn_args, _ = utils.parse_neuron_cc_flags()
-
-    def maybe_dump_as(graph_def, filename):
-        if tfn_args.dump_prefix is not None:
-            os.makedirs(tfn_args.dump_prefix, exist_ok=True)
-            with open(os.path.join(tfn_args.dump_prefix, filename), 'wb') as f:
-                f.write(graph_def.SerializeToString())
+    dumper = OptionalDumper()
 
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
@@ -80,17 +75,19 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
-    maybe_dump_as(graph_def, 'graph_def_shaped.pb')
+    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
 
     # call main-graph grappler passes
     graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function)
-    maybe_dump_as(graph_def, 'graph_def_fused.pb')
+    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_fused.pb')
+    dumper.maybe_compute_io_tensors(graph_def, original_graph_def, func, feed_dict)
 
     # call graph_def_util/meta_graph_util passes
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def)
-    maybe_dump_as(graph_def, 'graph_def_fused_optimized.pb')
+    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_fused_optimized.pb')
     graph_def = gdu.run_compiler_on_subgraphs(graph_def)
+    dumper.maybe_embed_io_tensors_into_hlo_snapshots()
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)
@@ -103,6 +100,80 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     model = AwsNeuronModel(cfunc, func.structured_outputs)
     _make_keras_model_savable(model, example_inputs)
     return model
+
+
+class OptionalDumper:
+
+    def __init__(self):
+        tfn_args, _ = utils.parse_neuron_cc_flags()
+        self.dump_prefix = tfn_args.dump_prefix
+        self.dump_tensor_map = None
+
+    def maybe_dump_graph_def_as(self, graph_def, filename):
+        if self.dump_prefix is None:
+            return
+        os.makedirs(self.dump_prefix, exist_ok=True)
+        with open(os.path.join(self.dump_prefix, filename), 'wb') as f:
+            f.write(graph_def.SerializeToString())
+
+    def maybe_compute_io_tensors(self, graph_def, original_graph_def, func, feed_dict):
+        if self.dump_prefix is None:
+            return
+        input_names = _get_input_names(func)
+        tensor_name_map = {}
+        for nop in gdu.get_neuron_nodes(graph_def):
+            for idx, name in enumerate(nop.attr[gdu.knOutputNames].list.s):
+                neuron_tensor_name = nop.name if idx == 0 else '{}:{}'.format(nop.name, idx)
+                tensor_name_map[neuron_tensor_name] = name.decode()
+        self.dump_tensor_map = {}
+        dump_tensor_names = []
+        for nop in gdu.get_neuron_nodes(graph_def):
+            in_names = [tensor_name_map.get(name, name) for name in nop.input]
+            in_names = [name if ':' in name else '{}:0'.format(name) for name in in_names]
+            out_names = [name.decode() for name in nop.attr[gdu.knOutputNames].list.s]
+            dump_tensor_names.extend(in_names)
+            dump_tensor_names.extend(out_names)
+            self.dump_tensor_map[nop.name] = in_names, out_names
+        dumper_cfunc = wrap_function.function_from_graph_def(original_graph_def, input_names, dump_tensor_names)
+        flat_inputs = [feed_dict[name] for name in input_names]
+        dumper_outputs = dumper_cfunc(*flat_inputs)
+        name_to_tensor = {name: tensor for name, tensor in zip(dump_tensor_names, dumper_outputs)}
+        for op_name, (in_names, out_names) in self.dump_tensor_map.items():
+            in_tensors = [name_to_tensor[name] for name in in_names]
+            out_tensors = [name_to_tensor[name] for name in out_names]
+            self.dump_tensor_map[op_name] = in_tensors, out_tensors
+
+    def maybe_embed_io_tensors_into_hlo_snapshots(self):
+        if self.dump_prefix is None:
+            return
+        try:
+            from hlo2neuron.frontend import HloOp
+        except ImportError:
+            return
+        for op_name, (inputs, outputs) in self.dump_tensor_map.items():
+            for hlo_ss_name in 'hlo_snapshot.pb', 'hlo_snapshot_opt.pb':
+                hlo_ss_path = os.path.join(self.dump_prefix, op_name, hlo_ss_name)
+                if not os.path.isfile(hlo_ss_path):
+                    continue
+                hlo_ss = hlo_pb2.HloSnapshot()
+                with open(hlo_ss_path, 'rb') as f:
+                    hlo_ss.ParseFromString(f.read())
+                hps = hlo_ss.hlo.hlo_module.host_program_shape
+                iter_inputs = zip(hps.parameters, inputs), hlo_ss.arguments
+                iter_outputs = zip(hps.result.tuple_shapes, outputs), hlo_ss.result.tuple_literals
+                for iterator, args in iter_inputs, iter_outputs:
+                    for arg_shape, tensor in iterator:
+                        arg = args.add()
+                        arg.shape.CopyFrom(arg_shape)
+                        attr_name = HloOp.xla_dtype_to_literal_attr_name[arg.shape.element_type]
+                        literals = getattr(arg, attr_name)
+                        value = tensor.numpy()
+                        if isinstance(literals, bytes):
+                            setattr(literals, attr_name, value.tobytes())
+                        else:
+                            literals[:] = value.ravel()
+                with open(hlo_ss_path, 'wb') as f:
+                    f.write(hlo_ss.SerializeToString())
 
 
 class AwsNeuronModel(Model):
