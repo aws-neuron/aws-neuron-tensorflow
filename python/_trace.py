@@ -199,20 +199,10 @@ class AwsNeuronModel(Model):
 def _get_feed_dict(func, inputs):
     if len(inputs) == 1:
         inputs, = inputs
-    if isinstance(inputs, abc.Mapping):
-        func_args, func_kwargs = func.structured_input_signature
-        if func_args:
-            if len(func_args) != 1:
-                raise NotImplementedError('function with multiple dictionary inputs is not supported')
-            input_dict, = func_args
-        else:
-            input_dict = {akw: ts.op for akw, ts in zip(func._arg_keywords, func.inputs)}
-        return {'{}:0'.format(spec.name): inputs[name] for name, spec in input_dict.items()}
-    else:
-        input_names = _get_input_names(func)
-        inputs_list = [inputs] if isinstance(inputs, ops.Tensor) else inputs
-        inputs_list = nest.flatten(inputs_list)
-        return {name: ts for name, ts in zip(input_names, inputs_list)}
+    input_names = _get_input_names(func)
+    inputs_list = [inputs] if isinstance(inputs, ops.Tensor) else inputs
+    inputs_list = nest.flatten(inputs_list)
+    return {name: ts for name, ts in zip(input_names, inputs_list)}
 
 
 def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function):
