@@ -28,7 +28,11 @@ void NeuronOp::Compute(OpKernelContext* ctx) {
   OP_REQUIRES_OK(ctx, model_.compute(ctx, def(), input_tensors));
 }
 
+#if TF_VERSION_LESS_THAN(2, 0)
+NEURON_REGISTER_KERNEL_BUILDER("NeuronOp", DEVICE_CPU, NeuronOp);
+#else
 NEURON_REGISTER_KERNEL_BUILDER("NeuronOp", DEVICE_NEURON, NeuronOp);
+#endif
 
 }  // namespace neuron
 }  // namespace tensorflow

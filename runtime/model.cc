@@ -367,6 +367,56 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   return Status::OK();
 }
 
+#if TF_VERSION_LESS_THAN(2, 0)
+static Status allocate_outputs(OpKernelContext* ctx, const bool use_shm,
+                               AttrList& output_shapes,
+                               std::vector<Tensor*>* output_tensors) {
+  SharedMemoryAllocator* shm_allocator =
+      NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
+  for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+    if (use_shm) {
+      AllocationAttributes attr;
+      Tensor output(shm_allocator, ctx->expected_output_dtype(idx),
+                    output_shapes.shape(idx), attr);
+      ctx->set_output(idx, output);
+      output_tensors->at(idx) = ctx->mutable_output(idx);
+    } else {
+      TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
+                                              &output_tensors->at(idx)));
+    }
+  }
+  return Status::OK();
+}
+
+static Status allocate_temp(OpKernelContext* ctx, DataType dtype,
+                            const TensorShape& shape, Tensor* shm_tensor) {
+  SharedMemoryAllocator* shm_allocator =
+      NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
+  AllocationAttributes attr;
+  *shm_tensor = Tensor(shm_allocator, dtype, shape, attr);
+  return Status::OK();
+}
+#else
+static Status allocate_outputs(OpKernelContext* ctx, const bool use_shm,
+                               AttrList& output_shapes,
+                               std::vector<Tensor*>* output_tensors) {
+  for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+    AllocatorAttributes attr;
+    NeuronDevice::set_on_shm(&attr, use_shm);
+    TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
+                                            &output_tensors->at(idx), attr));
+  }
+  return Status::OK();
+}
+
+static Status allocate_temp(OpKernelContext* ctx, DataType dtype,
+                            const TensorShape& shape, Tensor* shm_tensor) {
+  AllocatorAttributes attr;
+  NeuronDevice::set_on_shm(&attr, true);
+  return ctx->allocate_temp(dtype, shape, shm_tensor, attr);
+}
+#endif
+
 Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
                             const std::vector<Tensor>& input_tensors) {
   uint64 start_time = Env::Default()->NowMicros();
@@ -487,12 +537,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     }
   } else {
     bool use_shm = UseShmForIO(input_tensors);
-    for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-      AllocatorAttributes attr;
-      NeuronDevice::set_on_shm(&attr, use_shm);
-      TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
-                                              &output_tensors[idx], attr));
-    }
+    TF_RETURN_IF_ERROR(allocate_outputs(ctx, use_shm, output_shapes,
+                                        &output_tensors));
   }
 
   // initialize the model
@@ -585,11 +631,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
           const Tensor& tensor = sliced_inputs.at(idx);
           TensorShape shape = tensor.shape();
           DataType dtype = tensor.dtype();
-          AllocatorAttributes attr;
-          NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = input_shm_tensors.at(idx);
           SHARD_LOG_ERROR(status_sd,
-                          ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+                          allocate_temp(ctx, dtype, shape, &shm_tensor));
         }
         output_shm_tensors.resize(sliced_outputs.size());
         for (size_t idx = 0; idx < output_shm_tensors.size(); ++idx) {
@@ -601,11 +645,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
             }
           }
           DataType dtype(tensor.dtype());
-          AllocatorAttributes attr;
-          NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = output_shm_tensors.at(idx);
           SHARD_LOG_ERROR(status_sd,
-                          ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+                          allocate_temp(ctx, dtype, shape, &shm_tensor));
         }
       }
       std::vector<Tensor*> output_shm_ptrs;
@@ -712,10 +754,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         if (need_copy_inputs.at(idx)) {
           TensorShape shape = tensor.shape();
           DataType dtype = tensor.dtype();
-          AllocatorAttributes attr;
-          NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = input_shm_tensors.at(idx);
-          TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+          TF_RETURN_IF_ERROR(allocate_temp(ctx, dtype, shape, &shm_tensor));
         } else {
           input_shm_tensors[idx] = tensor;
         }
