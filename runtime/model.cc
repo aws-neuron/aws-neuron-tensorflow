@@ -234,6 +234,75 @@ NeuronModel::NeuronModel()
   VLOG(1) << "NeuronModel contructor " << this;
 }
 
+Status NeuronModel::pre_initialize(const NodeDef& node_def) {
+  tensorflow::mutex_lock lock(mutex_model_);
+  if (TF_PREDICT_TRUE(pre_initialization_done_)) {
+    VLOG(1) << "NeuronModel is already initialized";
+    return Status::OK();
+  }
+  const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
+
+  std::vector<size_t> output_tensor_sizes;
+  TF_RETURN_IF_ERROR(
+      get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
+
+  // can_use_shm directives
+  AttrList& input_names = attr.at("input_names").list();
+  AttrList& output_names = attr.at("output_names").list();
+  AttrValue_ListValue input_can_use_shm;
+  AttrValue_ListValue output_can_use_shm;
+  if (attr.count(kInputCanUseShm)) {
+    VLOG(1) << "reading input_can_use_shm compiler directive";
+    input_can_use_shm = attr.at(kInputCanUseShm).list();
+  } else {
+    VLOG(1) << "initializing input_can_use_shm to all true";
+    for (const auto& name : input_names.s()) {
+      input_can_use_shm.mutable_b()->Add(true);
+    }
+  }
+  if (attr.count(kInputCanUseShm)) {
+    VLOG(1) << "reading output_can_use_shm compiler directive";
+    output_can_use_shm = attr.at(kOutputCanUseShm).list();
+  } else {
+    VLOG(1) << "initializing output_can_use_shm to all true";
+    for (const auto& name : output_names.s()) {
+      output_can_use_shm.mutable_b()->Add(true);
+    }
+  }
+
+  for (size_t buf_size : output_tensor_sizes) {
+    can_use_shm_ &= buf_size != 0;
+  }
+  for (bool can_use : input_can_use_shm.b()) {
+    can_use_shm_ &= can_use;
+  }
+  for (bool can_use : output_can_use_shm.b()) {
+    can_use_shm_ &= can_use;
+  }
+
+  if (attr.count(kInputShuffles)) {
+    AttrList& input_shuffles = attr.at(kInputShuffles).list();
+    TFNN_ASSERT(input_shuffles.tensor_size() == input_names.s_size(),
+                errors::InvalidArgument("illegal _input_shuffles attribute"));
+  }
+
+  AttrList& input_batch_axis = attr.at("input_batch_axis").list();
+  AttrList& output_batch_axis = attr.at("output_batch_axis").list();
+  if (TF_PREDICT_TRUE(input_names.s_size() == input_batch_axis.i_size())) {
+    if (TF_PREDICT_TRUE(output_names.s_size() == output_batch_axis.i_size())) {
+      for (int64 batch_axis : input_batch_axis.i()) {
+        if (batch_axis != STATIC_BATCH_AXIS) {
+          allow_dynamic_batch_size_ = true;
+          break;
+        }
+      }
+    }
+  }
+
+  pre_initialization_done_ = true;
+  return Status::OK();
+}
+
 Status NeuronModel::initialize(const NodeDef& node_def,
                                const std::string& session_handle) {
   tensorflow::mutex_lock lock(mutex_model_);
@@ -302,6 +371,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
                             const std::vector<Tensor>& input_tensors) {
   uint64 start_time = Env::Default()->NowMicros();
 #define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
+
+  // pre-initialize
+  TF_RETURN_IF_ERROR(pre_initialize(node_def));
+
   SharedMemoryAllocator* shm_allocator =
       NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
@@ -310,51 +383,12 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   AttrList& output_shapes = attr.at("output_shapes").list();
   TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
               errors::InvalidArgument("incorrect number of input tensors"));
-  if (attr.count(kInputShuffles)) {
-    AttrList& input_shuffles = attr.at(kInputShuffles).list();
-    TFNN_ASSERT(input_shuffles.tensor_size() == (int64)input_tensors.size(),
-                errors::InvalidArgument("illegal _input_shuffles attribute"));
-  }
-   std::vector<size_t> output_tensor_sizes;
-  TF_RETURN_IF_ERROR(
-      get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
-
-  // can_use_shm directives
-  AttrValue_ListValue input_can_use_shm;
-  if (attr.count(kInputCanUseShm)) {
-    VLOG(1) << "reading input_can_use_shm compiler directive";
-    input_can_use_shm = attr.at(kInputCanUseShm).list();
-  } else {
-    VLOG(1) << "initializing input_can_use_shm to all true";
-    for (const auto& name : input_names.s()) {
-      input_can_use_shm.mutable_b()->Add(true);
-    }
-  }
-  AttrValue_ListValue output_can_use_shm;
-  if (attr.count(kInputCanUseShm)) {
-    VLOG(1) << "reading output_can_use_shm compiler directive";
-    output_can_use_shm = attr.at(kOutputCanUseShm).list();
-  } else {
-    VLOG(1) << "initializing output_can_use_shm to all true";
-    for (const auto& name : output_names.s()) {
-      output_can_use_shm.mutable_b()->Add(true);
-    }
-  }
 
   // lambda for enabling shared memory
   auto UseShmForIO = [&](const std::vector<Tensor>& input_tensors) {
-    bool use_shm = shm_allocator->is_valid();
+    bool use_shm = can_use_shm_ && shm_allocator->is_valid();
     for (const Tensor& tensor : input_tensors) {
       use_shm &= tensor.NumElements() != 0;
-    }
-    for (size_t buf_size : output_tensor_sizes) {
-      use_shm &= buf_size != 0;
-    }
-    for (bool can_use_shm : input_can_use_shm.b()) {
-      use_shm &= can_use_shm;
-    }
-    for (bool can_use_shm : output_can_use_shm.b()) {
-      use_shm &= can_use_shm;
     }
     return use_shm;
   };
@@ -366,20 +400,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   std::vector<bool> is_batch_outputs(ctx->num_outputs());
   AttrList& input_batch_axis = attr.at("input_batch_axis").list();
   AttrList& output_batch_axis = attr.at("output_batch_axis").list();
-  bool found_batch_axis = false;
-  if (TF_PREDICT_TRUE(input_names.s_size() == input_batch_axis.i_size())) {
-    if (TF_PREDICT_TRUE(output_names.s_size() == output_batch_axis.i_size())) {
-      for (int64 batch_axis : input_batch_axis.i()) {
-        if (batch_axis != STATIC_BATCH_AXIS) {
-          found_batch_axis = true;
-          break;
-        }
-      }
-    }
-  }
   bool use_dynamic_batch_size = false;
   int64 input_copy_cost_per_unit = 0;
-  if (found_batch_axis) {
+  if (allow_dynamic_batch_size_) {
     AttrList& input_shapes = attr.at("input_shapes").list();
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       bool is_batch_tensor = false;
