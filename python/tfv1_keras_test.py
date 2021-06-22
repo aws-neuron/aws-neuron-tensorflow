@@ -36,7 +36,7 @@ NUM_MAGIC_NUMBERS = 2#Max is 10
 NUM_KERNEL_SIZES = 2 #Max is 2
 NUM_POWERS = 2       #Max is 11
 NUM_FILTERS = 2
-_PARAMETER_SEED = '11251998'
+_PARAMETER_SEED = '11251998' #Random Seed to use
 
 
 #here are the parameter lists
