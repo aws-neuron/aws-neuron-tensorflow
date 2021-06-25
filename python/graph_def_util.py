@@ -408,7 +408,7 @@ def set_execution_plan(compiled_graph_def):
         # Minimum timeout is 10 sec
         # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
         est_timeout = len(node.attr[knExecutable].s) / 1e8
-        timeout = max(est_timeout, 10)
+        timeout = int(max(est_timeout, 10))
         # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
         model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
         node.attr['model_config'].list.i[:] = model_config
