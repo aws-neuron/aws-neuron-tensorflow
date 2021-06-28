@@ -1644,7 +1644,51 @@ class TestWhitelistPartition(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
+class TestAMPPass(unittest.TestCase):
 
+    def test_simple(self):
+        np.random.seed(_RANDOM_SEED)
+        with tf.Session(graph=tf.Graph()) as sess:
+            input0 = tf.placeholder(tf.float32, [None, 2, 2, 3], name='input0')
+            input1 = tf.placeholder(tf.float32, [None, 2, 2, 3], name='input1')
+            conv2d0 = tf.nn.conv2d(input0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float32),
+                                    strides=[1, 1, 1, 1], padding='VALID', name='conv2d0')
+            conv2d1 = tf.nn.conv2d(input1, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float32),
+                                    strides=[1, 1, 1, 1], padding='VALID', name='conv2d1')
+            add0 = tf.add(conv2d0, conv2d1, name='add0')
+            relu0 = tf.nn.relu(add0, name='relu0')
+            conv2d2 = tf.nn.conv2d(relu0, np.random.uniform(-1, 1, size=[1, 1, 3, 3]).astype(np.float32),
+                                    strides=[1, 1, 1, 1], padding='VALID', name='conv2d2')
+            relu1 = tf.nn.relu(conv2d2, name='relu1')
+            graph_def = sess.graph.as_graph_def(add_shapes=True)
+            signature_def0 = meta_graph_util.build_signature_def([input0, input1], [relu1])
+            amp_graph_def = graph_util.amp_optimization(graph_def, signature_def0)
+            node_map = {}
+            for node in amp_graph_def.node:
+                node_map[node.name] = node
+            
+            # There should be 5 fp16 cast nodes - 2 for the placeholders and 3 for the conv weights
+            # There should be final fp32 cast to get the final fp32 output
+            fp16_cast_op_names = [
+                "input0-0-CastToFp16-AutoMixedPrecision", 
+                "input1-0-CastToFp16-AutoMixedPrecision",
+                "conv2d0/filter-0-CastToFp16-AutoMixedPrecision",
+                "conv2d1/filter-0-CastToFp16-AutoMixedPrecision",
+                "conv2d2/filter-0-CastToFp16-AutoMixedPrecision",
+                ]
+            fp_32_cast_op_names = ["conv2d2-0-CastToFp32-AutoMixedPrecision"]
+            for op_name in fp16_cast_op_names:
+                assert op_name in node_map, "Cast op: {op_name}, does not exist"
+                assert tf.dtypes.DType(node_map[op_name].attr["DstT"].type) == tf.float16, "AMP pass did not cast to fp16"
+            for op_name in fp_32_cast_op_names:
+                assert op_name in node_map, "Cast op: {op_name}, does not exist"
+                assert tf.dtypes.DType(node_map[op_name].attr["DstT"].type) == tf.float32, "AMP pass did not cast to fp32"
+        
+        # TODO: We should be able to import the amp_graph_def, currently it is crashing. Needs a fix.
+        # graph = tf.Graph()
+        # with graph.as_default():
+        #     tf.import_graph_def(amp_graph_def, name='')
+       
 def _assert_neuron_op(infer_graph):
     op_list = [op for op in infer_graph.get_operations() if op.type == 'NeuronOp']
     if not op_list:

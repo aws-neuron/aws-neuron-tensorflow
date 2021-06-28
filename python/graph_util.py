@@ -225,6 +225,11 @@ def inference_graph_from_session(
     # initialize inferred shapes
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
+    # TODO: Currently, amp pass creates a graph_def with cast ops. The created
+    # graph_def is incorrect because ConvertToGraphFromGraphDef crashes on trying to import it.
+    # Needs debug.
+    # graph_def = amp_optimization(graph_def, signature_def)
+
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
         graph_def, signature_def, supported_op_types=supported_op_types,
@@ -349,6 +354,33 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
     value.extend(getattr(key, 'name', key) for key in shape_feed_dict)
     value.extend(getattr(ts, 'name', ts) for ts in output_tensors)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def
+
+def amp_optimization(graph_def, signature_def):
+    """Runs a AutoMixedPrecision pass to insert fp16/bf16 cast nodes at appropriate places.
+
+    Args:
+        graph_def: input `GraphDef` proto.
+        signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
+
+    Returns:
+        A `GraphDef` proto with cast operators inserted at appropriate places.
+    """
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = 2
+    rewriter_config.optimizers.append('auto_mixed_precision_neuron')
+
+    # configure amp pass
+    fuser_config = rewriter_config.custom_optimizers.add()
+    fuser_config.name = 'auto_mixed_precision_neuron'
+
+    # create meta_graph_def and run grappler passes
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+
     return graph_def
 
 
