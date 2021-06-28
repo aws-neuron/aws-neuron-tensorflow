@@ -191,6 +191,8 @@ def get_layer_generators():
     reduce_gen = ProductGenerator(
         input_shapes=[[(1, 3, 32), (1, 3, 32), (1, 3, 32)]],
         input_dtypes=float_types,
+        rtol=1e-3,
+        atol=5e-5,
     )
     attention_gen = ProductGenerator(
         input_shapes=[([(1, 8, 32), (1, 16, 32), (1, 16, 32)], [(1, 8), (1, 16)])],
@@ -208,6 +210,8 @@ def get_layer_generators():
     pool1d_gen = ProductGenerator(
         input_shapes=[(1, 28, 16)],
         **pooling_gen_common,
+        rtol=1e-3,
+        atol=5e-5,
     )
     pool2d_gen = ProductGenerator(
         input_shapes=[(1, 14, 14, 16)],
@@ -216,6 +220,8 @@ def get_layer_generators():
     pool3d_gen = ProductGenerator(
         input_shapes=[(1, 10, 10, 10, 8)],
         **pooling_gen_common,
+        rtol=1e-3,
+        atol=5e-5,
         skipper=skip_pool_3d,
     )
     normalization_gen = ProductGenerator(
@@ -300,6 +306,8 @@ def get_layer_generators():
             pool_size=[2, 3],
             strides=[1, 2],
             padding=['valid'],
+            rtol=1e-3,
+            atol=5e-5,
         ),
         AveragePooling2D=ProductGenerator(
             input_shapes=[(1, 14, 14, 16)],
@@ -492,6 +500,8 @@ def get_layer_generators():
             input_shapes=[(1, 20, 20, 32)],
             input_dtypes=[tf.float32],
             axis=[-1, 1],
+            rtol=1e-3,
+            atol=5e-5,
         ),
         SpatialDropout1D=None,
         SpatialDropout2D=None,
