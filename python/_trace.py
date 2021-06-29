@@ -23,6 +23,7 @@ from tensorflow.python.eager import wrap_function
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework import ops
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
+from tensorflow.python.framework.errors import InvalidArgumentError
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.framework.tensor_spec import TensorSpec
 from tensorflow.python.grappler import tf_optimizer
@@ -61,10 +62,23 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
-        if LooseVersion(__version__) < LooseVersion('2.2.0'):
-            cfunc = convert_variables_to_constants_v2(func)
-        else:
-            cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
+        try:
+            if LooseVersion(__version__) < LooseVersion('2.2.0'):
+                cfunc = convert_variables_to_constants_v2(func)
+            else:
+                cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
+        except InvalidArgumentError as err:
+            if all(op.type != 'StatefulPartitionedCall' for op in func.graph.get_operations()):
+                raise err
+            error_msg = (
+                "convert_variables_to_constants_v2 failed to unpack a StatefulPartitionedCall"
+                " operator; this may be due to StatefulPartitionedCall wrapping custom"
+                " operators, which is caused by saving or serializing models containing"
+                " custom operators. If you are tracing a keras.Model, try to call tfn.trace"
+                " before saving and reloading the model, and please make sure that model"
+                " layers do not contain StatefulPartitionedCall wrapping custom operators."
+            )
+            raise InvalidArgumentError(err.node_def, err.op, error_msg)
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
         logging.warning('{} does not seem to have any input; returning an uncompiled callable'.format(func))
