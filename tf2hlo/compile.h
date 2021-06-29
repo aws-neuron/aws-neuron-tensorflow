@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/neuron/tf2hlo/flags.h"
+#include "tensorflow/core/lib/strings/proto_serialization.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -33,6 +34,8 @@ Status CompileGraph(GraphDef graph_def, const tf2xla::Config& config,
 
 // The full compilation method, for reuse in a library setting.
 Status Main(const tensorflow::tfcompile::MainFlags& flags);
+
+Status ReadProtoFile(const string& fname, protobuf::Message* proto);
 
 }  // namespace neuron
 }  // namespace tensorflow

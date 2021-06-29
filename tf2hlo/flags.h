@@ -30,6 +30,7 @@ struct MainFlags {
   string graph;
   string config;
   string out_session_module;
+  string in_session_module;
 };
 
 // Appends to flag_list a tensorflow::Flag for each field in MainFlags.

@@ -57,7 +57,7 @@ Status CompileGraph(GraphDef graph_def, const tf2xla::Config& config,
   return Status::OK();
 }
 
-static Status ReadProtoFile(const string& fname, protobuf::Message* proto) {
+Status ReadProtoFile(const string& fname, protobuf::Message* proto) {
   if (absl::EndsWith(fname, ".pbtxt")) {
     return ReadTextProto(Env::Default(), fname, proto);
   } else {

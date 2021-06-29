@@ -30,6 +30,8 @@ void AppendMainFlags(std::vector<Flag>* flag_list, MainFlags* flags) {
        "it is expected to be in the proto binary format."},
       {"out_session_module", &flags->out_session_module,
        "Output session module proto."},
+      {"in_session_module", &flags->in_session_module,
+       "Input session module proto, for verification purpose."},
   };
   flag_list->insert(flag_list->end(), tmp.begin(), tmp.end());
 }

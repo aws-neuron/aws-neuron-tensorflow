@@ -16,8 +16,10 @@ limitations under the License.
 #include "absl/strings/string_view.h"
 #include "tensorflow/compiler/xla/debug_options_flags.h"
 #include "tensorflow/core/lib/core/errors.h"
+#include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/init_main.h"
 #include "tensorflow/core/util/command_line_flags.h"
+#include "tensorflow/compiler/xla/service/hlo_proto_util.h"
 #include "tensorflow/neuron/tf2hlo/compile.h"
 #include "tensorflow/neuron/tf2hlo/flags.h"
 
@@ -52,6 +54,18 @@ int main(int argc, char** argv) {
   }
   bool parsed_flags_ok = tensorflow::Flags::Parse(&argc, argv, flag_list);
   QCHECK(parsed_flags_ok) << "\n" << usage;
+
+  // Verify input serialized HloSnapshot if requested.
+  if (!flags.in_session_module.empty()) {
+    using namespace tensorflow::neuron;
+    xla::HloSnapshot hlo_snapshot;
+    TF_QCHECK_OK(ReadProtoFile(flags.in_session_module, &hlo_snapshot));
+    const xla::HloModuleProto& hlo_module = hlo_snapshot.hlo().hlo_module();
+    xla::ProgramShape program_shape(hlo_module.host_program_shape());
+    xla::HloModuleConfig config(program_shape);
+    TF_QCHECK_OK(xla::CreateModuleFromProto(hlo_module, config).status());
+    return 0;
+  }
 
   tensorflow::port::InitMain(usage.c_str(), &argc, &argv);
   QCHECK(argc == 1) << "\nERROR: This command does not take any arguments "
