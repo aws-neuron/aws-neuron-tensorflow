@@ -1646,6 +1646,7 @@ class TestWhitelistPartition(unittest.TestCase):
 
 class TestAMPPass(unittest.TestCase):
 
+    @unittest.skip("causes some other tests to hit `No attr named '/job:localhost/replica:0/task:0/device:CPU:0' in NodeDef`")
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
