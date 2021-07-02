@@ -183,7 +183,7 @@ class OptionalDumper:
                         literals = getattr(arg, attr_name)
                         value = tensor.numpy()
                         if isinstance(literals, bytes):
-                            setattr(literals, attr_name, value.tobytes())
+                            setattr(arg, attr_name, value.tobytes())
                         else:
                             literals[:] = value.ravel()
                 with open(hlo_ss_path, 'wb') as f:
