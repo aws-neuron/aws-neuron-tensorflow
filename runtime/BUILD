@@ -14,6 +14,7 @@ cc_library(
         ":avgpooling_op",
         ":maxpooling_op",
         ":constant_op",
+        ":init",
     ],
 )
 
@@ -115,6 +116,11 @@ cc_library(
         ":shared_memory",
         ":runtime_grpc",
     ],
+)
+
+cc_library(
+    name = "init",
+    srcs = ["init.cc"],
 )
 
 cc_library(

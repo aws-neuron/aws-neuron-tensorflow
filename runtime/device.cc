@@ -169,7 +169,11 @@ class NeuronRegistrar {
       // priority value higher than that of GPUCompatibleCPU (70) would let
       // tensorflow runtime to dispatch ops on us automatically, which then
       // encourages XLA to try to compile for us and crash
+#if TF_VERSION_LESS_THAN(2, 5)
       DeviceFactory::Register(device_type, new Factory(), priority);
+#else
+      DeviceFactory::Register(device_type, new Factory(), priority, false);
+#endif
     }
   }
 };
