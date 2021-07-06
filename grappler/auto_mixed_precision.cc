@@ -2013,7 +2013,7 @@ int GetNumGPUs(const Cluster& cluster) {
 
 }  // end namespace
 
-Status AutoMixedPrecision::Optimize(Cluster* cluster, const GrapplerItem& item,
+Status AutoMixedPrecisionNeuron::Optimize(Cluster* cluster, const GrapplerItem& item,
                                     GraphDef* output) {
   if (cluster == nullptr) {
     return errors::InvalidArgument("cluster == nullptr");
@@ -2059,13 +2059,13 @@ Status AutoMixedPrecision::Optimize(Cluster* cluster, const GrapplerItem& item,
   return status;
 }
 
-void AutoMixedPrecision::Feedback(Cluster* cluster, const GrapplerItem& item,
+void AutoMixedPrecisionNeuron::Feedback(Cluster* cluster, const GrapplerItem& item,
                                   const GraphDef& optimize_output,
                                   double result) {
   // Nothing to do for AutoMixedPrecision.
 }
 
-REGISTER_NEURON_GRAPH_OPTIMIZER_AS(AutoMixedPrecision, auto_mixed_precision);
+REGISTER_NEURON_GRAPH_OPTIMIZER_AS(AutoMixedPrecisionNeuron, auto_mixed_precision);
 
 }
 }  // end namespace grappler

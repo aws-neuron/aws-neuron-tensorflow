@@ -27,7 +27,7 @@ constexpr char auto_mixed_precision[] =
 
 // Convert data types to float16 or bfloat16 where appropriate to improve
 // performance on GPUs or CPUs.
-class AutoMixedPrecision : public CustomGraphOptimizer {
+class AutoMixedPrecisionNeuron : public CustomGraphOptimizer {
  public:
   // If 'mode' is CUDA, converts nodes to float16 on Nvidia GPUs. If MKL,
   // converts nodes to bfloat16 on CPUs in order to take advantage of MKL
@@ -38,7 +38,7 @@ class AutoMixedPrecision : public CustomGraphOptimizer {
     return Status::OK();
   };
 
-  ~AutoMixedPrecision() override {}
+  ~AutoMixedPrecisionNeuron() override {}
 
   string name() const override {
       return auto_mixed_precision;

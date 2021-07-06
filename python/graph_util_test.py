@@ -1646,7 +1646,6 @@ class TestWhitelistPartition(unittest.TestCase):
 
 class TestAMPPass(unittest.TestCase):
 
-    @unittest.skip("causes some other tests to hit `No attr named '/job:localhost/replica:0/task:0/device:CPU:0' in NodeDef`")
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
@@ -1685,10 +1684,9 @@ class TestAMPPass(unittest.TestCase):
                 assert op_name in node_map, "Cast op: {op_name}, does not exist"
                 assert tf.dtypes.DType(node_map[op_name].attr["DstT"].type) == tf.float32, "AMP pass did not cast to fp32"
         
-        # TODO: We should be able to import the amp_graph_def, currently it is crashing. Needs a fix.
-        # graph = tf.Graph()
-        # with graph.as_default():
-        #     tf.import_graph_def(amp_graph_def, name='')
+        graph = tf.Graph()
+        with graph.as_default():
+            tf.import_graph_def(amp_graph_def, name='')
        
 def _assert_neuron_op(infer_graph):
     op_list = [op for op in infer_graph.get_operations() if op.type == 'NeuronOp']

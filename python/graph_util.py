@@ -57,7 +57,7 @@ def inference_graph_from_session(
         supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
         grappler=False, max_num_compilers=None,
         compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True,
-        compiler_verbose=None):
+        compiler_verbose=None, amp_pass=False):
     """Constructs an inference graph from a tensorflow session.
 
     Generally decomposes into 5 passes:
@@ -225,10 +225,9 @@ def inference_graph_from_session(
     # initialize inferred shapes
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
-    # TODO: Currently, amp pass creates a graph_def with cast ops. The created
-    # graph_def is incorrect because ConvertToGraphFromGraphDef crashes on trying to import it.
-    # Needs debug.
-    # graph_def = amp_optimization(graph_def, signature_def)
+    # Adding the auto-mixed precision pass
+    if amp_pass:
+        graph_def = amp_optimization(graph_def, signature_def)
 
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
@@ -376,10 +375,18 @@ def amp_optimization(graph_def, signature_def):
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'auto_mixed_precision_neuron'
 
+    # Setting the devidde to CPU before AMP pass
+    for node in graph_def.node:
+        node.device = "/device:CPU:0"
+
     # create meta_graph_def and run grappler passes
     meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
     meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+
+    # Resetting the device to empty
+    for node in graph_def.node:
+        node.device = ''
 
     return graph_def
 
