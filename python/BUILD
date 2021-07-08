@@ -75,6 +75,7 @@ py_library(
         ":graph_def_util_py",
         ":meta_graph_util_py",
         ":neuron_cc_py",
+        "//tensorflow/neuron/python/hlo:hlo_py",
     ],
 )
 

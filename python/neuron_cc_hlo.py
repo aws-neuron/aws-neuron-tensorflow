@@ -21,7 +21,8 @@ except ImportError:
     from tensorflow.neuron.python.tf2xla import tf2xla_pb2
 from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.neuron.python import utils
-from hlo2neuron.driver import hlo2neff
+from tensorflow.neuron.python.hlo.optimize import HloOptimizer
+from hlo2neuron.driver import hlo_opt_to_neff_bytes
 
 
 _SUPPORTED_OPERATOR_TYPES = '''
@@ -154,3 +155,34 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         hlo_module = hlo_snapshot.hlo.hlo_module
         executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args)
     return executable, new_inputs, new_outputs
+
+
+def hlo2neff(hlo_module, args=None):
+    hlo_opt = HloOptimizer(hlo_module)
+    hlo_opt.fold_no_op_instructions()
+    hlo_opt.dead_code_elimination()
+    hlo_opt.flip_broadcast_gather()
+    hlo_opt.constant_folding()
+    hlo_opt.dead_code_elimination()
+    hlo_opt.batchify_reshape_dot_reshape()
+    hlo_opt.fold_no_op_instructions()
+    hlo_opt.dead_code_elimination()
+    hlo_opt.maybe_enable_rtr_shuffle()
+    hlo_opt.maybe_enable_dynamic_batch_size()
+    hlo_opt.maybe_rewrite_batch_size()
+    parsed_args, _ = utils.parse_neuron_cc_flags(args)
+    _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString(), 'hlo_snapshot_opt.pb')
+    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt)
+    _maybe_dump_bytes_as(parsed_args, neff_bytes, 'hlo_snapshot_opt.neff')
+    inputs, outputs = hlo_opt.engrave_io_tensors()
+    if parsed_args.dynamic_batch_size:
+        for ts in inputs + outputs:
+            ts.batch_axis = 0
+    return neff_bytes, inputs, outputs
+
+
+def _maybe_dump_bytes_as(parsed_args, content, name):
+    if parsed_args.dump_prefix is not None:
+        with open(os.path.join(parsed_args.dump_prefix, name), 'wb') as f:
+            f.write(content)
+
