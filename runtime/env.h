@@ -17,12 +17,15 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_ENV_H_
 
 #include <string>
+#include <vector>
+#include <utility>
 
 namespace tensorflow {
 namespace neuron {
 
 std::string env_get(const char* env_var, const char* default_env_var = "");
 int stoi_no_throw(const std::string& str);
+std::vector<std::pair<int, int>> parse_engine_specs();
 
 }  // namespace neuron
 }  // namespace tensorflow

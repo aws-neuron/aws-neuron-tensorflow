@@ -91,14 +91,14 @@ class NeuronEngineManager {
  private:
   NeuronEngineManager();
   ~NeuronEngineManager();
-  Status init_default_engine(const int64_t opt_engine_size,
-                             const int64_t max_num_duplicates);
-  Status init_engines(const std::vector<int>& num_cores_req_vector,
-                      const std::vector<int>& num_dup_vector);
+  std::vector<std::pair<int, int>> get_default_device_spec(
+      const int64_t opt_engine_size, const int64_t max_num_duplicates);
+  Status init_engines(const std::vector<std::pair<int, int>>& device_specs);
   Status initialize(const int64_t opt_engine_size,
                     const int64_t max_num_duplicates);
   void clear();
   tensorflow::mutex global_mutex_;
+  static const int64_t ONE_DEVICE_NUM_CORES = 4;
   static const int DEFAULT_NUM_CORES = -65536;  // any number < -MAX_NUM_CORES
   std::string nrtd_address_;
   std::shared_ptr<RuntimeSession> session_ = nullptr;

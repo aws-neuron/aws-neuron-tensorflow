@@ -23,20 +23,6 @@ namespace neuron {
 static const int64 DEFAULT_MAX_NUM_INFER = 2;
 static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 
-static std::string remove_pattern(std::string data,
-                                  const std::string& pattern) {
-  size_t string_length = data.size();
-  size_t pos = 0;
-  for (size_t idx = 0; idx < string_length; ++idx) {
-    pos = data.find(pattern, pos);
-    if (std::string::npos == pos) {
-      break;
-    }
-    data.replace(pos, pattern.size(), "");
-  }
-  return data;
-}
-
 NeuronEngineManager::NeuronEngineManager() {
   tensorflow::mutex_lock lock(global_mutex_);
   // append /opt/aws/neuron/bin to PATH
@@ -67,71 +53,37 @@ Status NeuronEngineManager::initialize(const int64_t opt_engine_size,
   TF_RETURN_IF_ERROR(runtime_status_);
 
   // get number of neuron cores from comma-separated list of integers
-  std::string neuron_engine_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
-  if (neuron_engine_sizes_raw.empty()) {
-    TF_RETURN_IF_ERROR(
-        init_default_engine(opt_engine_size, max_num_duplicates));
-  } else {
-    // remove [ and ]
-    std::string neuron_engine_sizes =
-        remove_pattern(neuron_engine_sizes_raw, "[");
-    neuron_engine_sizes = remove_pattern(neuron_engine_sizes, "]");
-
-    std::vector<int> num_cores_req_vector;
-    std::vector<int> num_dup_vector;
-    std::stringstream neuron_engine_sizes_stream(neuron_engine_sizes);
-    for (size_t idx = 0; idx < MAX_NUM_CORES; ++idx) {
-      if (!neuron_engine_sizes_stream.good()) {
-        break;
-      }
-      std::string engine_spec;
-      std::getline(neuron_engine_sizes_stream, engine_spec, ',');
-      if (engine_spec.empty()) {
-        continue;
-      }
-      int num_dup = 1;
-      if (engine_spec.find("x") != std::string::npos) {
-        size_t delim_pos = engine_spec.find("x");
-        num_dup = stoi_no_throw(engine_spec.substr(0, delim_pos));
-        engine_spec = engine_spec.substr(delim_pos + 1, std::string::npos);
-      }
-      int num_cores_req = stoi_no_throw(engine_spec);
-      if (num_cores_req < 0 || num_cores_req > MAX_NUM_CORES || num_dup <= 0 ||
-          num_dup > MAX_NUM_CORES) {
-        LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << neuron_engine_sizes_raw
-                     << " looks ill-formatted. Falling back to initializing"
-                     << " a default NeuronCore Group.";
-        num_cores_req_vector.clear();
-        num_dup_vector.clear();
-        break;
-      }
-      num_cores_req_vector.push_back(num_cores_req);
-      num_dup_vector.push_back(num_dup);
-    }
-    if (num_cores_req_vector.empty()) {
-      TF_RETURN_IF_ERROR(
-          init_default_engine(opt_engine_size, max_num_duplicates));
-    } else {
-      TF_RETURN_IF_ERROR(init_engines(num_cores_req_vector, num_dup_vector));
+  std::vector<std::pair<int, int>> engine_specs = parse_engine_specs();
+  for (const auto& spec : engine_specs) {
+    int num_cores = spec.first;
+    bool num_cores_is_legal = 0 <= num_cores && num_cores <= MAX_NUM_CORES;
+    int num_dup = spec.second;
+    bool num_dup_is_legal = 0 <= num_dup && num_dup <= MAX_NUM_CORES;
+    if (!(num_cores_is_legal && num_dup_is_legal)) {
+      std::string device_sizes_raw = env_get("NEURONCORE_GROUP_SIZES", "");
+      LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << device_sizes_raw
+                   << " looks ill-formatted. Falling back to initializing"
+                   << " a default NeuronCore Group.";
+      engine_specs.clear();
+      break;
     }
   }
+  if (engine_specs.empty()) {
+    engine_specs = get_default_device_spec(opt_engine_size, max_num_duplicates);
+  }
+  TF_RETURN_IF_ERROR(init_engines(engine_specs));
   ready_ = true;
   return Status::OK();
 }
 
 Status NeuronEngineManager::init_engines(
-    const std::vector<int>& num_cores_req_vector,
-    const std::vector<int>& num_dup_vector) {
+    const std::vector<std::pair<int, int>>& engine_specs) {
   Status status =
       errors::ResourceExhausted("No NeuronCore Group can be initialized.");
-  for (size_t idx = 0; idx < num_cores_req_vector.size(); ++idx) {
-    int num_cores_req = num_cores_req_vector[idx];
-    int num_dup;
-    if (num_dup_vector.size() == num_cores_req_vector.size()) {
-      num_dup = num_dup_vector[idx];
-    } else {
-      num_dup = 1;
-    }
+  for (size_t idx = 0; idx < engine_specs.size(); ++idx) {
+    const auto& spec = engine_specs.at(idx);
+    int num_cores_req = spec.first;
+    int num_dup = spec.second;
     if (nullptr == session_) {
       return errors::Internal("neuron runtime session is not initialized");
     }
@@ -154,37 +106,20 @@ Status NeuronEngineManager::init_engines(
   return Status::OK();
 }
 
-Status NeuronEngineManager::init_default_engine(
-    const int64_t opt_engine_size, const int64_t max_num_duplicates) {
-  std::vector<int> num_cores_req_vector = {DEFAULT_NUM_CORES};
-  std::vector<int> num_dup_vector({1});
-  if (0 <= opt_engine_size && opt_engine_size <= 64) {
+std::vector<std::pair<int, int>> NeuronEngineManager::get_default_device_spec(
+    const int64_t opt_engine_size, const int64_t max_num_dups) {
+  std::vector<std::pair<int, int>> engine_specs;
+  if (0 <= opt_engine_size && opt_engine_size <= MAX_NUM_CORES) {
     // get one full Inferentia by default
-    if (opt_engine_size == 1) {
-      if (4 == max_num_duplicates) {
-        num_cores_req_vector = {1};
-        num_dup_vector = {4};
-      } else if (3 == max_num_duplicates) {
-        num_cores_req_vector = {1};
-        num_dup_vector = {3};
-      } else if (2 == max_num_duplicates) {
-        num_cores_req_vector = {1, 1};
-        num_dup_vector = {2, 2};
-      } else {
-        num_cores_req_vector = {1, 1, 1, 1};
-        num_dup_vector = {};
-      }
-    } else if (opt_engine_size == 2) {
-      if (2 == max_num_duplicates) {
-        num_cores_req_vector = {2};
-        num_dup_vector = {2};
-      } else {
-        num_cores_req_vector = {2, 2};
-        num_dup_vector = {};
-      }
+    int64 num_engines = ONE_DEVICE_NUM_CORES / (opt_engine_size * max_num_dups);
+    for (int64 idx = 0; idx < num_engines; ++idx) {
+      engine_specs.push_back(std::make_pair(opt_engine_size, max_num_dups));
     }
   }
-  return init_engines(num_cores_req_vector, num_dup_vector);
+  if (engine_specs.empty()) {
+    engine_specs.push_back(std::make_pair(opt_engine_size, 1));
+  }
+  return engine_specs;
 }
 
 void NeuronEngineManager::clear_if_empty() {
@@ -289,9 +224,16 @@ Status NeuronEngine::initialize(
       uint32_t num_cores = 0;
       TF_RETURN_IF_ERROR(
           runtime_.create_eg(&eg_id, &num_cores, num_cores_req, session_id));
+      if (num_cores != num_cores_req) {
+        LOG(WARNING) << "Allocated NeuronCore group size " << num_cores
+                     << " is different from the expected size "
+                     << num_cores_req << "; stop duplicating";
+        TF_RETURN_IF_ERROR(runtime_.destroy_eg(eg_id));
+        break;
+      }
       vec_eg_id_.push_back(eg_id);
-      num_cores_ = num_cores_req;
     }
+    num_cores_ = num_cores_req;
   }
   std::string pool_name = "neuron_engine_thread_pool";
   for (uint32_t eg_id : vec_eg_id_) {
