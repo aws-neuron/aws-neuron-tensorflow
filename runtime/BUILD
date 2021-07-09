@@ -150,19 +150,21 @@ cc_library(
     name = "runtime_grpc",
     srcs = [
         "runtime_grpc.cc",
-        "version.h",
+        "profiler.cc",
     ],
-    hdrs = ["runtime_grpc.h"],
+    hdrs = [
+        "runtime_grpc.h",
+        "profiler.h",
+    ],
     deps = [
         ":utils",
+        ":nmgr_service.grpc.o",
     ],
 )
 
 cc_library(
     name = "utils",
     srcs = [
-        "profiler.h",
-        "profiler.cc",
         "tensor_util.h",
         "tensor_util.cc",
         "semaphore.h",
@@ -171,7 +173,7 @@ cc_library(
         "env.cc",
     ],
     hdrs = [
-        "profiler.h",
+        "version.h",
         "tensor_util.h",
         "semaphore.h",
         "env.h",
@@ -179,7 +181,6 @@ cc_library(
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
-        ":nmgr_service.grpc.o",
         ":macros",
     ],
 )
