@@ -35,6 +35,7 @@ from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators
+from tensorflow.neuron.python.hlo.optimize import HloOp
 from tensorflow_neuron import __version__
 
 
@@ -159,10 +160,6 @@ class OptionalDumper:
 
     def maybe_embed_io_tensors_into_hlo_snapshots(self):
         if self.dump_prefix is None:
-            return
-        try:
-            from hlo2neuron.frontend import HloOp
-        except ImportError:
             return
         for op_name, (inputs, outputs) in self.dump_tensor_map.items():
             for hlo_ss_name in 'hlo_snapshot.pb', 'hlo_snapshot_opt.pb':
