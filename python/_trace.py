@@ -34,7 +34,7 @@ from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
-from tensorflow.neuron.python.neuron_cc import list_operators
+from tensorflow.neuron.python.neuron_cc import list_operators, supports_xla
 from tensorflow.neuron.python.hlo.optimize import HloOp
 from tensorflow_neuron import __version__
 
@@ -49,6 +49,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     Returns:
         A Neuron-optimized `keras.Model`.
     """
+    if not supports_xla():
+        raise RuntimeError(
+            'tfn.trace requires neuron-cc version >= 1.6.0.0; please update to latest neuron-cc '
+            'by `pip install neuron-cc -U --extra-index-url=https://pip.repos.neuron.amazonaws.com`')
     if not isinstance(example_inputs, tuple):
         example_inputs = (example_inputs,)
     if not isinstance(func, (def_function.Function, function.ConcreteFunction)):

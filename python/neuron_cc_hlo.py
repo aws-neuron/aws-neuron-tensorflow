@@ -22,7 +22,8 @@ except ImportError:
 from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.hlo.optimize import HloOptimizer
-from hlo2neuron.driver import hlo_opt_to_neff_bytes
+from tensorflow.neuron.python.neuron_cc import find_neuron_cc
+from hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
 
 
 _SUPPORTED_OPERATOR_TYPES = '''
@@ -171,9 +172,8 @@ def hlo2neff(hlo_module, args=None):
     hlo_opt.maybe_enable_dynamic_batch_size()
     hlo_opt.maybe_rewrite_batch_size()
     parsed_args, _ = utils.parse_neuron_cc_flags(args)
-    _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString(), 'hlo_snapshot_opt.pb')
-    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt)
-    _maybe_dump_bytes_as(parsed_args, neff_bytes, 'hlo_snapshot_opt.neff')
+    _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString, 'hlo_snapshot_opt.pb')
+    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, args)
     inputs, outputs = hlo_opt.engrave_io_tensors()
     if parsed_args.dynamic_batch_size:
         for ts in inputs + outputs:
@@ -181,8 +181,38 @@ def hlo2neff(hlo_module, args=None):
     return neff_bytes, inputs, outputs
 
 
-def _maybe_dump_bytes_as(parsed_args, content, name):
+def hlo_opt_to_neff_bytes(hlo_opt, args):
+    parsed_args, unknown_args = utils.parse_neuron_cc_flags(args)
+    compiler_args = ['--verbose=35', '--enable-fast-context-switch']
+    compiler_args.extend(unknown_args)
+    neuron_cc_input_name = 'hlo_module.pb'
+    neuron_executable_name = 'hlo_module.neff'
+    with tempfile.TemporaryDirectory() as workdir:
+        if parsed_args.dump_prefix is not None:
+            workdir = os.path.join(os.path.realpath(parsed_args.dump_prefix), node_name)
+            os.makedirs(workdir, exist_ok=True)
+        input_path = os.path.join(workdir, neuron_cc_input_name)
+        output_path = os.path.join(workdir, neuron_executable_name)
+        with open(input_path, 'wb') as f:
+            f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
+        command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
+                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
+        proc = subprocess.run(command, cwd=workdir)
+        if proc.returncode == 0:
+            with open(output_path, 'rb') as f:
+                neff_bytes = f.read()
+        else:
+            neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt)
+
+            def lazy_neff_bytes():
+                return neff_bytes
+
+            _maybe_dump_bytes_as(parsed_args, lazy_neff_bytes, 'hlo_snapshot_opt.neff')
+    return neff_bytes
+
+
+def _maybe_dump_bytes_as(parsed_args, lazy_content, name):
     if parsed_args.dump_prefix is not None:
         with open(os.path.join(parsed_args.dump_prefix, name), 'wb') as f:
-            f.write(content)
+            f.write(lazy_content())
 

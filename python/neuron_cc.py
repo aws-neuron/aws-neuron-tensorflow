@@ -89,10 +89,24 @@ def find_neuron_cc():
     return spawn.find_executable('neuron-cc', path)
 
 
+def supports_xla():
+    ncc_ver = LooseVersion(neuroncc.__version__)
+    dev_delim_ver = LooseVersion('1.1.0.0')
+    dev_min_ver = LooseVersion('1.0.34136.0')
+    rel_min_ver = LooseVersion('1.6.0.0')
+    try:
+        import hlo2neuron
+    except ImportError:
+        pass
+    else:
+        rel_min_ver = LooseVersion('1.2.0.0')
+    return dev_min_ver <= ncc_ver < dev_delim_ver or rel_min_ver <= ncc_ver
+
+
 try:
-    import hlo2neuron
+    import neuroncc
 except ImportError:
     pass
 else:
-    if LooseVersion(__version__) >= LooseVersion('2.0.0'):
+    if LooseVersion(__version__) >= LooseVersion('2.0.0') and supports_xla():
         from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
