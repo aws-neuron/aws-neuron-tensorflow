@@ -75,6 +75,7 @@ def parse_neuron_cc_flags(args=None):
     parser.add_argument('--dump-prefix', default=None)
     parser.add_argument('--log-level', type=int, default=logging.WARN)
     parser.add_argument('--fp32-cast', default='matmult-fp16')
+    parser.add_argument('--neuroncore-pipeline-cores', default=None)
     parser.add_argument('--dynamic-batch-size', action='store_true')
     tfn_args, compiler_args = parser.parse_known_args(args)
     return tfn_args, compiler_args

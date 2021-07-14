@@ -20,6 +20,7 @@ try:
 except ImportError:
     from tensorflow.neuron.python.tf2xla import tf2xla_pb2
 from tensorflow.compiler.xla.service import hlo_pb2
+from tensorflow.python.platform import tf_logging as logging
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.hlo.optimize import HloOptimizer
 from tensorflow.neuron.python.neuron_cc import find_neuron_cc
@@ -136,6 +137,9 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
             compiler_args.append('--dump-prefix={}'.format(workdir))
         if tfn_args.log_level is not None:
             compiler_args.append('--log-level={}'.format(tfn_args.log_level))
+        if tfn_args.dynamic_batch_size:
+            compiler_args.append('--dynamic-batch-size')
+        compiler_args = _relay_parsed_args(compiler_args, tfn_args)
         graph_def_path = os.path.join(workdir, graph_def_name)
         tf2xla_config_path = os.path.join(workdir, tf2xla_config_name)
         hlo_snapshot_path = os.path.join(workdir, hlo_snapshot_name)
@@ -183,6 +187,7 @@ def hlo2neff(hlo_module, args=None):
 def hlo_opt_to_neff_bytes(hlo_opt, args):
     parsed_args, unknown_args = utils.parse_neuron_cc_flags(args)
     compiler_args = ['--verbose=35', '--enable-fast-context-switch']
+    compiler_args = _relay_parsed_args(compiler_args, parsed_args)
     compiler_args.extend(unknown_args)
     neuron_cc_input_name = 'hlo_module.pb'
     neuron_executable_name = 'hlo_module.neff'
@@ -196,23 +201,34 @@ def hlo_opt_to_neff_bytes(hlo_opt, args):
             f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
         command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
                    '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
+        command.extend(compiler_args)
         with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
             proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
         if proc.returncode == 0:
             with open(output_path, 'rb') as f:
                 neff_bytes = f.read()
         else:
+            logging.warning('running a fall-back code generator to mitigate compilation failure')
+            if parsed_args.neuroncore_pipeline_cores is not None:
+                raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
             try:
                 from hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
             except ImportError:
                 return b''
-            neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt)
+            neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt, args)
 
             def lazy_neff_bytes():
                 return neff_bytes
 
             _maybe_dump_bytes_as(parsed_args, lazy_neff_bytes, 'hlo_snapshot_opt.neff')
     return neff_bytes
+
+
+def _relay_parsed_args(unknown_args, parsed_args):
+    unknown_args.append('--fp32-cast={}'.format(parsed_args.fp32_cast))
+    if parsed_args.neuroncore_pipeline_cores is not None:
+        unknown_args.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
+    return unknown_args
 
 
 def _maybe_dump_bytes_as(parsed_args, lazy_content, name):
