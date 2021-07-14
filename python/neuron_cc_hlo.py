@@ -23,7 +23,6 @@ from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.hlo.optimize import HloOptimizer
 from tensorflow.neuron.python.neuron_cc import find_neuron_cc
-from hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
 
 
 _SUPPORTED_OPERATOR_TYPES = '''
@@ -202,6 +201,10 @@ def hlo_opt_to_neff_bytes(hlo_opt, args):
             with open(output_path, 'rb') as f:
                 neff_bytes = f.read()
         else:
+            try:
+                from hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
+            except ImportError:
+                return b''
             neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt)
 
             def lazy_neff_bytes():
