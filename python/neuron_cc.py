@@ -95,7 +95,7 @@ def supports_xla():
     dev_min_ver = LooseVersion('1.0.34136.0')
     rel_min_ver = LooseVersion('1.6.0.0')
     try:
-        import hlo2neuron
+        from tensorflow_neuron.neuroncc import hlo2neuron
     except ImportError:
         pass
     else:

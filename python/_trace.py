@@ -271,13 +271,8 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
     if subgraph_builder_function is None:
         fuser_param_map['fuse_foldable_nodes'].b = True
         fuser_param_map['prune_small_subgraphs_ratio'].f = 0.8
-        try:
-            import hlo2neuron
-        except ImportError:
-            no_fuse_ops = []
-        else:
-            no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
-            no_fuse_ops.extend(_find_int64_select_ops(cfunc.graph))
+        no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
+        no_fuse_ops.extend(_find_int64_select_ops(cfunc.graph))
     else:
         force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
         fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
