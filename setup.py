@@ -62,7 +62,6 @@ def get_package_data():
     package_data = {
         'tensorflow-plugins': ['*'],
         'tensorflow_neuron': [
-            '../tensorflow.py',
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
         ],

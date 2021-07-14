@@ -60,7 +60,6 @@ function main() {
     cp -R bazel-bin/tensorflow/neuron/build_pip_package.runfiles/org_tensorflow/tensorflow/neuron "${TMPDIR}/tensorflow_neuron"
     mkdir "${TMPDIR}/tensorflow-plugins"
     mv ${TMPDIR}/tensorflow_neuron/python/libaws_neuron_plugin.* "${TMPDIR}/tensorflow-plugins"
-    mv ${TMPDIR}/tensorflow_neuron/tensorflow.py "${TMPDIR}/"
 
     # whether to put api definition and aws_neuron_tf2hlo under tensorflow_core vs tensorflow
     UNDER_TF_CORE=$(python3 -c "from distutils.version import LooseVersion; print(LooseVersion(\"${VERSION}\") < LooseVersion('2.2'))")

@@ -6,7 +6,6 @@ py_library(
     srcs = [
         "__init__.py",
         "api/__init__.py",
-        "tensorflow.py",
     ],
     deps = [
         "//tensorflow/neuron/python:saved_model_py",
