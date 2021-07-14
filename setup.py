@@ -64,6 +64,11 @@ def get_package_data():
         'tensorflow_neuron': [
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
+            'neuroncc/*/*',
+            'neuroncc/*/*/*',
+            'neuroncc/*/*/*/*',
+            'neuroncc/*/*/*/*/*',
+            'neuroncc/*/*/*/*/*/*',
         ],
     }
     if LooseVersion(get_version()) < LooseVersion('2.2'):
