@@ -196,7 +196,8 @@ def hlo_opt_to_neff_bytes(hlo_opt, args):
             f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
         command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
                    '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
-        proc = subprocess.run(command, cwd=workdir)
+        with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
+            proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
         if proc.returncode == 0:
             with open(output_path, 'rb') as f:
                 neff_bytes = f.read()
