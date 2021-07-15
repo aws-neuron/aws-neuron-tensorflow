@@ -74,7 +74,7 @@ Status RuntimeIO::finish(std::vector<Tensor*>* output_tensors,
     }
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
       if (map_name_raw.find(output_names_->s(idx)) == map_name_raw.end()) {
-        return errors::NotFound("tensor name", output_names_->s(idx),
+        return errors::NotFound("tensor name ", output_names_->s(idx),
                                 " not found in infer_response.ofmap()");
       }
       raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
