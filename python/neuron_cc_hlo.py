@@ -157,11 +157,11 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         with open(hlo_snapshot_path, 'rb') as f:
             hlo_snapshot.ParseFromString(f.read())
         hlo_module = hlo_snapshot.hlo.hlo_module
-        executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args)
+        executable, new_inputs, new_outputs = hlo2neff(hlo_module, node_name, compiler_args)
     return executable, new_inputs, new_outputs
 
 
-def hlo2neff(hlo_module, args=None):
+def hlo2neff(hlo_module, node_name, args=None):
     hlo_opt = HloOptimizer(hlo_module)
     hlo_opt.fold_no_op_instructions()
     hlo_opt.dead_code_elimination()
@@ -176,7 +176,7 @@ def hlo2neff(hlo_module, args=None):
     hlo_opt.maybe_rewrite_batch_size()
     parsed_args, _ = utils.parse_neuron_cc_flags(args)
     _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString, 'hlo_snapshot_opt.pb')
-    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, args)
+    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, node_name, args)
     inputs, outputs = hlo_opt.engrave_io_tensors()
     if parsed_args.dynamic_batch_size:
         for ts in inputs + outputs:
@@ -184,7 +184,7 @@ def hlo2neff(hlo_module, args=None):
     return neff_bytes, inputs, outputs
 
 
-def hlo_opt_to_neff_bytes(hlo_opt, args):
+def hlo_opt_to_neff_bytes(hlo_opt, node_name, args):
     parsed_args, unknown_args = utils.parse_neuron_cc_flags(args)
     compiler_args = ['--verbose=35']
     if parsed_args.neuroncore_pipeline_cores is None:
