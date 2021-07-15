@@ -191,25 +191,12 @@ def hlo_opt_to_neff_bytes(hlo_opt, node_name, args):
         compiler_args.append('--enable-fast-context-switch')
     compiler_args = _relay_parsed_args(compiler_args, parsed_args)
     compiler_args.extend(unknown_args)
-    neuron_cc_input_name = 'hlo_module.pb'
-    neuron_executable_name = 'hlo_module.neff'
     with tempfile.TemporaryDirectory() as workdir:
         if parsed_args.dump_prefix is not None:
             workdir = os.path.join(os.path.realpath(parsed_args.dump_prefix), node_name)
             os.makedirs(workdir, exist_ok=True)
-        input_path = os.path.join(workdir, neuron_cc_input_name)
-        output_path = os.path.join(workdir, neuron_executable_name)
-        with open(input_path, 'wb') as f:
-            f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
-        command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
-                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
-        command.extend(compiler_args)
-        with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
-            proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
-        if proc.returncode == 0:
-            with open(output_path, 'rb') as f:
-                neff_bytes = f.read()
-        else:
+        neff_bytes = _run_neuron_cc_under_workdir(hlo_opt, workdir, compiler_args)
+        if not neff_bytes:
             logging.warning('running a fall-back code generator to mitigate compilation failure')
             try:
                 from tensorflow_neuron.neuroncc.hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
@@ -231,6 +218,24 @@ def _relay_parsed_args(unknown_args, parsed_args):
     if parsed_args.neuroncore_pipeline_cores is not None:
         unknown_args.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
     return unknown_args
+
+
+def _run_neuron_cc_under_workdir(hlo_opt, workdir, compiler_args):
+    neff_bytes = b''
+    input_path = os.path.join(workdir, 'hlo_module.pb')
+    output_path = os.path.join(workdir, 'hlo_module.neff')
+    if len(hlo_opt.outputs) == 1:
+        with open(input_path, 'wb') as f:
+            f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
+        command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
+                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
+        command.extend(compiler_args)
+        with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
+            proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
+        if proc.returncode == 0:
+            with open(output_path, 'rb') as f:
+                neff_bytes = f.read()
+    return neff_bytes
 
 
 def _maybe_dump_bytes_as(parsed_args, lazy_content, name):
