@@ -186,7 +186,9 @@ def hlo2neff(hlo_module, args=None):
 
 def hlo_opt_to_neff_bytes(hlo_opt, args):
     parsed_args, unknown_args = utils.parse_neuron_cc_flags(args)
-    compiler_args = ['--verbose=35', '--enable-fast-context-switch']
+    compiler_args = ['--verbose=35']
+    if parsed_args.neuroncore_pipeline_cores is None:
+        compiler_args.append('--enable-fast-context-switch')
     compiler_args = _relay_parsed_args(compiler_args, parsed_args)
     compiler_args.extend(unknown_args)
     neuron_cc_input_name = 'hlo_module.pb'
