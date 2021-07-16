@@ -544,6 +544,10 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
   // initialize the model
   RIE_IGNORE_ABORTED(initialize(node_def, ctx->session_handle()));
 
+  // need an extra unary grpc call to re-establish channel in case of seeing grpc 14
+  // as start_model_unsafe may not call grpc start
+  RIE_IGNORE_ABORTED(neuron_engine_->start_ping(nn_id_));
+
   // keep a shared pointer so that RuntimeSession outlives shared memory buffers
   std::shared_ptr<RuntimeSession> session_alive = neuron_engine_->get_session();
 

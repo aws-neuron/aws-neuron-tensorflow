@@ -392,14 +392,14 @@ void NeuronEngine::unload(const uint32_t nn_id) {
 }
 
 Status NeuronEngine::start_ping(const uint32_t nn_id) {
-    if (closed_) {
-        return errors::Aborted("neuron_device is closed");
-    }
-    uint64 infer_timestamp = Env::Default()->NowMicros();
-    if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
-        return runtime_.start_ping(nn_id);
-    }
+  if (closed_) {
+    return errors::Aborted("neuron_device is closed");
+  }
+  uint64 ts_diff = Env::Default()->NowMicros() - last_infer_timestamp_;
+  if (TF_PREDICT_TRUE(ts_diff < INFER_NEED_PING_MICROSEC)) {
     return Status::OK();
+  }
+  return runtime_.start_ping(nn_id);
 }
 
 Status NeuronEngine::infer(RuntimeIO* runtime_io) {
