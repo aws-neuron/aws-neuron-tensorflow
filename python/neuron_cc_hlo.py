@@ -224,7 +224,8 @@ def _run_neuron_cc_under_workdir(hlo_opt, workdir, compiler_args):
     neff_bytes = b''
     input_path = os.path.join(workdir, 'hlo_module.pb')
     output_path = os.path.join(workdir, 'hlo_module.neff')
-    if len(hlo_opt.outputs) == 1:
+    parsed_args, _ = utils.parse_neuron_cc_flags(compiler_args)
+    if (len(hlo_opt.outputs) == 1 and not parsed_args.fp32_cast.startswith('matmult')) or parsed_args.neuroncore_pipeline_cores is not None:
         with open(input_path, 'wb') as f:
             f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
         command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
