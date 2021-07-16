@@ -25,7 +25,6 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-#define NRT_INVALID_COOKIE 0
 #define ASYNC_GRPC_INVALID_TAG -1
 
 #define NRT_GRPC(func, request, response)                       \
