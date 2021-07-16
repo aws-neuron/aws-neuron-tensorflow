@@ -27,35 +27,6 @@ namespace neuron {
 
 #define ASYNC_GRPC_INVALID_TAG -1
 
-#define NRT_GRPC(func, request, response)                       \
-  ({                                                            \
-    grpc::Status status;                                        \
-    grpc::ClientContext context;                                \
-    status = (func)(&context, (request), (response));           \
-    if (grpc::StatusCode::UNAVAILABLE == status.error_code()) { \
-      grpc::ClientContext context;                              \
-      status = (func)(&context, (request), (response));         \
-    }                                                           \
-    status;                                                     \
-  })
-
-#define NRT_CHECK_RETURN(fn_name, grpc_status, response)                      \
-  {                                                                           \
-    nrt::status nrtd_status = (response).status();                            \
-    if (!((grpc_status).ok() && nrt::nerr::NERR_OK == nrtd_status.code())) {  \
-      return nrt_error_status((fn_name), (grpc_status), (response).status()); \
-    }                                                                         \
-  }
-
-inline Status nrt_error_status(const std::string& fn_name,
-                               const grpc::Status& status,
-                               const nrt::status& nrt_status) {
-  return errors::Internal(
-      "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
-      ", error message \"", status.error_message(), "\"; nrt status code ",
-      nrt_status.code(), ", details \"", nrt_status.details(), "\"");
-}
-
 template <class T_request, class T_response>
 class RuntimeSwitcher {
  public:
