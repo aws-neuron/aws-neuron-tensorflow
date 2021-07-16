@@ -21,6 +21,7 @@ namespace tensorflow {
 namespace neuron {
 
 static const int64 DEFAULT_MAX_NUM_INFER = 2;
+static const uint64 INFER_NEED_PING_MICROSEC = 1024 * 1024;
 
 static std::string remove_pattern(std::string data,
                                   const std::string& pattern) {
@@ -390,6 +391,17 @@ void NeuronEngine::unload(const uint32_t nn_id) {
   VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
+Status NeuronEngine::start_ping(const uint32_t nn_id) {
+    if (closed_) {
+        return errors::Aborted("neuron_device is closed");
+    }
+    uint64 infer_timestamp = Env::Default()->NowMicros();
+    if (infer_timestamp - last_infer_timestamp_ > INFER_NEED_PING_MICROSEC) {
+        return runtime_.start_ping(nn_id);
+    }
+    return Status::OK();
+}
+
 Status NeuronEngine::infer(RuntimeIO* runtime_io) {
   uint32_t nn_id = runtime_io->get_nn_id();
   SemResQueue sem_res_queue;
@@ -403,6 +415,7 @@ Status NeuronEngine::infer(RuntimeIO* runtime_io) {
     sem_res_queue.push(sem->ScopedAcquire(1));
     TF_RETURN_IF_ERROR(runtime_.infer_post(runtime_io));
   }
+  last_infer_timestamp_ = Env::Default()->NowMicros();
   return runtime_.infer_wait(runtime_io);
 }
 

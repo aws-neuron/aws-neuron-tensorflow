@@ -92,6 +92,7 @@ class RuntimeGRPC {
               const StringPiece& executable, const uint32_t timeout,
               const uint32_t ninfer, const bool profile_enabled,
               const uint64_t session_id);
+  Status start_ping(const uint32_t nn_id);
   Status post_start(RuntimeStarter* starter, const uint32_t nn_id);
   Status wait_start(RuntimeStarter* starter);
   Status infer_post(RuntimeIO* runtime_io);
