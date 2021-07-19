@@ -129,17 +129,12 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
     graph_def_name = 'graph_def.pb'
     tf2xla_config_name = 'tf2xla_config.pb'
     hlo_snapshot_name = 'hlo_snapshot.pb'
-    tfn_args, compiler_args = utils.parse_neuron_cc_flags()
+    tfn_args, compiler_args = utils.parse_neuron_cc_flags(dest_set={'--dump-prefix'})
     with tempfile.TemporaryDirectory() as workdir:
         if tfn_args.dump_prefix is not None:
             workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
             os.makedirs(workdir, exist_ok=True)
-            compiler_args.append('--dump-prefix={}'.format(workdir))
-        if tfn_args.log_level is not None:
-            compiler_args.append('--log-level={}'.format(tfn_args.log_level))
-        if tfn_args.dynamic_batch_size:
-            compiler_args.append('--dynamic-batch-size')
-        compiler_args = _relay_parsed_args(compiler_args, tfn_args)
+        compiler_args.append('--dump-prefix={}'.format(workdir))
         graph_def_path = os.path.join(workdir, graph_def_name)
         tf2xla_config_path = os.path.join(workdir, tf2xla_config_name)
         hlo_snapshot_path = os.path.join(workdir, hlo_snapshot_name)
@@ -157,11 +152,11 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         with open(hlo_snapshot_path, 'rb') as f:
             hlo_snapshot.ParseFromString(f.read())
         hlo_module = hlo_snapshot.hlo.hlo_module
-        executable, new_inputs, new_outputs = hlo2neff(hlo_module, node_name, compiler_args)
+        executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args)
     return executable, new_inputs, new_outputs
 
 
-def hlo2neff(hlo_module, node_name, args=None):
+def hlo2neff(hlo_module, args=None):
     hlo_opt = HloOptimizer(hlo_module)
     hlo_opt.fold_no_op_instructions()
     hlo_opt.dead_code_elimination()
@@ -176,7 +171,7 @@ def hlo2neff(hlo_module, node_name, args=None):
     hlo_opt.maybe_rewrite_batch_size()
     parsed_args, _ = utils.parse_neuron_cc_flags(args)
     _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString, 'hlo_snapshot_opt.pb')
-    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, node_name, args)
+    neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, args)
     inputs, outputs = hlo_opt.engrave_io_tensors()
     if parsed_args.dynamic_batch_size:
         for ts in inputs + outputs:
@@ -184,52 +179,42 @@ def hlo2neff(hlo_module, node_name, args=None):
     return neff_bytes, inputs, outputs
 
 
-def hlo_opt_to_neff_bytes(hlo_opt, node_name, args):
-    parsed_args, unknown_args = utils.parse_neuron_cc_flags(args)
-    compiler_args = ['--verbose=35']
-    if parsed_args.neuroncore_pipeline_cores is None:
-        compiler_args.append('--enable-fast-context-switch')
-    compiler_args = _relay_parsed_args(compiler_args, parsed_args)
-    compiler_args.extend(unknown_args)
-    with tempfile.TemporaryDirectory() as workdir:
-        if parsed_args.dump_prefix is not None:
-            workdir = os.path.join(os.path.realpath(parsed_args.dump_prefix), node_name)
-            os.makedirs(workdir, exist_ok=True)
-        neff_bytes = _run_neuron_cc_under_workdir(hlo_opt, workdir, compiler_args)
-        if not neff_bytes:
-            logging.warning('running a fall-back code generator to mitigate compilation failure')
-            try:
-                from tensorflow_neuron.neuroncc.hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
-            except ImportError:
-                return b''
-            if parsed_args.neuroncore_pipeline_cores is not None:
-                raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
-            neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt, args)
+def hlo_opt_to_neff_bytes(hlo_opt, args):
+    neff_bytes = _run_neuron_cc_with_dump_prefix(hlo_opt, args)
+    if not neff_bytes:
+        logging.warning('running a fall-back code generator to mitigate compilation failure')
+        try:
+            from tensorflow_neuron.neuroncc.hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
+        except ImportError:
+            return b''
+        parsed_args, _ = utils.parse_neuron_cc_flags(args)
+        if parsed_args.neuroncore_pipeline_cores is not None:
+            raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
+        neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt, args)
 
-            def lazy_neff_bytes():
-                return neff_bytes
+        def lazy_neff_bytes():
+            return neff_bytes
 
-            _maybe_dump_bytes_as(parsed_args, lazy_neff_bytes, 'hlo_snapshot_opt.neff')
+        _maybe_dump_bytes_as(parsed_args, lazy_neff_bytes, 'hlo_snapshot_opt.neff')
     return neff_bytes
 
 
-def _relay_parsed_args(unknown_args, parsed_args):
-    unknown_args.append('--fp32-cast={}'.format(parsed_args.fp32_cast))
-    if parsed_args.neuroncore_pipeline_cores is not None:
-        unknown_args.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
-    return unknown_args
-
-
-def _run_neuron_cc_under_workdir(hlo_opt, workdir, compiler_args):
+def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
+    parsed_args, compiler_args = utils.parse_neuron_cc_flags(args)
+    workdir = parsed_args.dump_prefix
     neff_bytes = b''
     input_path = os.path.join(workdir, 'hlo_module.pb')
     output_path = os.path.join(workdir, 'hlo_module.neff')
-    parsed_args, _ = utils.parse_neuron_cc_flags(compiler_args)
     if (len(hlo_opt.outputs) == 1 and not parsed_args.fp32_cast.startswith('matmult')) or parsed_args.neuroncore_pipeline_cores is not None:
         with open(input_path, 'wb') as f:
             f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
         command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
-                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path]
+                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path, '--verbose=35']
+        command.append('--fp32-cast={}'.format(parsed_args.fp32_cast))
+        if parsed_args.neuroncore_pipeline_cores is None:
+            command.append('--enable-fast-context-switch')
+        else:
+            command.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
         command.extend(compiler_args)
         with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
             proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
