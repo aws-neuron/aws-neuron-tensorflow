@@ -262,17 +262,22 @@ def get_layer_generators():
         rtol=1e-3,
         atol=5e-5,
     )
+    global_pooling_common = dict(
+        input_dtypes=float_types,
+        rtol=1e-3,
+        atol=5e-5,
+    )
     global_pooling_1d_gen = ProductGenerator(
         input_shapes=[(1, 16, 8)],
-        input_dtypes=float_types,
+        **global_pooling_common,
     )
     global_pooling_2d_gen = ProductGenerator(
         input_shapes=[(1, 16, 16, 8)],
-        input_dtypes=float_types,
+        **global_pooling_common,
     )
     global_pooling_3d_gen = ProductGenerator(
         input_shapes=[(1, 6, 6, 6, 6)],
-        input_dtypes=float_types,
+        **global_pooling_common,
     )
     rnn_gen = ProductGenerator(
         input_shapes=[(1, 32, 16)],
@@ -386,6 +391,8 @@ def get_layer_generators():
         Flatten=ProductGenerator(
             input_shapes=[(1, 2, 3)],
             input_dtypes=float_types,
+            rtol=1e-3,
+            atol=1e-5,
         ),
         GRU=ProductGenerator(
             **rnn_gen,
@@ -447,12 +454,14 @@ def get_layer_generators():
         PReLU=ProductGenerator(
             input_shapes=[(1, 8, 8, 6)],
             input_dtypes=float_types,
-            shared_axes=[None, [1, 2]]
+            shared_axes=[None, [1, 2]],
         ),
         Permute=ProductGenerator(
             input_shapes=[(1, 8, 10, 6)],
             input_dtypes=float_types,
-            dims=[(1, 3, 2), (3, 1, 2)]
+            dims=[(1, 3, 2), (3, 1, 2)],
+            rtol=1e-3,
+            atol=1e-5,
         ),
         RNN=None,
         ReLU=ProductGenerator(
@@ -466,11 +475,15 @@ def get_layer_generators():
             input_shapes=[(1, 8)],
             input_dtypes=float_types,
             n=[3],
+            rtol=1e-3,
+            atol=1e-5,
         ),
         Reshape=ZipLongestGenerator(
             input_shapes=[(1, 8), (1, 8, 6)],
             input_dtypes=[tf.float32, tf.float16],
             target_shape=[(2, 4), (6, 8)],
+            rtol=1e-3,
+            atol=1e-5,
         ),
         SeparableConv1D=ProductGenerator(
             input_shapes=[(1, 20, 32)],
@@ -510,6 +523,8 @@ def get_layer_generators():
         Subtract=ProductGenerator(
             input_shapes=[[(1, 3, 32), (1, 3, 32)]],
             input_dtypes=float_types,
+            rtol=1e-3,
+            atol=5e-5,
         ),
         ThresholdedReLU=ProductGenerator(
             input_shapes=[(1, 8, 10, 6)],
@@ -521,6 +536,8 @@ def get_layer_generators():
             input_shapes=[(1, 20, 32)],
             input_dtypes=[tf.float32],
             size=[1, 2],
+            rtol=1e-3,
+            atol=1e-5,
         ),
         UpSampling2D=ProductGenerator(
             input_shapes=[(1, 20, 20, 32)],

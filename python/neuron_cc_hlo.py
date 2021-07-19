@@ -205,7 +205,7 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     neff_bytes = b''
     input_path = os.path.join(workdir, 'hlo_module.pb')
     output_path = os.path.join(workdir, 'hlo_module.neff')
-    if (len(hlo_opt.outputs) == 1 and not parsed_args.fp32_cast.startswith('matmult')) or parsed_args.neuroncore_pipeline_cores is not None:
+    if len(hlo_opt.outputs) == 1 or parsed_args.neuroncore_pipeline_cores is not None:
         with open(input_path, 'wb') as f:
             f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
         command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
