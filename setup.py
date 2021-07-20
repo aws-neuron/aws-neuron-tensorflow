@@ -64,6 +64,7 @@ def get_package_data():
         'tensorflow_neuron': [
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
+            'runtime/direct/lib/nrt/*.so.*',
             'neuroncc/*/*',
             'neuroncc/*/*/*',
             'neuroncc/*/*/*/*',

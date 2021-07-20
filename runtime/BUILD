@@ -32,6 +32,7 @@ tf_kernel_library(
         ":model",
         ":device",
         ":registration",
+        ":direct",
     ],
 )
 
@@ -115,6 +116,7 @@ cc_library(
         ":utils",
         ":shared_memory",
         ":runtime_grpc",
+        ":direct/linker",
     ],
 )
 
@@ -224,4 +226,48 @@ cc_proto_library(
     include = "proto/",
     use_grpc_plugin = True,
     default_runtime = "@com_google_protobuf//:protobuf",
+)
+
+# direct-link mode runtime
+cc_library(
+    name = "direct",
+    deps = [
+        ":direct/adaptor",
+    ],
+)
+
+# tensorflow-adapted nrt library
+cc_library(
+    name = "direct/adaptor",
+    hdrs = ["direct/adaptor.h"],
+    srcs = ["direct/adaptor.cc"],
+    deps = [
+        ":libnrt",
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
+)
+
+# TODO: remove once nrt library is fully integrated
+# dummy target to trigger nrt library linkage
+cc_library(
+    name = "direct/linker",
+    hdrs = ["direct/linker.h"],
+    srcs = ["direct/linker.cc"],
+    deps = [
+        ":libnrt",
+    ],
+)
+
+# nrt C library
+cc_library(
+    name = "libnrt",
+    hdrs = glob(["direct/include/nrt/*.h"]),
+    srcs = [":libnrt_shared_library"],
+    linkopts = ["-Wl,-rpath,$$ORIGIN/../tensorflow_neuron/runtime/direct/lib/nrt"],
+    strip_include_prefix = "direct/include",
+)
+
+filegroup(
+    name = "libnrt_shared_library",
+    srcs = glob(["direct/lib/nrt/*.so.*", "direct/lib/nrt/fake_nrt.cc"]),
 )

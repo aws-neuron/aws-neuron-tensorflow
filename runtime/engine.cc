@@ -16,6 +16,7 @@ limitations under the License.
 #include "engine.h"
 #include "env.h"
 #include "macros.h"
+#include "direct/linker.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -41,6 +42,7 @@ NeuronEngineManager::NeuronEngineManager() {
   if (runtime_status_.ok()) {
     shm_allocator_->initialize(session_->get_id(), nrtd_address_);
   }
+  NrtLinker();
 }
 
 NeuronEngineManager::~NeuronEngineManager() {
