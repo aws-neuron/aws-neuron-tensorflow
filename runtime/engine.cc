@@ -394,12 +394,12 @@ void NeuronEngine::clear(bool from_global_state) {
     }
     // unload all models
     for (const uint32_t nid : all_nn_ids) {
-      TF_LOG_IF_ERROR(runtime_.unload(nid, from_global_state));
+      TF_LOG_IF_ERROR(runtime_.unload(nid));
     }
     VLOG(1) << "unload from NeuronEngine::clear";
   }
   for (const uint32_t eg_id : vec_eg_id_) {
-    TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id, from_global_state));
+    TF_LOG_IF_ERROR(runtime_.destroy_eg(eg_id));
   }
   VLOG(1) << "destroy_eg from NeuronEngine::clear";
   if (!from_global_state) {
