@@ -191,6 +191,9 @@ cc_library(
     name = "macros",
     srcs = ["macros.h"],
     hdrs = ["macros.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
 )
 
 cc_library(
@@ -243,7 +246,9 @@ cc_library(
     srcs = ["direct/adaptor.cc"],
     deps = [
         ":libnrt",
+        ":utils",
         "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
     ],
 )
 
