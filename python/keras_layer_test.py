@@ -287,8 +287,8 @@ def get_layer_generators():
         stateful=[False],   # True triggers 'ValueError: Input ... incompatible with expected resource.'
         unroll=[True],      # False generates many uninferrable shapes
         time_major=[False],
-        rtol=1e-5,
-        atol=5e-5,
+        rtol=1e-2,
+        atol=3e-3,
     )
 
     # define all generators here
