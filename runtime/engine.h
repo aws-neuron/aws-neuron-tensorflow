@@ -37,7 +37,7 @@ class NeuronEngine {
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
-  Status start_ping(const uint32_t nn_id);
+  Status start_ping();
   Status infer(RuntimeIO* runtime_io);
   Status infer_with_profiling(RuntimeIO* runtime_io,
                               ProfilerInterface* profile);
@@ -63,7 +63,7 @@ class NeuronEngine {
   uint64_t session_id_ = RuntimeSession::INVALID_ID;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
   std::vector<uint32_t> vec_eg_id_;
-  uint64 last_infer_timestamp_ = 0;
+  uint64 last_active_timestamp_ = 0;
   uint32_t running_nn_id_;
   uint32_t num_cores_ = 0;
   std::string nrtd_address_ = "";

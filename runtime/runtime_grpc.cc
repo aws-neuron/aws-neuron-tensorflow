@@ -270,11 +270,12 @@ static Status wait_grpc_cq(grpc::CompletionQueue* cq, const int64_t post_tag) {
   return Status::OK();
 }
 
-Status RuntimeGRPC::start_ping(const uint32_t nn_id) {
+Status RuntimeGRPC::start_ping() {
   // this function is only used as a hack to re-establish channel in case of
   // grpc 14 and so intentionally returns OK as long as grpc status is ok
+  constexpr uint32_t INVALID_ID = 0;
   nrt::start_request request;
-  request.mutable_h_nn()->set_id(nn_id);
+  request.mutable_h_nn()->set_id(INVALID_ID);
   nrt::start_response response;
   grpc::Status status = NRT_GRPC(stub_->start, request, &response);
   if (!status.ok()) {

@@ -362,6 +362,7 @@ Status NeuronEngine::load(uint32_t* nn_id, const StringPiece& executable,
   }
   *nn_id = first_nn_id;
   VLOG(1) << "successfully loaded " << first_nn_id;
+  last_active_timestamp_ = Env::Default()->NowMicros();
   return Status::OK();
 }
 
@@ -391,15 +392,15 @@ void NeuronEngine::unload(const uint32_t nn_id) {
   VLOG(1) << "unload: number of NEFFs: " << num_executable();
 }
 
-Status NeuronEngine::start_ping(const uint32_t nn_id) {
+Status NeuronEngine::start_ping() {
   if (closed_) {
     return errors::Aborted("neuron_device is closed");
   }
-  uint64 ts_diff = Env::Default()->NowMicros() - last_infer_timestamp_;
+  uint64 ts_diff = Env::Default()->NowMicros() - last_active_timestamp_;
   if (TF_PREDICT_TRUE(ts_diff < INFER_NEED_PING_MICROSEC)) {
     return Status::OK();
   }
-  return runtime_.start_ping(nn_id);
+  return runtime_.start_ping();
 }
 
 Status NeuronEngine::infer(RuntimeIO* runtime_io) {
@@ -415,7 +416,7 @@ Status NeuronEngine::infer(RuntimeIO* runtime_io) {
     sem_res_queue.push(sem->ScopedAcquire(1));
     TF_RETURN_IF_ERROR(runtime_.infer_post(runtime_io));
   }
-  last_infer_timestamp_ = Env::Default()->NowMicros();
+  last_active_timestamp_ = Env::Default()->NowMicros();
   return runtime_.infer_wait(runtime_io);
 }
 
