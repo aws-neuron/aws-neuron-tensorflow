@@ -190,7 +190,11 @@ def hlo_opt_to_neff_bytes(hlo_opt, args):
         parsed_args, _ = utils.parse_neuron_cc_flags(args)
         if parsed_args.neuroncore_pipeline_cores is not None:
             raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
-        neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt, args)
+        try:
+            neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt, args)
+        except Exception as err:
+            logging.debug('fall-back code generator failed due to {}: {}'.format(type(err).__name__, err))
+            return b''
 
         def lazy_neff_bytes():
             return neff_bytes
