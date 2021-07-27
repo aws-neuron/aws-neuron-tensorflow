@@ -40,14 +40,80 @@ from tensorflow_neuron import __version__
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):
-    """Convert a function to a Neuron-optimized `keras.Model`.
+    """
+    Trace a `keras.Model` or a Python callable that can be decorated by
+    `tf.function`, and return an AWS-Neuron-optimized `keras.Model` that
+    can execute on AWS Machine Learning Accelerators. Tracing is ideal for
+    `keras.Model` that accepts a list of ``tf.Tensor``'s and returns a list of
+    ``tf.Tensor``'s. It is expected that users will provide example inputs,
+    and the `trace` function will execute `func` symbolically and convert it to
+    a `keras.Model`.
+
+    The returned `keras.Model` will only support inference. Variables or
+    attributes held by the original function or `keras.Model` will be dropped.
 
     Args:
-        func: The function to be converted.
-        example_inputs: A `tf.Tensor` or a tuple/list/dict of `tf.Tensor`s for tracing the function.
+        func: The `keras.Model` or function to be traced.
+        example_inputs: A ``tf.Tensor`` or a tuple/list/dict of ``tf.Tensor``'s
+            for tracing the function. When `example_inputs` is a ``tf.Tensor``
+            or a list of ``tf.Tensor``'s, we expect `func` to have calling
+            signature `func(example_inputs)`. Otherwise, the expectation is that
+            inference on `func` is done by calling `func(*example_inputs)` when
+            `example_inputs` is a `tuple`, or `func(**example_inputs)` when
+            `example_inputs` is a `dict`. The case where `func` accepts mixed
+            positional and keyword arguments is currently unsupported.
+        subgraph_builder_function: (Optional) A Python callable with signature
+
+            `subgraph_builder_function(node : NodeDef) -> bool`
+
+            that is used as a call-back function to determine which part of
+            the tensorflow GraphDef given by tracing `func` will be placed on
+            Machine Learning Accelerators. If `subgraph_builder_function(node)`
+            returns `True`, and placing `node` on Machine Learning Accelerators
+            will not cause deadlocks during execution, then `trace` will place
+            `node` on Machine Learning Accelerators.
 
     Returns:
-        A Neuron-optimized `keras.Model`.
+        An AWS-Neuron-optimized `keras.Model`.
+
+    Example:
+        ```
+        import tensorflow as tf
+        import tensorflow.neuron as tfn
+
+        input0 = tf.keras.layers.Input(3)
+        dense0 = tf.keras.layers.Dense(3)(input0)
+        model = tf.keras.Model(inputs=[input0], outputs=[dense0])
+        example_inputs = tf.random.uniform([1, 3])
+        model_neuron = tfn.trace(model, example_inputs)  # trace
+
+        # The traced keras.Model can be saved to disk and reloaded, potentially
+        # in another deployment environment.
+        model_dir = './model_neuron'
+        model_neuron.save(model_dir)
+        model_neuron_reloaded = tf.keras.models.load_model(model_dir)
+        ```
+
+    Example that specifies device placement using `subgraph_builder_function`:
+        ```
+        import tensorflow as tf
+        import tensorflow.neuron as tfn
+
+        input0 = tf.keras.layers.Input(3)
+        dense0 = tf.keras.layers.Dense(3)(input0)
+        reshape0 = tf.keras.layers.Reshape([1, 3])(dense0)
+        output0 = tf.keras.layers.LSTM(2)(reshape0)
+        model = tf.keras.Model(inputs=[input0], outputs=[output0])
+        example_inputs = tf.random.uniform([1, 3])
+
+        def subgraph_builder_function(node):
+            return node.op == 'MatMul'
+
+        model_neuron = tfn.trace(
+            model, example_inputs,
+            subgraph_builder_function=subgraph_builder_function,
+        )
+        ```
     """
     if not supports_xla():
         raise RuntimeError(
