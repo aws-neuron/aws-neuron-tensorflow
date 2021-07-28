@@ -79,6 +79,13 @@ def get_package_data():
     return package_data
 
 
+def get_extras_require_cc():
+    if LooseVersion(get_version()) < LooseVersion('2.0'):
+        return 'neuron-cc'
+    else:
+        return 'neuron-cc >= 1.6.0'
+
+
 setup(
     name='tensorflow-neuron',
     version=get_version(),
@@ -113,5 +120,5 @@ setup(
         'install': InstallCommand,
     },
     install_requires=get_install_requires(),
-    extras_require={'cc': ['neuron-cc >= 1.6.0']},
+    extras_require={'cc': [get_extras_require_cc()]},
 )
