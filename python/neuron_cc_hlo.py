@@ -209,22 +209,21 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     neff_bytes = b''
     input_path = os.path.join(workdir, 'hlo_module.pb')
     output_path = os.path.join(workdir, 'hlo_module.neff')
-    if len(hlo_opt.outputs) == 1 or parsed_args.neuroncore_pipeline_cores is not None:
-        with open(input_path, 'wb') as f:
-            f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
-        command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
-                   '--pipeline', 'compile', 'SaveTemps', '--output', output_path, '--verbose=35']
-        command.append('--fp32-cast={}'.format(parsed_args.fp32_cast))
-        if parsed_args.neuroncore_pipeline_cores is None:
-            command.append('--enable-fast-context-switch')
-        else:
-            command.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
-        command.extend(compiler_args)
-        with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
-            proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
-        if proc.returncode == 0:
-            with open(output_path, 'rb') as f:
-                neff_bytes = f.read()
+    with open(input_path, 'wb') as f:
+        f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
+    command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
+               '--pipeline', 'compile', 'SaveTemps', '--output', output_path, '--verbose=35']
+    command.append('--fp32-cast={}'.format(parsed_args.fp32_cast))
+    if parsed_args.neuroncore_pipeline_cores is None:
+        command.append('--enable-fast-context-switch')
+    else:
+        command.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
+    command.extend(compiler_args)
+    with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
+        proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
+    if proc.returncode == 0:
+        with open(output_path, 'rb') as f:
+            neff_bytes = f.read()
     return neff_bytes
 
 
