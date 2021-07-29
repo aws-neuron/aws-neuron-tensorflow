@@ -90,6 +90,8 @@ def find_neuron_cc():
 
 
 def supports_xla():
+    if not hasattr(neuroncc, '__version__'):
+        return False
     ncc_ver = LooseVersion(neuroncc.__version__)
     dev_delim_ver = LooseVersion('1.1.0.0')
     dev_min_ver = LooseVersion('1.0.34136.0')
@@ -106,7 +108,7 @@ def supports_xla():
 try:
     import neuroncc
 except ImportError:
-    pass
+    neuroncc = None
 else:
     if LooseVersion(__version__) >= LooseVersion('2.0.0') and supports_xla():
         from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
