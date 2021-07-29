@@ -216,7 +216,7 @@ def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
     return graph_def
 
 
-def run_compiler_on_subgraphs(graph_def):
+def run_compiler_on_subgraphs(graph_def, dumper):
     IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)
@@ -243,7 +243,7 @@ def run_compiler_on_subgraphs(graph_def):
             sg_node.attr.pop(kNeuronInferredShapes)
 
         # setup workdir and run neuron-cc
-        executable, inputs, outputs = compile_savetemps(subgraph_def, inputs, outputs, node.name)
+        executable, inputs, outputs = compile_savetemps(subgraph_def, inputs, outputs, node.name, dumper)
         if executable:
             node.attr[knExecutable].s = executable
             node.attr[knInputNames].list.s[:] = [ts.name.encode() for ts in inputs]

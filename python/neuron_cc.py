@@ -42,7 +42,7 @@ def list_operators():
     return supported_op_types.difference(tf_reserved_ops)
 
 
-def compile_savetemps(graph_def, inputs, outputs, node_name):
+def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
     """Returns raw neff bytes (empty bytes if neuron-cc crashed)
     """
     error_return_value = b'', None, None

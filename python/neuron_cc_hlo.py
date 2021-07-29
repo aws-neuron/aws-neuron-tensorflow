@@ -108,7 +108,7 @@ def list_operators():
     return supported_operator_types
 
 
-def compile_savetemps(graph_def, inputs, outputs, node_name):
+def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
     # form tf2xla Config
     tf2xla_config = tf2xla_pb2.Config()
     for tensors, container in zip([inputs, outputs], [tf2xla_config.feed, tf2xla_config.fetch]):
@@ -152,11 +152,11 @@ def compile_savetemps(graph_def, inputs, outputs, node_name):
         with open(hlo_snapshot_path, 'rb') as f:
             hlo_snapshot.ParseFromString(f.read())
         hlo_module = hlo_snapshot.hlo.hlo_module
-        executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args)
+        executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args, dumper)
     return executable, new_inputs, new_outputs
 
 
-def hlo2neff(hlo_module, args=None):
+def hlo2neff(hlo_module, args=None, dumper=None):
     hlo_opt = HloOptimizer(hlo_module)
     hlo_opt.fold_no_op_instructions()
     hlo_opt.dead_code_elimination()
@@ -171,6 +171,7 @@ def hlo2neff(hlo_module, args=None):
     hlo_opt.maybe_rewrite_batch_size()
     parsed_args, _ = utils.parse_neuron_cc_flags(args)
     _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString, 'hlo_snapshot_opt.pb')
+    dumper.maybe_embed_io_tensors_into_hlo_snapshots()
     neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, args)
     inputs, outputs = hlo_opt.engrave_io_tensors()
     if parsed_args.dynamic_batch_size:
