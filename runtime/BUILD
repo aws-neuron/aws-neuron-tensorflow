@@ -240,6 +240,18 @@ cc_library(
         ":direct/executable_info",
         ":direct/host_memory",
         ":direct/executable",
+        ":direct/placer",
+    ],
+)
+
+cc_library(
+    name = "direct/placer",
+    hdrs = ["direct/placer.h"],
+    srcs = ["direct/placer.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/core_range",
+        ":direct/executable_info",
     ],
 )
 
