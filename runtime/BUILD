@@ -239,6 +239,19 @@ cc_library(
         ":direct/core_range",
         ":direct/executable_info",
         ":direct/host_memory",
+        ":direct/executable",
+    ],
+)
+
+cc_library(
+    name = "direct/executable",
+    hdrs = ["direct/executable.h"],
+    srcs = ["direct/executable.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/core_range",
+        ":direct/host_memory",
+        ":macros",
     ],
 )
 
