@@ -236,7 +236,13 @@ cc_library(
     name = "direct",
     deps = [
         ":direct/adaptor",
+        ":direct/core_range",
     ],
+)
+
+cc_library(
+    name = "direct/core_range",
+    hdrs = ["direct/core_range.h"],
 )
 
 # tensorflow-adapted nrt library
