@@ -237,6 +237,17 @@ cc_library(
     deps = [
         ":direct/adaptor",
         ":direct/core_range",
+        ":direct/executable_info",
+    ],
+)
+
+cc_library(
+    name = "direct/executable_info",
+    hdrs = ["direct/executable_info.h"],
+    srcs = ["direct/executable_info.cc"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
     ],
 )
 
