@@ -77,6 +77,7 @@ class NeuronEngine {
 class NeuronEngineManager {
  public:
   static NeuronEngineManager& GetNeuronEngineManager();
+  bool runtime_ok() { return runtime_status_.ok(); }
   SharedMemoryAllocator* get_shm_allocator() { return shm_allocator_.get(); }
   Status apply_for_engine(NeuronEngine** engine,
                           const std::string& session_handle,

@@ -14,14 +14,28 @@ limitations under the License.
 ==============================================================================*/
 
 #include "neuron_op.h"
+#include "tensorflow/core/framework/op_kernel.h"
 #include "registration.h"
 #include "../device.h"
+#include "../engine.h"
 
 namespace tensorflow {
 namespace neuron {
 
+NeuronOp::NeuronOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
+  VLOG(1) << "NeuronOp contructor " << this;
+  grpc_runtime_ok_ = NeuronEngineManager::GetNeuronEngineManager().runtime_ok();
+}
+
 void NeuronOp::Compute(OpKernelContext* ctx) {
-  OP_REQUIRES_OK(ctx, model_.compute(ctx, def()));
+  // Use GRPC runtime if available
+  if (grpc_runtime_ok_) {
+    OP_REQUIRES_OK(ctx, model_.compute(ctx, def()));
+    return;
+  }
+
+  // Call direct-link runtime
+  OP_REQUIRES_OK(ctx, function_.Run(ctx, def()));
 }
 
 #if TF_VERSION_LESS_THAN(2, 0)

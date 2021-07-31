@@ -241,6 +241,21 @@ cc_library(
         ":direct/host_memory",
         ":direct/executable",
         ":direct/placer",
+        ":direct/function",
+    ],
+)
+
+cc_library(
+    name = "direct/function",
+    hdrs = ["direct/function.h"],
+    srcs = ["direct/function.cc"],
+    deps = [
+        ":direct/core_range",
+        ":direct/executable",
+        ":direct/executable_info",
+        ":direct/host_memory",
+        ":direct/placer",
+        ":macros",
     ],
 )
 
