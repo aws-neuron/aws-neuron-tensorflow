@@ -102,6 +102,11 @@ typedef const AttrValue_ListValue AttrList;
   if (TF_PREDICT_FALSE(0 == (size))) {                                  \
     return errors::InvalidArgument(__func__, " called with size == 0"); \
   }
+#define TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status)           \
+  if (TF_PREDICT_FALSE(!(status).ok())) {                         \
+    return errors::FailedPrecondition(                            \
+        (__func__), " called without successful initialization"); \
+  }
 
 }  // namespace neuron
 }  // namespace tensorflow

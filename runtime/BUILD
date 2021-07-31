@@ -238,6 +238,18 @@ cc_library(
         ":direct/adaptor",
         ":direct/core_range",
         ":direct/executable_info",
+        ":direct/host_memory",
+    ],
+)
+
+cc_library(
+    name = "direct/host_memory",
+    hdrs = ["direct/host_memory.h"],
+    srcs = ["direct/host_memory.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/executable_info",
+        ":macros",
     ],
 )
 
