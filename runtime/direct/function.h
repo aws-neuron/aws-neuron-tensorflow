@@ -36,13 +36,11 @@ class NeuronFunction {
 
  private:
   Status MaybeInit(const NodeDef& node_def, const std::string& session_handle);
-  Status SetupInputsOutputs(OpKernelContext* ctx, const NodeDef& node_def,
-                            std::vector<Tensor>* inputs,
-                            std::vector<Tensor>* outputs);
   Status SetupInputs(OpKernelContext* ctx, const NodeDef& node_def,
                      std::vector<Tensor>* inputs);
   Status SetupOutputs(OpKernelContext* ctx, const NodeDef& node_def,
                       std::vector<Tensor>* outputs);
+  Status MaybeShuffle(OpKernelContext* ctx, std::vector<Tensor>* inputs);
   tensorflow::mutex mu_;
   NeuronExecutableInfo info_;
   std::unique_ptr<NeuronDataParallelExecutable> exe_;

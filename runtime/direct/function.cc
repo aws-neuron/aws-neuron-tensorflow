@@ -17,6 +17,7 @@ limitations under the License.
 #include <cstddef>
 #include <string>
 #include <vector>
+#include "../tensor_util.h"
 #include "absl/memory/memory.h"
 #include "adaptor.h"
 #include "core_range.h"
@@ -27,6 +28,7 @@ limitations under the License.
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
+#include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -45,6 +47,7 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   TF_RETURN_IF_ERROR(SetupInputs(ctx, node_def, &inputs));
   std::vector<Tensor> outputs;
   TF_RETURN_IF_ERROR(SetupOutputs(ctx, node_def, &outputs));
+  TF_RETURN_IF_ERROR(MaybeShuffle(ctx, &inputs));
   NeuronHostMemory memory;
   TF_RETURN_IF_ERROR(memory.SetupBuffers(info_));
   TF_RETURN_IF_ERROR(memory.CopyCPUToInputBuffers(inputs));
@@ -64,10 +67,6 @@ Status NeuronFunction::MaybeInit(const NodeDef& node_def,
   TF_RETURN_IF_ERROR(placer.GetStatus());
   exe_ = absl::make_unique<NeuronDataParallelExecutable>();
   TF_RETURN_IF_ERROR(info_.ParseFromNodeDef(node_def));
-  // TODO: remove once input shuffle is implemented
-  if (info_.input_shuffles != nullptr) {
-    return errors::Unimplemented("Input shuffle unimplemented");
-  }
   std::pair<Status, std::vector<NeuronCoreRange>> status_core_ranges =
       placer.GetParallelCoreRanges(info_, session_handle);
   TF_RETURN_IF_ERROR(status_core_ranges.first);
@@ -142,6 +141,24 @@ Status NeuronFunction::SetupOutputs(OpKernelContext* ctx,
     }
   }
   VLOG(1) << "NeuronFunction::SetupOutputs done";
+  return Status::OK();
+}
+
+Status NeuronFunction::MaybeShuffle(OpKernelContext* ctx,
+                                    std::vector<Tensor>* inputs) {
+  if (nullptr == info_.input_shuffles) {
+    return Status::OK();
+  }
+  for (int idx = 0; idx < info_.input_shuffles->tensor_size(); ++idx) {
+    const TensorProto& shuffle = info_.input_shuffles->tensor(idx);
+    if (TF_PREDICT_FALSE(!shuffle.int64_val_size())) {
+      continue;
+    }
+    Tensor src = inputs->at(idx);
+    Tensor* dst = &inputs->at(idx);
+    TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
+    TF_RETURN_IF_ERROR(tensor_shuffle(dst, src, shuffle));
+  }
   return Status::OK();
 }
 
