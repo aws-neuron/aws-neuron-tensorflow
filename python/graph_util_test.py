@@ -24,6 +24,7 @@ import unittest
 import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
+from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
@@ -1459,6 +1460,7 @@ class TestHelperFunction(unittest.TestCase):
             if node.op == 'NeuronOp':
                 assert node.attr['executable'].s != b''
         compiled_graph_def = graph_util.compile_subgraphs(graph_def)
+        compiled_graph_def = gdu.set_execution_plan(compiled_graph_def)
         for node in compiled_graph_def.node:
             if node.op == 'NeuronOp':
                 assert node.attr['executable'].s != b''
@@ -1562,6 +1564,7 @@ class TestWhitelistPartition(unittest.TestCase):
             assert len([op for op in sess.graph.get_operations() if op.type == 'Placeholder']) == 1
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             compiled_graph_def = graph_util.compile_subgraphs(partitioned_graph_def, workdir='./workdir')
+            compiled_graph_def = gdu.set_execution_plan(compiled_graph_def)
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
                 result_neuron = sess.run([relu0.name, add0.name], feed_dict)
@@ -1600,6 +1603,7 @@ class TestWhitelistPartition(unittest.TestCase):
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             compiled_graph_def = graph_util.compile_subgraphs(
                 partitioned_graph_def, workdir='./workdir')
+            compiled_graph_def = gdu.set_execution_plan(compiled_graph_def)
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
                 result_neuron = sess.run([relu0.name, relu1.name, relu2.name], feed_dict)
@@ -1638,6 +1642,7 @@ class TestWhitelistPartition(unittest.TestCase):
         if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
             compiled_graph_def = graph_util.compile_subgraphs(
                 partitioned_graph_def, workdir='./workdir')
+            compiled_graph_def = gdu.set_execution_plan(compiled_graph_def)
             with tf.Session(graph=tf.Graph()) as sess:
                 tf.import_graph_def(compiled_graph_def, name='')
                 result_neuron = sess.run([relu0.name, relu1.name, relu2.name], feed_dict)
