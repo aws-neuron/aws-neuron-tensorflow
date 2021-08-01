@@ -417,10 +417,14 @@ static Status allocate_temp(OpKernelContext* ctx, DataType dtype,
 }
 #endif
 
-Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
-                            const std::vector<Tensor>& input_tensors) {
+Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def) {
   uint64 start_time = Env::Default()->NowMicros();
 #define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
+
+  std::vector<Tensor> input_tensors(ctx->num_inputs());
+  for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
+    input_tensors.at(idx) = ctx->input(idx);
+  }
 
   // pre-initialize
   TF_RETURN_IF_ERROR(pre_initialize(node_def));

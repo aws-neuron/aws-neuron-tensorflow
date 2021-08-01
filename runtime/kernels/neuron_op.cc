@@ -21,11 +21,7 @@ namespace tensorflow {
 namespace neuron {
 
 void NeuronOp::Compute(OpKernelContext* ctx) {
-  std::vector<Tensor> input_tensors(ctx->num_inputs());
-  for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
-    input_tensors[idx] = ctx->input(idx);
-  }
-  OP_REQUIRES_OK(ctx, model_.compute(ctx, def(), input_tensors));
+  OP_REQUIRES_OK(ctx, model_.compute(ctx, def()));
 }
 
 #if TF_VERSION_LESS_THAN(2, 0)
