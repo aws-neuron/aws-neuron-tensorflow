@@ -94,14 +94,8 @@ def supports_xla():
         return False
     ncc_ver = LooseVersion(neuroncc.__version__)
     dev_delim_ver = LooseVersion('1.1.0.0')
-    dev_min_ver = LooseVersion('1.0.34136.0')
+    dev_min_ver = LooseVersion('1.0.35000.0')
     rel_min_ver = LooseVersion('1.6.0.0')
-    try:
-        from tensorflow_neuron.neuroncc import hlo2neuron
-    except ImportError:
-        pass
-    else:
-        rel_min_ver = LooseVersion('1.2.0.0')
     return dev_min_ver <= ncc_ver < dev_delim_ver or rel_min_ver <= ncc_ver
 
 
