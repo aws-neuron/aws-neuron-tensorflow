@@ -19,6 +19,7 @@ limitations under the License.
 #include <memory>
 #include <string>
 #include "../macros.h"
+#include "dynamic_batch.h"
 #include "executable.h"
 #include "executable_info.h"
 #include "tensorflow/core/framework/node_def.pb.h"
@@ -39,8 +40,11 @@ class NeuronFunction {
   Status SetupInputs(OpKernelContext* ctx, const NodeDef& node_def,
                      std::vector<Tensor>* inputs);
   Status SetupOutputs(OpKernelContext* ctx, const NodeDef& node_def,
+                      const NeuronBatchSharder& sharder,
                       std::vector<Tensor>* outputs);
   Status MaybeShuffle(OpKernelContext* ctx, std::vector<Tensor>* inputs);
+  Status RunWithIO(OpKernelContext* ctx, std::vector<Tensor>* inputs,
+                   std::vector<Tensor>* outputs);
   tensorflow::mutex mu_;
   NeuronExecutableInfo info_;
   std::unique_ptr<NeuronDataParallelExecutable> exe_;

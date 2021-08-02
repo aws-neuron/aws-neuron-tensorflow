@@ -239,6 +239,7 @@ cc_library(
         ":direct/executable_info",
         ":direct/host_memory",
         ":direct/executable",
+        ":direct/dynamic_batch",
         ":direct/placer",
         ":direct/function",
     ],
@@ -252,6 +253,7 @@ cc_library(
         ":direct/core_range",
         ":direct/executable",
         ":direct/executable_info",
+        ":direct/dynamic_batch",
         ":direct/host_memory",
         ":direct/placer",
         ":macros",
@@ -289,6 +291,15 @@ cc_library(
         ":direct/adaptor",
         ":direct/executable_info",
         ":macros",
+    ],
+)
+
+cc_library(
+    name = "direct/dynamic_batch",
+    hdrs = ["direct/dynamic_batch.h"],
+    srcs = ["direct/dynamic_batch.cc"],
+    deps = [
+        ":direct/executable_info",
     ],
 )
 
