@@ -15,6 +15,7 @@ limitations under the License.
 
 #include "host_memory.h"
 #include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
 #include "../macros.h"
@@ -56,18 +57,20 @@ Status NeuronHostBuffer::GetStatus() {
   return Status::OK();
 }
 
-Status NeuronHostBuffer::CopyCpuToBuffer(const void* cpu_buffer, size_t size) {
+Status NeuronHostBuffer::CopyCpuToBuffer(const void* cpu_buffer, size_t size,
+                                         size_t offset) {
   TFN_RETURN_IF_NULLPTR(cpu_buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
   TFN_RETURN_IF_ZERO_SIZE(size_);
-  return Nrt::CopyCpuToBuffer(&rt_buffer_, /*offset=*/0, cpu_buffer, size);
+  return Nrt::CopyCpuToBuffer(&rt_buffer_, offset, cpu_buffer, size);
 }
 
-Status NeuronHostBuffer::CopyBufferToCpu(void* cpu_buffer, size_t size) {
+Status NeuronHostBuffer::CopyBufferToCpu(void* cpu_buffer, size_t size,
+                                         size_t offset) {
   TFN_RETURN_IF_NULLPTR(cpu_buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
   TFN_RETURN_IF_ZERO_SIZE(size_);
-  return Nrt::CopyBufferToCpu(cpu_buffer, size, rt_buffer_, /*offset=*/0);
+  return Nrt::CopyBufferToCpu(cpu_buffer, size, rt_buffer_, offset);
 }
 
 NeuronHostBufferMap::NeuronHostBufferMap() {
@@ -147,7 +150,7 @@ Status NeuronHostMemory::CopyCPUToInputBuffers(
     const Tensor& tensor = input_tensors.at(idx);
     size_t tensor_size = tensor.tensor_data().size();
     std::shared_ptr<NeuronHostBuffer> buffer = input_buffers_.at(idx);
-    if (TF_PREDICT_FALSE(buffer->GetSize() != tensor_size)) {
+    if (TF_PREDICT_FALSE(buffer->GetSize() < tensor_size)) {
       return errors::InvalidArgument("Invalid input tensor size: given ",
                                      tensor.DeviceSafeDebugString(),
                                      ", expected size ", buffer->GetSize());
@@ -158,6 +161,13 @@ Status NeuronHostMemory::CopyCPUToInputBuffers(
     size_t tensor_size = tensor.tensor_data().size();
     std::shared_ptr<NeuronHostBuffer> buffer = input_buffers_.at(idx);
     TF_RETURN_IF_ERROR(buffer->CopyCpuToBuffer(GetData(tensor), tensor_size));
+    if (TF_PREDICT_FALSE(tensor_size < buffer->GetSize())) {
+      VLOG(1) << "Filling the uninitialized part of input " << idx << " with 0";
+      size_t offset = tensor_size;
+      size_t size = buffer->GetSize() - tensor_size;
+      std::vector<uint8_t> zeros(size, 0);
+      TF_RETURN_IF_ERROR(buffer->CopyCpuToBuffer(zeros.data(), size, offset));
+    }
   }
   VLOG(1) << "NeuronHostMemory::CopyCPUToInputBuffers done";
   return Status::OK();
@@ -174,7 +184,7 @@ Status NeuronHostMemory::CopyOutputBuffersToCPU(
     const Tensor& tensor = output_tensors.at(idx);
     size_t tensor_size = tensor.tensor_data().size();
     std::shared_ptr<NeuronHostBuffer> buffer = output_buffers_.at(idx);
-    if (TF_PREDICT_FALSE(buffer->GetSize() != tensor_size)) {
+    if (TF_PREDICT_FALSE(buffer->GetSize() < tensor_size)) {
       return errors::InvalidArgument("Invalid output tensor size: given ",
                                      tensor.DeviceSafeDebugString(),
                                      ", expected size ", buffer->GetSize());

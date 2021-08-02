@@ -34,8 +34,8 @@ class NeuronHostBuffer {
   ~NeuronHostBuffer();
   Status GetStatus();
   size_t GetSize() { return size_; }
-  Status CopyCpuToBuffer(const void* cpu_buffer, size_t size);
-  Status CopyBufferToCpu(void* cpu_buffer, size_t size);
+  Status CopyCpuToBuffer(const void* cpu_buffer, size_t size, size_t offset=0);
+  Status CopyBufferToCpu(void* cpu_buffer, size_t size, size_t offset=0);
 
  private:
   friend class NeuronHostBufferMap;
