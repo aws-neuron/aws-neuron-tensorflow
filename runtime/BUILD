@@ -116,7 +116,6 @@ cc_library(
         ":utils",
         ":shared_memory",
         ":runtime_grpc",
-        ":direct/linker",
     ],
 )
 
@@ -318,17 +317,6 @@ cc_library(
         ":utils",
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
-    ],
-)
-
-# TODO: remove once nrt library is fully integrated
-# dummy target to trigger nrt library linkage
-cc_library(
-    name = "direct/linker",
-    hdrs = ["direct/linker.h"],
-    srcs = ["direct/linker.cc"],
-    deps = [
-        ":libnrt",
     ],
 )
 
