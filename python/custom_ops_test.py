@@ -492,7 +492,6 @@ class TestMaxPool(TestV2Only):
 
 class TestCustomOp(TestV2Only):
 
-    @unittest.expectedFailure
     def test_aws_neuron_erf(self):
         graph = tfv1.Graph()
         with graph.as_default():
