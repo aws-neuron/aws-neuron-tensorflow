@@ -65,23 +65,6 @@ Status ReadProtoFile(const string& fname, protobuf::Message* proto) {
   }
 }
 
-// Replaces {{tag.type tag.name}} in the error message with tag_name.
-// TODO(bixia): We currently only handlge tag.type == "node".
-//
-// In the error message, a graph node is represented as {{tag.type, tag.name}},
-// to allow a Python debugger to insert source information about the graph node.
-// For example, a Python add expression may be represented as
-// {{node, x_y_sum}} = Add(x, y) in the error message. See routine interpolate
-// in tensorflow/python/framework/error_interpolation.py for more detail.
-static std::string InterpolateErrorMessage(std::string message) {
-  // See _NAME_REGEX in tensorflow/python/framework/error_interpolation.py
-  // Change "prefix {{node tag.name}} suffix" to "prefix tag.name suffix".
-  static LazyRE2 pattern{"(.*){{node (.*)}}(.*)"};
-  RE2::GlobalReplace(&message, *pattern, "\\1\\2\\3");
-
-  return message;
-}
-
 Status Main(const tensorflow::tfcompile::MainFlags& flags) {
   // Process config.
   tf2xla::Config config;
@@ -98,12 +81,7 @@ Status Main(const tensorflow::tfcompile::MainFlags& flags) {
   GraphDef graph_def;
   TF_RETURN_IF_ERROR(ReadProtoFile(flags.graph, &graph_def));
 
-  Status status = CompileGraph(std::move(graph_def), config, flags);
-  if (!status.ok()) {
-    return Status(status.code(),
-                  InterpolateErrorMessage(status.error_message()));
-  }
-  return Status::OK();
+  return CompileGraph(std::move(graph_def), config, flags);
 }
 
 }  // namespace neuron
