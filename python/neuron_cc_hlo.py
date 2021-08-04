@@ -15,6 +15,7 @@
 import os
 import subprocess
 import tempfile
+from distutils.version import LooseVersion
 try:
     from tensorflow.compiler.tf2xla import tf2xla_pb2
 except ImportError:
@@ -219,6 +220,7 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
         command.append('--enable-fast-context-switch')
     else:
         command.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
+    command = _insert_private_cc_flags(command, parsed_args)
     command.extend(compiler_args)
     with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
         proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
@@ -233,3 +235,16 @@ def _maybe_dump_bytes_as(parsed_args, lazy_content, name):
         with open(os.path.join(parsed_args.dump_prefix, name), 'wb') as f:
             f.write(lazy_content())
 
+
+def _insert_private_cc_flags(command, parsed_args):
+    if 'matmult' in parsed_args.fp32_cast:
+        try:
+            import neuroncc
+        except ImportError:
+            pass
+        else:
+            if hasattr(neuroncc, '__version__'):
+                if LooseVersion(neuroncc.__version__) < LooseVersion('1.7.0.0'):
+                    # Enable bitcasted-transpose for the high-precision use case
+                    command.append('--tensorizer-options=--no-disable-bitcasted-transpose')
+    return command
