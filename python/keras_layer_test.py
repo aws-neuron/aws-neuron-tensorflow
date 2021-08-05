@@ -288,7 +288,7 @@ def get_layer_generators():
         unroll=[True],      # False generates many uninferrable shapes
         time_major=[False],
         rtol=1e-2,
-        atol=3e-3,
+        atol=5e-3,
     )
 
     # define all generators here
