@@ -509,6 +509,7 @@ def compile_subgraphs(graph_def,
     neuron_nodes = gdu.get_neuron_nodes(graph_def)
     if not neuron_nodes:
         return graph_def
+    command = []
     for node in neuron_nodes:
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue
