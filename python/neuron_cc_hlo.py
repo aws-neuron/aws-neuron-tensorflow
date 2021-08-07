@@ -15,6 +15,7 @@
 import os
 import subprocess
 import tempfile
+from contextlib import contextmanager
 from distutils.version import LooseVersion
 try:
     from tensorflow.compiler.tf2xla import tf2xla_pb2
@@ -122,23 +123,28 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
             item.shape.CopyFrom(ts.shape)
             item.type = ts.dtype.as_datatype_enum
 
-    # call aws_neuron_tf2hlo
-    temp_path = hlo_pb2.__file__
-    for _ in range(4):
-        temp_path = os.path.dirname(temp_path)
-    aws_neuron_tf2hlo_path = os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
-    graph_def_name = 'graph_def.pb'
-    tf2xla_config_name = 'tf2xla_config.pb'
-    hlo_snapshot_name = 'hlo_snapshot.pb'
+    # call graph_def_to_hlo and then hlo_to_neff
     tfn_args, compiler_args = utils.parse_neuron_cc_flags(dest_set={'--dump-prefix'})
     with tempfile.TemporaryDirectory() as workdir:
         if tfn_args.dump_prefix is not None:
             workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
             os.makedirs(workdir, exist_ok=True)
+        hlo_module = graph_def_to_hlo(graph_def, tf2xla_config, workdir)
         compiler_args.append('--dump-prefix={}'.format(workdir))
-        graph_def_path = os.path.join(workdir, graph_def_name)
-        tf2xla_config_path = os.path.join(workdir, tf2xla_config_name)
-        hlo_snapshot_path = os.path.join(workdir, hlo_snapshot_name)
+        executable, new_inputs, new_outputs = hlo_to_neff(hlo_module, compiler_args, dumper)
+    return executable, new_inputs, new_outputs
+
+
+def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
+    # call aws_neuron_tf2hlo
+    temp_path = hlo_pb2.__file__
+    for _ in range(4):
+        temp_path = os.path.dirname(temp_path)
+    aws_neuron_tf2hlo_path = os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
+    with workdir_context(workdir) as workdir:
+        graph_def_path = os.path.join(workdir, 'graph_def.pb')
+        tf2xla_config_path = os.path.join(workdir, 'tf2xla_config.pb')
+        hlo_snapshot_path = os.path.join(workdir, 'hlo_snapshot.pb')
         with open(graph_def_path, 'wb') as f:
             f.write(graph_def.SerializeToString())
         with open(tf2xla_config_path, 'wb') as f:
@@ -146,18 +152,23 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
         command = [aws_neuron_tf2hlo_path, '--graph={}'.format(graph_def_path),
                    '--config={}'.format(tf2xla_config_path),
                    '--out_session_module={}'.format(hlo_snapshot_path)]
-        proc = subprocess.run(command, cwd=workdir)
-        if proc.returncode != 0:
-            return b'', None, None
+        subprocess.check_call(command, cwd=workdir)
         hlo_snapshot = hlo_pb2.HloSnapshot()
         with open(hlo_snapshot_path, 'rb') as f:
             hlo_snapshot.ParseFromString(f.read())
-        hlo_module = hlo_snapshot.hlo.hlo_module
-        executable, new_inputs, new_outputs = hlo2neff(hlo_module, compiler_args, dumper)
-    return executable, new_inputs, new_outputs
+    return hlo_snapshot.hlo.hlo_module
 
 
-def hlo2neff(hlo_module, args=None, dumper=None):
+@contextmanager
+def workdir_context(workdir=None):
+    if workdir is None:
+        with tempfile.TemporaryDirectory() as workdir:
+            yield workdir
+    else:
+        yield workdir
+
+
+def hlo_to_neff(hlo_module, args=None, dumper=None):
     hlo_opt = HloOptimizer(hlo_module)
     hlo_opt.fold_no_op_instructions()
     hlo_opt.dead_code_elimination()
