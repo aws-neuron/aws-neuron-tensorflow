@@ -1,7 +1,25 @@
-import tensorflow as tf
+# Copyright Amazon Web Services and its Affiliates. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 import unittest
+import tensorflow as tf
+from tensorflow.compat import v1 as tfv1
+from tensorflow.compiler.tf2xla import tf2xla_pb2
+from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
+
 
 def run_channels_first_simple(mode):
     neuron_result = None
@@ -470,3 +488,42 @@ class TestMaxPool(TestV2Only):
 
     def test_larger_stride_same_padding_channels_last_max_pool(self):
         run_larger_stride_same_padding_channels_last('maxpool')
+
+
+class TestCustomOp(TestV2Only):
+
+    @unittest.expectedFailure
+    def test_aws_neuron_erf(self):
+        graph = tfv1.Graph()
+        with graph.as_default():
+            ph = tfv1.placeholder(tfv1.float32, [1, 1])
+            mid = tfv1.identity(ph)
+            out = tfv1.identity(mid)
+        graph_def = graph.as_graph_def()
+        node_def = graph_def.node[1]
+        node_def.op = '_AwsNeuronCustomOp'
+        node_def.attr.clear()
+        node_def.attr['custom_call_target'].s = b'AwsNeuronErf'
+        node_def.attr['input_dtypes'].list.type.append(ph.dtype.as_datatype_enum)
+        node_def.attr['output_dtypes'].list.type.append(out.dtype.as_datatype_enum)
+        shape = node_def.attr['output_shapes'].list.shape.add()
+        for size in ph.shape:
+            shape.dim.add().size = size
+
+        tf2xla_config = tf2xla_pb2.Config()
+        inp0 = tf2xla_config.feed.add()
+        inp0.id.node_name = ph.op.name
+        inp0.id.output_index = 0
+        inp0.shape.CopyFrom(ph.shape.as_proto())
+        inp0.type = ph.dtype.as_datatype_enum
+        out0 = tf2xla_config.fetch.add()
+        out0.id.node_name = out.op.name
+        out0.id.output_index = 0
+        out0.shape.CopyFrom(out.shape.as_proto())
+        out0.type = out.dtype.as_datatype_enum
+
+        hlo_module = graph_def_to_hlo(graph_def, tf2xla_config)
+        inst = hlo_module.computations[0].instructions[2]
+        self.assertEqual(inst.opcode, 'custom-call')
+        self.assertEqual(inst.custom_call_target, 'AwsNeuronErf')
+        self.assertEqual(inst.backend_config, b'')
