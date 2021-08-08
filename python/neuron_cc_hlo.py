@@ -190,12 +190,22 @@ def hlo_to_neff(hlo_module, args=None, dumper=None):
     parsed_args, _ = utils.parse_neuron_cc_flags(args)
     if dumper is not None:
         dumper.maybe_dump_hlo_snapshots_with_inputs_outputs(hlo_opt)
+    verify_hlo_opt(hlo_opt)
     neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, args)
     inputs, outputs = hlo_opt.engrave_io_tensors()
     if parsed_args.dynamic_batch_size:
         for ts in inputs + outputs:
             ts.batch_axis = 0
     return neff_bytes, inputs, outputs
+
+
+def verify_hlo_opt(hlo_opt):
+    with tempfile.TemporaryDirectory() as workdir:
+        hlo_ss_opt_path = os.path.join(workdir, 'hlo_snapshot_opt.pb')
+        with open(hlo_ss_opt_path, 'wb') as f:
+            f.write(hlo_opt.get_snapshot().SerializeToString())
+        command = [get_aws_neuron_tf2hlo_path(), '--in_session_module={}'.format(hlo_ss_opt_path)]
+        subprocess.check_call(command, cwd=workdir)
 
 
 def hlo_opt_to_neff_bytes(hlo_opt, args):
