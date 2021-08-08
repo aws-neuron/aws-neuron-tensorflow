@@ -16,6 +16,8 @@ import unittest
 import tensorflow as tf
 from tensorflow.compat import v1 as tfv1
 from tensorflow.compiler.tf2xla import tf2xla_pb2
+from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow.neuron.python.custom_call import CustomCallLowering
 from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
@@ -526,3 +528,26 @@ class TestCustomOp(TestV2Only):
         self.assertEqual(inst.opcode, 'custom-call')
         self.assertEqual(inst.custom_call_target, 'AwsNeuronErf')
         self.assertEqual(inst.backend_config, b'')
+
+    def test_erf_custom_call_lowering(self):
+        graph = tfv1.Graph()
+        with graph.as_default():
+            ph = tfv1.placeholder(tfv1.float32, [1, 1])
+            mid = tfv1.math.erf(ph)
+            out = tfv1.identity(mid)
+        graph_def = graph.as_graph_def()
+        node_def = graph_def.node[1]
+        node_def.attr[gdu.kNeuronInferredShapes].list.shape.add().CopyFrom(mid.shape.as_proto())
+        custom_call_lowering = CustomCallLowering()
+        graph_def = custom_call_lowering.lower(graph_def)
+        node_def = graph_def.node[1]
+        self.assertEqual(node_def.op, '_AwsNeuronCustomOp')
+        self.assertEqual(node_def.attr['custom_call_target'].s, b'AwsNeuronErf')
+        self.assertEqual(node_def.attr['input_dtypes'].list.type, [ph.dtype.as_datatype_enum])
+        self.assertEqual(node_def.attr['output_dtypes'].list.type, [out.dtype.as_datatype_enum])
+        self.assertEqual(len(node_def.attr['output_shapes'].list.shape), 1)
+        self.assertEqual(node_def.attr['output_shapes'].list.shape[0], out.shape.as_proto())
+        graph_def = custom_call_lowering.restore(graph_def)
+        node_def = graph_def.node[1]
+        node_def.attr.pop(gdu.kNeuronInferredShapes)
+        self.assertEqual(graph_def.node[1], mid.op.node_def)

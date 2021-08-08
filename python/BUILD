@@ -75,7 +75,18 @@ py_library(
         ":graph_def_util_py",
         ":meta_graph_util_py",
         ":neuron_cc_py",
+        ":custom_call_py",
         "//tensorflow/neuron/python/hlo:hlo_py",
+    ],
+)
+
+py_library(
+    name = "custom_call_py",
+    srcs = [
+        "custom_call.py",
+    ],
+    deps = [
+        ":graph_def_util_py",
     ],
 )
 

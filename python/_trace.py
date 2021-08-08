@@ -36,6 +36,7 @@ from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import utils
 from tensorflow.neuron.python.neuron_cc import list_operators, supports_xla
 from tensorflow.neuron.python.hlo.optimize import HloOp
+from tensorflow.neuron.python.custom_call import CustomCallLowering
 from tensorflow_neuron import __version__
 
 
@@ -205,8 +206,11 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     # call graph_def_util/meta_graph_util passes
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.convert_shape_to_constant)
     graph_def = mgu.run_grappler_on_subgraphs(graph_def)
+    custom_call_lowering = CustomCallLowering()
+    graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, custom_call_lowering.lower)
     dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_fused_optimized.pb')
     graph_def = gdu.run_compiler_on_subgraphs(graph_def, dumper)
+    graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, custom_call_lowering.restore)
     graph_def = gdu.restore_compiler_failures(graph_def, original_graph_def)
     graph_def = gdu.run_graph_def_pass_in_subgraphs(graph_def, gdu.erase_large_constants)
     graph_def = gdu.set_execution_plan(graph_def)

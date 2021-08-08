@@ -333,6 +333,30 @@ class TestTraceFunction(TestV2Only):
         assert len(op_list) == 7
         assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'
 
+    def test_custom_call_erf_simple(self):
+
+        def func(tensor):
+            return tf.math.erf(tensor)
+
+        input_tensor = tf.random.uniform([2, 3, 5])
+        func_neuron = tfn.trace(func, input_tensor)
+        output_tensor_func = func(input_tensor)
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, output_tensor_func, rtol=1e-3, atol=1e-5)
+
+    def test_custom_call_erf_composite(self):
+
+        def func(tensor):
+            tensor = tf.nn.relu(tensor)
+            tensor = tf.math.erf(tensor)
+            return tf.nn.relu(tensor)
+
+        input_tensor = tf.random.uniform([2, 3, 5])
+        func_neuron = tfn.trace(func, input_tensor)
+        output_tensor_func = func(input_tensor)
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, output_tensor_func, rtol=1e-3, atol=1e-5)
+
 
 def _assert_compiler_success_func(wfunc):
     assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())
