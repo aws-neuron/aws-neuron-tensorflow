@@ -528,6 +528,17 @@ class HloOptimizer:
         if any(shuffle is not None for shuffle in input_shuffles):
             self.input_shuffles = input_shuffles
 
+        # change host program shape and entry compuation program shape as well
+        parameter_shape_to_shape = {}
+        for inst in self.entry_instructions:
+            if inst.opcode == 'parameter':
+                name, _ = inst.name.split('.')
+                parameter_shape_to_shape[name] = inst.shape
+        entry_computation = self.id_to_computation[self.hlo_module.entry_computation_id]
+        for program_shape in self.hlo_module.host_program_shape, entry_computation.program_shape:
+            for name, shape in zip(program_shape.parameter_names, program_shape.parameters):
+                shape.CopyFrom(parameter_shape_to_shape[name])
+
     def estimate_cache_demand(self):
         entry_ops = [HloOp(inst) for inst in self.entry_instructions]
         id_to_op = {op.id: op for op in entry_ops}
