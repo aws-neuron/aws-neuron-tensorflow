@@ -799,15 +799,14 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   segment_options.minimum_segment_size = minimum_segment_size;
 
   // Setup exclude_node_list
-  for (int i = 0; i < graph.num_node_ids(); ++i) {
-    tensorflow::Node* node = graph.FindNodeId(i);
+  for (Node* node : graph.nodes()) {
     bool is_source_or_sink = node->IsSink() || node->IsSource();
     bool is_supported = supported_op_types.count(node->type_string());
     bool no_fuse = no_fuse_ops.count(node->name());
     bool force_fuse = force_fuse_ops.count(node->name());
     bool is_foldable = foldable_nodes.count(node->name());
-    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse ||
-          is_foldable)) {
+    bool supported_can_fuse = is_supported && !is_source_or_sink && !no_fuse;
+    if (!(supported_can_fuse || force_fuse || is_foldable)) {
       segment_options.exclude_node_list.insert(node->name());
     }
   }
