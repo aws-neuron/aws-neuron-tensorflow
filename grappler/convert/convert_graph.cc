@@ -26,7 +26,9 @@ namespace tensorflow {
 namespace neuron {
 namespace convert {
 
-const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+constexpr char kNeuronInFixedShapeContext[] =
+    "_aws_neuron_in_fixed_shape_context";
 
 class EdgeValidator {
  public:
@@ -806,7 +808,13 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
     bool force_fuse = force_fuse_ops.count(node->name());
     bool is_foldable = foldable_nodes.count(node->name());
     bool supported_can_fuse = is_supported && !is_source_or_sink && !no_fuse;
-    if (!(supported_can_fuse || force_fuse || is_foldable)) {
+    bool fuseable = supported_can_fuse || force_fuse || is_foldable;
+    if (node->def().attr().count(kNeuronInFixedShapeContext)) {
+      bool fixed_shape = node->def().attr().at(kNeuronInFixedShapeContext).b();
+      VLOG(1) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
+      fuseable &= fixed_shape;
+    }
+    if (!fuseable) {
       segment_options.exclude_node_list.insert(node->name());
     }
   }
