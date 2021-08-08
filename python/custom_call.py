@@ -62,4 +62,6 @@ class CustomCallLowering:
 def get_custom_call_target(node):
     if node.op == 'Erf':
         return 'AwsNeuronErf'
+    elif node.op == 'Softplus':
+        return 'AwsNeuronSoftplus'
     return ''
