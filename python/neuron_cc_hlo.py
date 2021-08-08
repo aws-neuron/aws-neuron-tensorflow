@@ -184,11 +184,11 @@ def hlo2neff(hlo_module, args=None, dumper=None):
 def hlo_opt_to_neff_bytes(hlo_opt, args):
     neff_bytes = _run_neuron_cc_with_dump_prefix(hlo_opt, args)
     if not neff_bytes:
-        logging.warning('running a fall-back code generator to mitigate compilation failure')
         try:
             from tensorflow_neuron.neuroncc.hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
         except ImportError:
             return b''
+        logging.warning('running a fall-back code generator to mitigate compilation failure')
         parsed_args, _ = utils.parse_neuron_cc_flags(args)
         if parsed_args.neuroncore_pipeline_cores is not None:
             raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
