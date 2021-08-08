@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from tensorflow.neuron.python import custom_call as cstmcl
 from tensorflow.neuron.python.utils import decorate_methods_with
 
 
@@ -75,7 +76,7 @@ class BatchHloInstructionPool:
 
     def custom_call(op):
         target = op.inst.custom_call_target
-        if target in {"AwsNeuronErf", "AwsNeuronSoftplus"}:
+        if target in {cstmcl.targetAwsNeuronErf, cstmcl.targetAwsNeuronSoftplus}:
             return [op.id, *op.operand_ids], None
         else:
             return None

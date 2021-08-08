@@ -19,6 +19,10 @@ from tensorflow.python.framework import ops
 from tensorflow.neuron.python import graph_def_util as gdu
 
 
+targetAwsNeuronErf = 'AwsNeuronErf'
+targetAwsNeuronSoftplus = 'AwsNeuronSoftplus'
+
+
 class CustomCallLowering:
 
     def __init__(self):
@@ -61,7 +65,7 @@ class CustomCallLowering:
 
 def get_custom_call_target(node):
     if node.op == 'Erf':
-        return 'AwsNeuronErf'
+        return targetAwsNeuronErf
     elif node.op == 'Softplus':
-        return 'AwsNeuronSoftplus'
+        return targetAwsNeuronSoftplus
     return ''
