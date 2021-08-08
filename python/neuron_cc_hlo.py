@@ -137,10 +137,6 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
 
 def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
     # call aws_neuron_tf2hlo
-    temp_path = hlo_pb2.__file__
-    for _ in range(4):
-        temp_path = os.path.dirname(temp_path)
-    aws_neuron_tf2hlo_path = os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
     with workdir_context(workdir) as workdir:
         graph_def_path = os.path.join(workdir, 'graph_def.pb')
         tf2xla_config_path = os.path.join(workdir, 'tf2xla_config.pb')
@@ -149,7 +145,7 @@ def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
             f.write(graph_def.SerializeToString())
         with open(tf2xla_config_path, 'wb') as f:
             f.write(tf2xla_config.SerializeToString())
-        command = [aws_neuron_tf2hlo_path, '--graph={}'.format(graph_def_path),
+        command = [get_aws_neuron_tf2hlo_path(), '--graph={}'.format(graph_def_path),
                    '--config={}'.format(tf2xla_config_path),
                    '--out_session_module={}'.format(hlo_snapshot_path)]
         subprocess.check_call(command, cwd=workdir)
@@ -157,6 +153,13 @@ def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
         with open(hlo_snapshot_path, 'rb') as f:
             hlo_snapshot.ParseFromString(f.read())
     return hlo_snapshot.hlo.hlo_module
+
+
+def get_aws_neuron_tf2hlo_path():
+    temp_path = hlo_pb2.__file__
+    for _ in range(4):
+        temp_path = os.path.dirname(temp_path)
+    return os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
 
 
 @contextmanager
