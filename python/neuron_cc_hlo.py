@@ -171,8 +171,8 @@ def hlo2neff(hlo_module, args=None, dumper=None):
     hlo_opt.maybe_enable_dynamic_batch_size()
     hlo_opt.maybe_rewrite_batch_size()
     parsed_args, _ = utils.parse_neuron_cc_flags(args)
-    _maybe_dump_bytes_as(parsed_args, hlo_opt.get_snapshot().SerializeToString, 'hlo_snapshot_opt.pb')
-    dumper.maybe_embed_io_tensors_into_hlo_snapshots()
+    if dumper is not None:
+        dumper.maybe_dump_hlo_snapshots_with_inputs_outputs(hlo_opt)
     neff_bytes = hlo_opt_to_neff_bytes(hlo_opt, args)
     inputs, outputs = hlo_opt.engrave_io_tensors()
     if parsed_args.dynamic_batch_size:
