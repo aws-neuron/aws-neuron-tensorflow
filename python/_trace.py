@@ -380,6 +380,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
     if subgraph_builder_function is None:
         optimizers.extend(pruning_passes)
     optimizers.append('aws_neuron_static_shape_inference')
+    optimizers.append('aws_neuron_mark_ops_in_fixed_shape_context')
 
     # configure operator fusion
     fuser_config = rewriter_config.custom_optimizers.add()
