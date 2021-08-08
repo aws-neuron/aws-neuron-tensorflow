@@ -75,10 +75,10 @@ class BatchHloInstructionPool:
 
     def custom_call(op):
         target = op.inst.custom_call_target
-        if target == "AwsNeuronErf":
+        if target in {"AwsNeuronErf", "AwsNeuronSoftplus"}:
             return [op.id, *op.operand_ids], None
         else:
-            raise NotImplementedError('custom-call with unknown target {}'.format(target))
+            return None
 
     def divide(op):
         return [op.id, *op.operand_ids], None
