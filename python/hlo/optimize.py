@@ -736,6 +736,7 @@ class RtrRewriter:
 
     def rewrite_kernel(self, kernel_inst):
         kernel_inst.shape.dimensions[:] = self.kernel_array_prtr.shape
+        kernel_inst.literal.shape.dimensions[:] = self.kernel_array_prtr.shape
         literal_attr_name = HloOp.xla_dtype_to_literal_attr_name[kernel_inst.shape.element_type]
         literals = getattr(kernel_inst.literal, literal_attr_name)
         if isinstance(literals, bytes):
