@@ -37,6 +37,12 @@ class BatchHloInstructionPool:
     def _and(op):
         return [op.id, *op.operand_ids], None
 
+    def batch_norm_inference(op):
+        if op.inst.feature_index != 0:
+            return [op.id, op.operand_ids[0]], 0
+        else:
+            return None
+
     def batch_norm_training(op):
         if op.inst.feature_index != 0:
             return [op.id, op.operand_ids[0]], 0
