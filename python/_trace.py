@@ -272,7 +272,10 @@ class OptionalDumper:
         for op_name, (inputs, outputs) in self.dump_tensor_map.items():
             inputs = [tensor.numpy() for tensor in inputs]
             outputs = [tensor.numpy() for tensor in outputs]
-            hlo_ss_path = os.path.join(self.dump_prefix, op_name, 'hlo_snapshot.pb')
+            workdir = os.path.join(self.dump_prefix, op_name)
+            if not os.path.isdir(workdir):
+                continue
+            hlo_ss_path = os.path.join(workdir, 'hlo_snapshot.pb')
             if os.path.isfile(hlo_ss_path):
                 hlo_ss = hlo_pb2.HloSnapshot()
                 with open(hlo_ss_path, 'rb') as f:
@@ -284,7 +287,7 @@ class OptionalDumper:
             if hlo_opt.input_shuffles is not None:
                 inputs = [_shuffle(val, shf) for val, shf in zip(inputs, hlo_opt.input_shuffles)]
             _embed_inputs_outputs_into_hlo_snapshot(hlo_ss_opt, inputs, outputs)
-            hlo_ss_opt_path = os.path.join(self.dump_prefix, op_name, 'hlo_snapshot_opt.pb')
+            hlo_ss_opt_path = os.path.join(workdir, 'hlo_snapshot_opt.pb')
             with open(hlo_ss_opt_path, 'wb') as f:
                 f.write(hlo_ss_opt.SerializeToString())
 
