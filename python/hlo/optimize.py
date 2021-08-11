@@ -649,6 +649,7 @@ class HloOptimizer:
 
         # change host program shape and entry compuation program shape as well
         self._reestablish_program_shapes()
+        self._legalize_instructions()
 
     def engrave_io_tensors(self):
         inputs = self.inputs
@@ -685,6 +686,15 @@ class HloOptimizer:
         output_tuple_inst = id_to_inst[self.output_tuple_op.id]
         for out_shape, shape in zip(output_tuple_inst.shape.tuple_shapes, output_shapes):
             out_shape.CopyFrom(shape)
+
+    def _legalize_instructions(self):
+        id_to_inst = {inst.id: inst for inst in self.entry_instructions}
+        for inst in self.entry_instructions:
+            if inst.opcode == 'slice':
+                input_id, = inst.operand_ids
+                input_shape = id_to_inst[input_id].shape
+                for slice_dim, dim_size in zip(inst.slice_dimensions, inst.shape.dimensions):
+                    slice_dim.limit = min(slice_dim.limit, dim_size)
 
 
 def _assert_same_len(lhs, rhs, lhs_name, rhs_name):
