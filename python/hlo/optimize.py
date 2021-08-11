@@ -529,15 +529,7 @@ class HloOptimizer:
             self.input_shuffles = input_shuffles
 
         # change host program shape and entry compuation program shape as well
-        parameter_shape_to_shape = {}
-        for inst in self.entry_instructions:
-            if inst.opcode == 'parameter':
-                name, _ = inst.name.split('.')
-                parameter_shape_to_shape[name] = inst.shape
-        entry_computation = self.id_to_computation[self.hlo_module.entry_computation_id]
-        for program_shape in self.hlo_module.host_program_shape, entry_computation.program_shape:
-            for name, shape in zip(program_shape.parameter_names, program_shape.parameters):
-                shape.CopyFrom(parameter_shape_to_shape[name])
+        self._reestablish_program_shapes()
 
     def estimate_cache_demand(self):
         entry_ops = [HloOp(inst) for inst in self.entry_instructions]
@@ -655,6 +647,9 @@ class HloOptimizer:
         if self.input_shuffles is not None:
             self.input_shuffles = [change_batch_size(shuffle) for shuffle in self.input_shuffles]
 
+        # change host program shape and entry compuation program shape as well
+        self._reestablish_program_shapes()
+
     def engrave_io_tensors(self):
         inputs = self.inputs
         outputs = self.outputs
@@ -674,6 +669,22 @@ class HloOptimizer:
         inputs = [HloTensor(*args) for args in zip(inputs, self.input_shuffles, input_can_use_shm)]
         outputs = [HloTensor(ts, can_use_shm=shm) for ts, shm in zip(outputs, output_can_use_shm)]
         return inputs, outputs
+
+    def _reestablish_program_shapes(self):
+        id_to_inst = {inst.id: inst for inst in self.entry_instructions}
+        parameter_name_to_shape = {name: id_to_inst[pid].shape for name, pid in self.parameter_name_to_id.items()}
+        entry_computation = self.id_to_computation[self.hlo_module.entry_computation_id]
+        output_shapes = [id_to_inst[oid].shape for oid in self.output_tuple_op.operand_ids]
+        for program_shape in self.hlo_module.host_program_shape, entry_computation.program_shape:
+            for name, shape in zip(program_shape.parameter_names, program_shape.parameters):
+                shape.CopyFrom(parameter_name_to_shape[name])
+            for out_shape, shape in zip(program_shape.result.tuple_shapes, output_shapes):
+                out_shape.CopyFrom(shape)
+        # for some reason self.output_tuple_op.inst is not the original tuple instruction in HloModule
+        # TODO: debug this
+        output_tuple_inst = id_to_inst[self.output_tuple_op.id]
+        for out_shape, shape in zip(output_tuple_inst.shape.tuple_shapes, output_shapes):
+            out_shape.CopyFrom(shape)
 
 
 def _assert_same_len(lhs, rhs, lhs_name, rhs_name):
