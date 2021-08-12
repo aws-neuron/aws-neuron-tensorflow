@@ -20,7 +20,10 @@ from distutils.version import LooseVersion
 try:
     from tensorflow.compiler.tf2xla import tf2xla_pb2
 except ImportError:
-    from tensorflow.neuron.python.tf2xla import tf2xla_pb2
+    try:
+        from tensorflow.neuron.python.tf2xla import tf2xla_pb2
+    except ImportError:
+        tf2xla_pb2 = None
 from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.neuron.python import utils

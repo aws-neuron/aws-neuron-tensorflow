@@ -15,10 +15,9 @@
 import unittest
 import tensorflow as tf
 from tensorflow.compat import v1 as tfv1
-from tensorflow.compiler.tf2xla import tf2xla_pb2
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python.custom_call import CustomCallLowering
-from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo
+from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo, tf2xla_pb2
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
 
