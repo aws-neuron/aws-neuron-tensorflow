@@ -526,7 +526,7 @@ class TestCustomOp(TestV2Only):
         inst = hlo_module.computations[0].instructions[2]
         self.assertEqual(inst.opcode, 'custom-call')
         self.assertEqual(inst.custom_call_target, 'AwsNeuronErf')
-        self.assertEqual(inst.backend_config, b'')
+        self.assertIn(inst.backend_config, {'', b''})
 
     def test_erf_custom_call_lowering(self):
         graph = tfv1.Graph()
