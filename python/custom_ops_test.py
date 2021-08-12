@@ -494,6 +494,18 @@ class TestMaxPool(TestV2Only):
 class TestCustomOp(TestV2Only):
 
     def test_aws_neuron_erf(self):
+        self._tf2hlo_test_unary_op('AwsNeuronErf')
+
+    def test_erf_custom_call_lowering(self):
+        self._custom_call_lowering_test_unary_op(tfv1.math.erf, 'AwsNeuronErf')
+
+    def test_aws_neuron_softplus(self):
+        self._tf2hlo_test_unary_op('AwsNeuronSoftplus')
+
+    def test_softplus_custom_call_lowering(self):
+        self._custom_call_lowering_test_unary_op(tfv1.math.softplus, 'AwsNeuronSoftplus')
+
+    def _tf2hlo_test_unary_op(self, call_target):
         graph = tfv1.Graph()
         with graph.as_default():
             ph = tfv1.placeholder(tfv1.float32, [1, 1])
@@ -503,7 +515,7 @@ class TestCustomOp(TestV2Only):
         node_def = graph_def.node[1]
         node_def.op = '_AwsNeuronCustomOp'
         node_def.attr.clear()
-        node_def.attr['custom_call_target'].s = b'AwsNeuronErf'
+        node_def.attr['custom_call_target'].s = call_target.encode()
         node_def.attr['input_dtypes'].list.type.append(ph.dtype.as_datatype_enum)
         node_def.attr['output_dtypes'].list.type.append(out.dtype.as_datatype_enum)
         shape = node_def.attr['output_shapes'].list.shape.add()
@@ -525,14 +537,14 @@ class TestCustomOp(TestV2Only):
         hlo_module = graph_def_to_hlo(graph_def, tf2xla_config)
         inst = hlo_module.computations[0].instructions[2]
         self.assertEqual(inst.opcode, 'custom-call')
-        self.assertEqual(inst.custom_call_target, 'AwsNeuronErf')
+        self.assertEqual(inst.custom_call_target, call_target)
         self.assertIn(inst.backend_config, {'', b''})
 
-    def test_erf_custom_call_lowering(self):
+    def _custom_call_lowering_test_unary_op(self, func, call_target):
         graph = tfv1.Graph()
         with graph.as_default():
             ph = tfv1.placeholder(tfv1.float32, [1, 1])
-            mid = tfv1.math.erf(ph)
+            mid = func(ph)
             out = tfv1.identity(mid)
         graph_def = graph.as_graph_def()
         node_def = graph_def.node[1]
@@ -541,7 +553,7 @@ class TestCustomOp(TestV2Only):
         graph_def = custom_call_lowering.lower(graph_def)
         node_def = graph_def.node[1]
         self.assertEqual(node_def.op, '_AwsNeuronCustomOp')
-        self.assertEqual(node_def.attr['custom_call_target'].s, b'AwsNeuronErf')
+        self.assertEqual(node_def.attr['custom_call_target'].s, call_target.encode())
         self.assertEqual(node_def.attr['input_dtypes'].list.type, [ph.dtype.as_datatype_enum])
         self.assertEqual(node_def.attr['output_dtypes'].list.type, [out.dtype.as_datatype_enum])
         self.assertEqual(len(node_def.attr['output_shapes'].list.shape), 1)
