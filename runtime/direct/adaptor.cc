@@ -60,11 +60,12 @@ static std::string NrtErrMsg(NRT_STATUS rt_status) {
   return err.error_message();
 }
 
-#define NRT_RETURN_IF_COND(cond, rt_status, error_fn, ...)                    \
-  {                                                                           \
-    if (TF_PREDICT_FALSE(cond)) {                                             \
-      return error_fn(__FILE__, __LINE__, __VA_ARGS__, NrtErrMsg(rt_status)); \
-    }                                                                         \
+#define NRT_RETURN_IF_COND(cond, rt_status, error_fn, ...)            \
+  {                                                                   \
+    if (TF_PREDICT_FALSE(cond)) {                                     \
+      return error_fn(__FILE__, ":", __LINE__, ":", __VA_ARGS__, ":", \
+                      NrtErrMsg(rt_status));                          \
+    }                                                                 \
   }
 #define NRT_RETURN_IF_ERROR(rt_status, ...) \
   NRT_RETURN_IF_COND((rt_status != NRT_SUCCESS), rt_status, __VA_ARGS__)
