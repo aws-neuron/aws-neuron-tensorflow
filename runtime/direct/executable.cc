@@ -60,6 +60,9 @@ Status NeuronDataParallelExecutable::AddExecutable(
 }
 
 Status NeuronDataParallelExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
+  if (TF_PREDICT_FALSE(executables_.empty())) {
+    return errors::FailedPrecondition(__func__, " called without executables");
+  }
   return executables_.at(GetRoundRobinId())->RunOnHostMemory(memory);
 }
 

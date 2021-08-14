@@ -107,7 +107,7 @@ Status NeuronFunction::MaybeInit(const NodeDef& node_def,
       placer.GetParallelCoreRanges(info_, session_handle);
   TF_RETURN_IF_ERROR(status_core_ranges.first);
   for (const auto& nc_range : status_core_ranges.second) {
-    exe_->AddExecutable(info_.executable, nc_range);
+    TF_RETURN_IF_ERROR(exe_->AddExecutable(info_.executable, nc_range));
   }
   VLOG(1) << "NeuronFunction::MaybeInit done";
   return Status::OK();
