@@ -21,6 +21,7 @@ limitations under the License.
 #include "../macros.h"
 #include "../version.h"
 #include "nrt/nrt.h"
+#include "nrt/nrt_profile.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/default/logging.h"
@@ -393,6 +394,33 @@ Status Nrt::Execute(const NrtModel& model, const NrtBufferMap& input_map,
           << ", input_map=" << input_map.raw_
           << ", output_map=" << output_map->raw_;
   return Status::OK();
+#else
+  return errors::Unimplemented(__func__);
+#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
+Status Nrt::ProfileStart(const NrtModel& model, const char * filename){
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  NRT_RETURN_IF_INVALID(model);
+  VLOG(1) << "Nrt::ProfileStart " << model.raw_;
+  NRT_STATUS rt_status = nrt_profile_start((nrt_model_t*)model.raw_, filename);
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "ProfileStart failed: nrt_profile_start");
+  VLOG(1) << "Nrt::ProfileStart OK " << model.raw_
+          << ", filename=" << filename;
+#else
+  return errors::Unimplemented(__func__);
+#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
+Status Nrt::ProfileStop(const char * filename){
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  VLOG(1) << "Nrt::ProfileStop";
+  NRT_STATUS rt_status = nrt_profile_stop(filename);
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "ProfileStop failed: nrt_profile_stop");
+  VLOG(1) << "Nrt::ProfileStart OK "
+          << ", filename=" << filename;
 #else
   return errors::Unimplemented(__func__);
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
