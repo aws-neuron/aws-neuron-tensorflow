@@ -16,15 +16,6 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_PROFILE_H_
 #define TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_PROFILE_H_
 
-// This file indicates that the NRT library is unavailable, obviously.
-#define AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE 1
-
-extern "C" {
-
-typedef struct nrt_tensor nrt_tensor_t;
-
-inline void nrt_tensor_free(nrt_tensor_t** tensor) {}
-
-}
+// This file a dummy file.
 
 #endif  // TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_PROFILE_H_
