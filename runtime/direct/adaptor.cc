@@ -14,10 +14,12 @@ limitations under the License.
 ==============================================================================*/
 
 #include "adaptor.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+
 #include "../macros.h"
 #include "../version.h"
 #include "nrt/nrt.h"
@@ -399,21 +401,20 @@ Status Nrt::Execute(const NrtModel& model, const NrtBufferMap& input_map,
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::ProfileStart(const NrtModel& model, const char * filename){
+Status Nrt::ProfileStart(const NrtModel& model, const char* filename) {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID(model);
   VLOG(1) << "Nrt::ProfileStart " << model.raw_;
   NRT_STATUS rt_status = nrt_profile_start((nrt_model_t*)model.raw_, filename);
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
                       "ProfileStart failed: nrt_profile_start");
-  VLOG(1) << "Nrt::ProfileStart OK " << model.raw_
-          << ", filename=" << filename;
+  VLOG(1) << "Nrt::ProfileStart OK " << model.raw_ << ", filename=" << filename;
 #else
   return errors::Unimplemented(__func__);
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::ProfileStop(const char * filename){
+Status Nrt::ProfileStop(const char* filename) {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   VLOG(1) << "Nrt::ProfileStop";
   NRT_STATUS rt_status = nrt_profile_stop(filename);

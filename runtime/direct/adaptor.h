@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <cstddef>
 #include <cstdint>
+
 #include "tensorflow/core/lib/core/status.h"
 
 namespace tensorflow {
@@ -62,10 +63,9 @@ class Nrt {
                              const std::string& name);
   static Status Execute(const NrtModel& model, const NrtBufferMap& input_map,
                         NrtBufferMap* output_map);
-  //profiler functions
-  static Status ProfileStart(const NrtModel& model, const char * filename); //could be incorrect typing
-  static Status ProfileStop(const char * filename);
-
+  // profiler functions
+  static Status ProfileStart(const NrtModel& model, const char* filename);
+  static Status ProfileStop(const char* filename);
 
  private:
   Nrt();
