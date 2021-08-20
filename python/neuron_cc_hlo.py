@@ -83,6 +83,7 @@ RealDiv
 Relu
 Relu6
 Reshape
+ResizeBilinear
 Rsqrt
 Select
 SelectV2

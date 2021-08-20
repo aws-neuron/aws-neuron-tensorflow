@@ -22,6 +22,7 @@ from tensorflow.neuron.python import graph_def_util as gdu
 
 targetAwsNeuronErf = 'AwsNeuronErf'
 targetAwsNeuronSoftplus = 'AwsNeuronSoftplus'
+targetAwsNeuronResizeBilinear = 'AwsNeuronResizeBilinear'
 
 
 class CustomCallLowering:
