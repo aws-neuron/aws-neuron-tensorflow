@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 import os
+import unittest
 from unittest.mock import patch
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
@@ -357,16 +358,39 @@ class TestTraceFunction(TestV2Only):
         output_tensor_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(output_tensor_func_neuron, output_tensor_func, rtol=1e-3, atol=1e-5)
 
+    @unittest.expectedFailure
     def test_custom_call_resize_bilinear(self):
+        '''
+        Test evaluates to see if the neuron trace fuses the resize op into a NeuronOp
+        Currently expects failure
+        '''
 
         def func(tensor):
             return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear')
 
         input_tensor = tf.random.uniform([2, 3, 5])
         func_neuron = tfn.trace(func, input_tensor)
-        output_tensor_func = func(input_tensor)
-        output_tensor_func_neuron = func_neuron(input_tensor)
-        self.assertAllClose(output_tensor_func_neuron, output_tensor_func, rtol=1e-3, atol=1e-5)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        assert len([op for op in op_list if op.type == 'ResizeBilinear']) == 0, 'found unfused ResizeBilinear'
+        assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'
+
+    def test_custom_call_resize_bilinear_mock(self):
+
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear')
+
+        input_tensor = tf.random.uniform([2, 3, 5])
+
+        def do_nothing(graph_def, *args, **kwargs):
+            return graph_def
+
+        with patch('tensorflow.neuron.python.graph_def_util.run_compiler_on_subgraphs', do_nothing):
+            layer_neuron = tfn.trace(func, input_tensor)
+
+        result_layer = func(input_tensor)
+        result_layer_neuron = layer_neuron(input_tensor)
+        self.assertAllClose(result_layer_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
 
 def _assert_compiler_success_func(wfunc):
     assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())
