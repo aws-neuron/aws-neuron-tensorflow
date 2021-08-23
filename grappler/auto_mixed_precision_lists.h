@@ -148,6 +148,11 @@ class AutoMixedPrecisionListsCuda : public AutoMixedPrecisionLists {
       list.insert("DepthwiseConv2dNativeBackpropFilter");
       list.insert("DepthwiseConv2dNativeBackpropInput");
     }
+    // Neuron device
+    if (cudnn_version_ == 0) {
+      list.insert("BatchMatMul");
+      list.insert("BatchMatMulV2");
+    }
     UpdateList("ALLOWLIST", &list);
     // For backwards compatibility, keeping the original env variable here.
     // TODO(reedwm): This should be removed if we don't have active users.
