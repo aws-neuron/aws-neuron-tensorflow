@@ -73,4 +73,6 @@ def get_custom_call_target(node):
         return targetAwsNeuronErf
     elif node.op == 'Softplus':
         return targetAwsNeuronSoftplus
+    elif node.op == 'ResizeBilinear':
+        return targetAwsNeuronResizeBilinear
     return ''
