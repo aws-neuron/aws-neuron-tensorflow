@@ -336,7 +336,7 @@ cc_library(
     name = "libnrt",
     hdrs = glob(["direct/include/nrt/*.h"]),
     srcs = [":libnrt_shared_library"],
-    linkopts = ["-Wl,-rpath,$$ORIGIN/../tensorflow_neuron/runtime/direct/lib/nrt"],
+    linkopts = ["-Wl,-rpath,$$ORIGIN/../tensorflow_neuron/runtime/direct/lib/nrt:$$ORIGIN/nrt"],
     strip_include_prefix = "direct/include",
 )
 
