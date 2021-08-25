@@ -1677,14 +1677,23 @@ class TestAMPPass(unittest.TestCase):
             fp16_cast_op_names = [
                 "input0-0-CastToFp16-AutoMixedPrecision", 
                 "input1-0-CastToFp16-AutoMixedPrecision",
+                ]
+            fp16_const_cast_op_names = [
                 "conv2d0/filter-0-CastToFp16-AutoMixedPrecision",
                 "conv2d1/filter-0-CastToFp16-AutoMixedPrecision",
                 "conv2d2/filter-0-CastToFp16-AutoMixedPrecision",
                 ]
             fp_32_cast_op_names = ["conv2d2-0-CastToFp32-AutoMixedPrecision"]
+
+            for op_name in fp16_const_cast_op_names:
+                assert op_name in node_map, "Cast op: {op_name}, does not exist"
+                # print(node_map[op_name].type)
+                assert tf.dtypes.DType(node_map[op_name].attr["dtype"].type) == tf.float16, "AMP pass did not cast to fp16"
+            
             for op_name in fp16_cast_op_names:
                 assert op_name in node_map, "Cast op: {op_name}, does not exist"
                 assert tf.dtypes.DType(node_map[op_name].attr["DstT"].type) == tf.float16, "AMP pass did not cast to fp16"
+                
             for op_name in fp_32_cast_op_names:
                 assert op_name in node_map, "Cast op: {op_name}, does not exist"
                 assert tf.dtypes.DType(node_map[op_name].attr["DstT"].type) == tf.float32, "AMP pass did not cast to fp32"

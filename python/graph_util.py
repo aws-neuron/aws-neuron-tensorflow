@@ -374,10 +374,6 @@ def amp_optimization(graph_def, signature_def):
     # Hence, we need to fold them to get cast const ops.
     rewriter_config.optimizers.append('constfold')
 
-    # configure amp pass
-    fuser_config = rewriter_config.custom_optimizers.add()
-    fuser_config.name = 'auto_mixed_precision_neuron'
-
     # Setting the devidde to CPU before AMP pass
     for node in graph_def.node:
         node.device = "/device:CPU:0"
