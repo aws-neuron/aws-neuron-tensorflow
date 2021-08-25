@@ -370,6 +370,9 @@ def amp_optimization(graph_def, signature_def):
     rewriter_config.meta_optimizer_iterations = 1
     rewriter_config.min_graph_nodes = 2
     rewriter_config.optimizers.append('auto_mixed_precision_neuron')
+    # Need to add constant fold since TVM has issues getting cast operators applied after constants.
+    # Hence, we need to fold them to get cast const ops.
+    rewriter_config.optimizers.append('constfold')
 
     # configure amp pass
     fuser_config = rewriter_config.custom_optimizers.add()
