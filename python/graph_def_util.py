@@ -197,7 +197,8 @@ def inline_shape_inputs_in_subgraphs(graph_def):
         return name_to_node[node_name]
 
     def contains_shape_input(node):
-        return any(get_node(name).op in shape_content_fn_map for name in node.input)
+        # Returns True if any non-control input node is a shape-related operator
+        return any(get_node(name).op in shape_content_fn_map for name in node.input if not name.startswith('^'))
 
     if not any(contains_shape_input(node) for node in get_neuron_nodes(graph_def)):
         return graph_def
