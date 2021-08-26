@@ -14,11 +14,15 @@ limitations under the License.
 ==============================================================================*/
 
 #include "executable.h"
+
 #include <cstddef>
+
 #include "../macros.h"
+#include "absl/memory/memory.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "host_memory.h"
+#include "profiler_context.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/stringpiece.h"
@@ -32,6 +36,12 @@ NeuronExecutable::NeuronExecutable(StringPiece executable,
                                    const NeuronCoreRange& nc_range) {
   status_ =
       Nrt::Load(&rt_model_, executable, nc_range.start_nc_, nc_range.nc_count_);
+
+  if (const char* filename = std::getenv("NEURON_PROFILE")) {
+    // starts profiling that will terminate when this model leaves scope
+    ProfilerContext_ =
+        absl::make_unique<ProfilerContext>(rt_model_, filename, executable);
+  }
 }
 
 NeuronExecutable::~NeuronExecutable() {

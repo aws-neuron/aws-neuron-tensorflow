@@ -256,6 +256,7 @@ cc_library(
         ":direct/dynamic_batch",
         ":direct/host_memory",
         ":direct/placer",
+        ":direct/profiler_context",
         ":macros",
     ],
 )
@@ -279,6 +280,7 @@ cc_library(
         ":direct/adaptor",
         ":direct/core_range",
         ":direct/host_memory",
+        ":direct/profiler_context",
         ":macros",
     ],
 )
@@ -316,6 +318,16 @@ cc_library(
 cc_library(
     name = "direct/core_range",
     hdrs = ["direct/core_range.h"],
+)
+# nrt profiler
+cc_library(
+    name = "direct/profiler_context",
+    hdrs = ["direct/profiler_context.h"],
+    srcs = ["direct/profiler_context.cc"],
+    deps = [
+        ":direct/adaptor"
+    ],
+
 )
 
 # tensorflow-adapted nrt library

@@ -18,10 +18,12 @@ limitations under the License.
 
 #include <cstddef>
 #include <memory>
+
 #include "../macros.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "host_memory.h"
+#include "profiler_context.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/stringpiece.h"
 #include "tensorflow/core/platform/mutex.h"
@@ -39,6 +41,7 @@ class NeuronExecutable {
  private:
   NrtModel rt_model_;
   Status status_;
+  std::unique_ptr<ProfilerContext> ProfilerContext_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
 };
 

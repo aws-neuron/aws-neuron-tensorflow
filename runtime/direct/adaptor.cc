@@ -409,6 +409,7 @@ Status Nrt::ProfileStart(const NrtModel& model, const char* filename) {
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
                       "ProfileStart failed: nrt_profile_start");
   VLOG(1) << "Nrt::ProfileStart OK " << model.raw_ << ", filename=" << filename;
+  return Status::OK();
 #else
   return errors::Unimplemented(__func__);
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
@@ -422,6 +423,7 @@ Status Nrt::ProfileStop(const char* filename) {
                       "ProfileStop failed: nrt_profile_stop");
   VLOG(1) << "Nrt::ProfileStart OK "
           << ", filename=" << filename;
+  return Status::OK();
 #else
   return errors::Unimplemented(__func__);
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
