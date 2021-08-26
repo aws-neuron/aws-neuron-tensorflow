@@ -200,6 +200,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     # call main-graph grappler passes
     graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function)
+    graph_def = gdu.inline_shape_inputs_in_subgraphs(graph_def)
     dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_fused.pb')
     dumper.maybe_compute_io_tensors(graph_def, original_graph_def, func, feed_dict)
 
