@@ -33,7 +33,8 @@ namespace neuron {
 
 class NeuronExecutable {
  public:
-  NeuronExecutable(StringPiece executable, const NeuronCoreRange& nc_range);
+  NeuronExecutable(StringPiece executable, const NeuronCoreRange& nc_range,
+                   size_t core_num);
   ~NeuronExecutable();
   Status GetStatus() { return status_; }
   Status RunOnHostMemory(NeuronHostMemory* memory);
@@ -41,6 +42,7 @@ class NeuronExecutable {
  private:
   NrtModel rt_model_;
   Status status_;
+  size_t core_num_;
   std::unique_ptr<ProfilerContext> ProfilerContext_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
 };

@@ -256,7 +256,6 @@ cc_library(
         ":direct/dynamic_batch",
         ":direct/host_memory",
         ":direct/placer",
-        ":direct/profiler_context",
         ":macros",
     ],
 )

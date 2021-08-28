@@ -33,18 +33,26 @@ namespace tensorflow {
 namespace neuron {
 
 NeuronExecutable::NeuronExecutable(StringPiece executable,
-                                   const NeuronCoreRange& nc_range) {
+                                   const NeuronCoreRange& nc_range,
+                                   size_t core_num) {
   status_ =
       Nrt::Load(&rt_model_, executable, nc_range.start_nc_, nc_range.nc_count_);
+  core_num_ = core_num;
 
-  if (const char* filename = std::getenv("NEURON_PROFILE")) {
-    // starts profiling that will terminate when this model leaves scope
-    ProfilerContext_ =
-        absl::make_unique<ProfilerContext>(rt_model_, filename, executable);
+  if (const char* profile_dir = std::getenv("NEURON_PROFILE")) {
+    if (core_num_ == 0) {
+      // starts profiling that will terminate when this NeuronExecutable leaves
+      // scope
+      ProfilerContext_ = absl::make_unique<ProfilerContext>(
+          rt_model_, profile_dir, executable);
+    }
   }
 }
 
 NeuronExecutable::~NeuronExecutable() {
+  if (core_num_ == 0) {
+    Nrt::ProfileStop(ProfilerContext_->get_path_to_profile_file());
+  }
   if (status_.ok()) {
     Nrt::Unload(rt_model_);
   }
@@ -59,8 +67,8 @@ Status NeuronExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
 Status NeuronDataParallelExecutable::AddExecutable(
     StringPiece executable, const NeuronCoreRange& nc_range) {
   tensorflow::mutex_lock lock(mu_);
-  executables_.push_back(
-      std::make_shared<NeuronExecutable>(executable, nc_range));
+  executables_.push_back(std::make_shared<NeuronExecutable>(
+      executable, nc_range, executables_.size()));
   Status status = executables_.back()->GetStatus();
   if (TF_PREDICT_FALSE(!status.ok())) {
     executables_.pop_back();
