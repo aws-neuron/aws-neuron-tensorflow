@@ -40,7 +40,7 @@ ProfilerContext::ProfilerContext(const NrtModel& model, std::string profile_dir,
     LOG(ERROR) << "Failed create neff file..., turning off profiler";
     return;
   }
-  status = file->Append(executable);
+  status_ = file->Append(executable);
   if (!status_.ok()) {
     LOG(ERROR) << "Failed to write to neff file...";
   }
