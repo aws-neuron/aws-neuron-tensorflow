@@ -30,7 +30,7 @@ class NeuronOp : public OpKernel {
   void Compute(OpKernelContext* ctx) override;
 
  private:
-  bool grpc_runtime_ok_ = false;
+  Status grpc_runtime_status_;
   NeuronModel model_;
   NeuronFunction function_;
 };

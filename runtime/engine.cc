@@ -32,6 +32,28 @@ NeuronEngineManager::NeuronEngineManager() {
   // neuron-rtd address
   nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  // only enable grpc runtime under NEURON_INTERNAL_USE_GRPC_RUNTIME=yes
+  if (env_get("NEURON_INTERNAL_USE_GRPC_RUNTIME", "") != "yes") {
+    // check whether grpc runtime is already occupied or not
+    RuntimeGRPC temp_runtime;
+    if (temp_runtime.initialize(nrtd_address_).ok()) {
+      int num_egs = 0;
+      if (!temp_runtime.list_egs(&num_egs).ok()) {
+        // ignore grpc/nrt errors
+        return;
+      }
+      if (num_egs) {
+        runtime_status_ = errors::FailedPrecondition(
+            "Detected occupied neuron-rtd (", num_egs, ") NeuronCore groups. "
+            "Please stop it by 'sudo systemctl stop neuron-rtd' to prevent "
+            "undefined Neuron runtime behavior!");
+      }
+    }
+    return;
+  }
+#endif
+
   // runtime session
   session_ = std::make_shared<RuntimeSession>();
   runtime_status_ = session_->initialize(nrtd_address_);

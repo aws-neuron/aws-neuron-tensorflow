@@ -24,12 +24,18 @@ namespace neuron {
 
 NeuronOp::NeuronOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
   VLOG(1) << "NeuronOp contructor " << this;
-  grpc_runtime_ok_ = NeuronEngineManager::GetNeuronEngineManager().runtime_ok();
+  grpc_runtime_status_ =
+      NeuronEngineManager::GetNeuronEngineManager().runtime_status();
 }
 
 void NeuronOp::Compute(OpKernelContext* ctx) {
-  // Use GRPC runtime if available
-  if (grpc_runtime_ok_) {
+  // Fail early if there is a precondition error
+  if (grpc_runtime_status_.code() == error::Code::FAILED_PRECONDITION) {
+    OP_REQUIRES_OK(ctx, grpc_runtime_status_);
+  }
+
+  // Use GRPC runtime if available and there is no precondition error
+  if (grpc_runtime_status_.ok()) {
     OP_REQUIRES_OK(ctx, model_.compute(ctx, def()));
     return;
   }

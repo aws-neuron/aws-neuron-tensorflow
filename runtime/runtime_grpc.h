@@ -86,6 +86,7 @@ class RuntimeGRPC {
  public:
   RuntimeGRPC() {}
   Status initialize(const std::string& nrtd_address);
+  Status list_egs(int* num_egs);
   Status create_eg(uint32_t* eg_id, uint32_t* num_cores,
                    const int num_cores_req, const uint64_t session_id);
   Status load(uint32_t* nn_id, const uint32_t eg_id,

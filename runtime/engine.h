@@ -77,7 +77,7 @@ class NeuronEngine {
 class NeuronEngineManager {
  public:
   static NeuronEngineManager& GetNeuronEngineManager();
-  bool runtime_ok() { return runtime_status_.ok(); }
+  Status runtime_status() { return runtime_status_; }
   SharedMemoryAllocator* get_shm_allocator() { return shm_allocator_.get(); }
   Status apply_for_engine(NeuronEngine** engine,
                           const std::string& session_handle,
@@ -108,7 +108,7 @@ class NeuronEngineManager {
   std::unordered_map<std::string, size_t> session_handle_to_engine_index_;
   size_t engine_index_ = 0;
   size_t num_engines_ = 0;
-  Status runtime_status_ = errors::InvalidArgument("Uninitialized");
+  Status runtime_status_ = errors::Unavailable("Uninitialized");
   bool ready_ = false;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronEngineManager);
 };

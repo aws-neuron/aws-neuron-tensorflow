@@ -146,6 +146,15 @@ Status RuntimeGRPC::initialize(const std::string& nrtd_address) {
   return Status::OK();
 }
 
+Status RuntimeGRPC::list_egs(int* num_egs) {
+  nrt::empty request;
+  nrt::out_list_egs response;
+  grpc::Status status = NRT_GRPC(stub_->list_egs, request, &response);
+  NRT_CHECK_RETURN("list_egs", status, response);
+  *num_egs = response.eg_info_size();
+  return Status::OK();
+}
+
 Status RuntimeGRPC::create_eg(uint32_t* eg_id, uint32_t* num_cores,
                               const int num_cores_req,
                               const uint64_t session_id) {
