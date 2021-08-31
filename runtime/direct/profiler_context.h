@@ -22,17 +22,18 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 class ProfilerContext {
- private:
-  NrtModel model_;
-  std::string path_to_profile_file_;
-  Status status_;
-
  public:
   ProfilerContext(const NrtModel& model, std::string profile_dir,
                   const StringPiece& executable);
   ProfilerContext();
   ~ProfilerContext();
   const char* get_path_to_profile_file();
+
+ private:
+  NrtModel model_;
+  std::string path_to_profile_file_;
+  Status status_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(ProfilerContext);
 };
 }  // namespace neuron
 }  // namespace tensorflow
