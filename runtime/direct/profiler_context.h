@@ -29,12 +29,12 @@ class ProfilerContext {
   ProfilerContext();
   ~ProfilerContext();
   const char* get_path_to_profile_file();
-  TFN_DISALLOW_COPY_MOVE_ASSIGN(ProfilerContext);
 
  private:
   NrtModel model_;
   std::string path_to_profile_file_;
   Status status_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(ProfilerContext);
 
 };
 }  // namespace neuron
