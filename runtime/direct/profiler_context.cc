@@ -41,11 +41,21 @@ ProfilerContext::ProfilerContext(const NrtModel& model, std::string profile_dir,
   }
 
   path_to_profile_file_ = profile_dir + "/someopname.ntff";
-  Nrt::ProfileStart(model, get_path_to_profile_file());
+  status_ = Nrt::ProfileStart(model, get_path_to_profile_file());
+  if (!status_.ok()) {
+    LOG(ERROR) << "Failed to start profiling at " << get_path_to_profile_file();
+    return;
+  }
 }
 ProfilerContext::ProfilerContext() {}
 
-ProfilerContext::~ProfilerContext() {}
+ProfilerContext::~ProfilerContext() {
+  status_ = Nrt::ProfileStop(get_path_to_profile_file());
+  if (!status_.ok()) {
+    LOG(ERROR) << "Failed to stop profiling at " << get_path_to_profile_file();
+    return;
+  }
+}
 
 const char* ProfilerContext::get_path_to_profile_file() {
   return path_to_profile_file_.c_str();

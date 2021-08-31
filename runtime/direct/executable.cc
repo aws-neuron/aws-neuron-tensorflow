@@ -53,7 +53,8 @@ Status NeuronExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
 Status NeuronExecutableProfiler::RunOnHostMemory(NeuronHostMemory* memory) {
   tensorflow::mutex_lock lock(mu_);
   TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status_);
-  ProfilerContext(rt_model_, profile_dir_, executable_);
+  ProfilerContext StopsProfilingWhenItLeavesScope =
+      ProfilerContext(rt_model_, profile_dir_, executable_);
   return Nrt::Execute(rt_model_, memory->input_buffer_map_.rt_buffer_map_,
                       &memory->output_buffer_map_.rt_buffer_map_);
 }

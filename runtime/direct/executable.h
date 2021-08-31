@@ -38,16 +38,19 @@ class NeuronExecutable {
   Status GetStatus() { return status_; }
   virtual Status RunOnHostMemory(NeuronHostMemory* memory);
 
- private:
-  friend class NeuronExecutableProfiler;
+ protected:
   NrtModel rt_model_;
   Status status_;
+
+ private:
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
 };
 
 class NeuronExecutableProfiler : public NeuronExecutable {
  public:
-  NeuronExecutableProfiler(StringPiece executable, const NeuronCoreRange& nc_range, std::string profile_dir);
+  NeuronExecutableProfiler(StringPiece executable,
+                           const NeuronCoreRange& nc_range,
+                           std::string profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
 
  private:
