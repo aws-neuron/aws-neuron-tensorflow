@@ -13,8 +13,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#ifndef PROFILER_CONTEXT_H
-#define PROFILER_CONTEXT_H
+#ifndef TENSORFLOW_NEURON_RUNTIME_DIRECT_PROFILER_CONTEXT_H_
+#define TENSORFLOW_NEURON_RUNTIME_DIRECT_PROFILER_CONTEXT_H_
 
 #include "adaptor.h"
 #include "tensorflow/core/lib/core/stringpiece.h"

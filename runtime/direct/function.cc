@@ -14,10 +14,12 @@ limitations under the License.
 ==============================================================================*/
 
 #include "function.h"
+
 #include <cstddef>
 #include <string>
-#include <vector>
 #include <utility>
+#include <vector>
+
 #include "../macros.h"
 #include "../tensor_util.h"
 #include "absl/memory/memory.h"
@@ -106,8 +108,16 @@ Status NeuronFunction::MaybeInit(const NodeDef& node_def,
   std::pair<Status, std::vector<NeuronCoreRange>> status_core_ranges =
       placer.GetParallelCoreRanges(info_, session_handle);
   TF_RETURN_IF_ERROR(status_core_ranges.first);
-  for (const auto& nc_range : status_core_ranges.second) {
-    TF_RETURN_IF_ERROR(exe_->AddExecutable(info_.executable, nc_range));
+  // check to see if profiling is on
+  if (const char* profile_dir = std::getenv("NEURON_PROFILE")) {
+    for (const auto& nc_range : status_core_ranges.second) {
+      TF_RETURN_IF_ERROR(exe_->AddProfilingExecutable(info_.executable, nc_range, profile_dir));
+      break;
+    }
+  } else {
+    for (const auto& nc_range : status_core_ranges.second) {
+      TF_RETURN_IF_ERROR(exe_->AddExecutable(info_.executable, nc_range));
+    }
   }
   VLOG(1) << "NeuronFunction::MaybeInit done";
   return Status::OK();

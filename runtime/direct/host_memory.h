@@ -53,6 +53,7 @@ class NeuronHostBufferMap {
 
  private:
   friend class NeuronExecutable;
+  friend class NeuronExecutableProfiler;
   NrtBufferMap rt_buffer_map_;
   Status status_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronHostBufferMap);
@@ -67,6 +68,7 @@ class NeuronHostMemory {
 
  private:
   friend class NeuronExecutable;
+  friend class NeuronExecutableProfiler;
   std::vector<std::shared_ptr<NeuronHostBuffer>> input_buffers_;
   std::vector<std::shared_ptr<NeuronHostBuffer>> output_buffers_;
   NeuronHostBufferMap input_buffer_map_;

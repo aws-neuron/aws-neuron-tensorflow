@@ -34,17 +34,11 @@ ProfilerContext::ProfilerContext(const NrtModel& model, std::string profile_dir,
 
   std::string filename_neff = profile_dir + "/someneffname.neff";
 
-  std::unique_ptr<WritableFile> file;
-  status_ = Env::Default()->NewWritableFile(filename_neff, &file);
+  status_ = WriteStringToFile(Env::Default(), filename_neff, executable);
   if (!status_.ok()) {
     LOG(ERROR) << "Failed create neff file..., turning off profiler";
     return;
   }
-  status_ = file->Append(executable);
-  if (!status_.ok()) {
-    LOG(ERROR) << "Failed to write to neff file...";
-  }
-  file->Close();
 
   path_to_profile_file_ = profile_dir + "/someopname.ntff";
   Nrt::ProfileStart(model, get_path_to_profile_file());

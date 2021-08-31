@@ -33,24 +33,37 @@ namespace neuron {
 
 class NeuronExecutable {
  public:
-  NeuronExecutable(StringPiece executable, const NeuronCoreRange& nc_range,
-                   size_t core_num);
+  NeuronExecutable(StringPiece executable, const NeuronCoreRange& nc_range);
   ~NeuronExecutable();
   Status GetStatus() { return status_; }
+  virtual Status RunOnHostMemory(NeuronHostMemory* memory);
+
+ private:
+  friend class NeuronExecutableProfiler;
+  NrtModel rt_model_;
+  Status status_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
+};
+
+class NeuronExecutableProfiler : public NeuronExecutable {
+ public:
+  NeuronExecutableProfiler(StringPiece executable, const NeuronCoreRange& nc_range, std::string profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
 
  private:
-  NrtModel rt_model_;
-  Status status_;
-  size_t core_num_;
-  std::unique_ptr<ProfilerContext> ProfilerContext_;
-  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
+  tensorflow::mutex mu_;
+  StringPiece executable_;
+  std::string profile_dir_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutableProfiler);
 };
 
 class NeuronDataParallelExecutable {
  public:
   NeuronDataParallelExecutable() {}
   Status AddExecutable(StringPiece executable, const NeuronCoreRange& nc_range);
+  Status AddProfilingExecutable(StringPiece executable,
+                                const NeuronCoreRange& nc_range,
+                                std::string profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
 
  private:
