@@ -100,6 +100,21 @@ Status Nrt::Init() {
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
+Status Nrt::GetCoreCount(int32_t *nc_count) {
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  TFN_RETURN_IF_NULLPTR(nc_count);
+  uint32_t rt_nc_count = 0;
+  NRT_STATUS rt_status = nrt_get_total_nc_count(&rt_nc_count);
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "Nrt::GetCoreCount failed: nrt_get_total_nc_count");
+  *nc_count = (int32_t)rt_nc_count;
+  VLOG(1) << "Nrt::GetCoreCount OK";
+  return Status::OK();
+#else
+  return errors::Unimplemented(__func__);
+#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
 Status Nrt::Close() {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   nrt_close();

@@ -45,6 +45,7 @@ class NrtBufferMap {
 class Nrt {
  public:
   static Status Init();
+  static Status GetCoreCount(int32_t *nc_count);
   static Status Close();
   static Status AllocHostBuffer(NrtBuffer* buffer, size_t size);
   static Status FreeBuffer(NrtBuffer* buffer);
