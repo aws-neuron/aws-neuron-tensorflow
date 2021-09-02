@@ -15,6 +15,7 @@
 import os
 import sys
 import subprocess
+import unittest
 import numpy as np
 import tensorflow as tf
 from tensorflow.neuron import fuse
@@ -176,6 +177,7 @@ class TestFuse(TestV1Only):
                 for res_neuron, res_ref in zip(result_ref_unpacked, result_neuron_unpacked):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2)
 
+    @unittest.skip('unsupported in libmode')
     def test_fuse_eager_execution(self):
         assert subprocess.run([
             sys.executable, '-c', 'from tensorflow.neuron.python import fuse_test;'
