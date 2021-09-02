@@ -34,7 +34,13 @@ NeuronCorePlacer& NeuronCorePlacer::Singleton() {
 
 NeuronCorePlacer::NeuronCorePlacer() {
   status_ = Nrt::Init();
-  num_available_cores_ = 4;  // TODO: read from runtime
+  if (!status_.ok()) {
+    return;
+  }
+  status_ = Nrt::GetCoreCount(&num_available_cores_);
+  if (!status_.ok()) {
+    return;
+  }
   core_pointer_ = 0;
 }
 
