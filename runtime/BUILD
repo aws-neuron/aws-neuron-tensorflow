@@ -268,6 +268,7 @@ cc_library(
         ":direct/adaptor",
         ":direct/core_range",
         ":direct/executable_info",
+        ":utils",
     ],
 )
 

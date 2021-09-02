@@ -17,11 +17,14 @@ limitations under the License.
 #include <algorithm>
 #include <cstdint>
 #include <utility>
+#include <vector>
+#include "../env.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "executable_info.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/mutex.h"
 
 namespace tensorflow {
@@ -33,13 +36,63 @@ NeuronCorePlacer& NeuronCorePlacer::Singleton() {
 }
 
 NeuronCorePlacer::NeuronCorePlacer() {
+  std::vector<std::pair<int, int>> engine_specs = parse_engine_specs();
+  int num_cores_specified = 0;
+  max_num_dup_ = MAX_NUM_CORES;
+  std::string group_sizes = env_get("NEURONCORE_GROUP_SIZES", "");
+  for (const auto& spec : engine_specs) {
+    int num_cores = spec.first;
+    bool num_cores_is_legal = 0 < num_cores && num_cores <= MAX_NUM_CORES;
+    int num_dup = spec.second;
+    bool num_dup_is_legal = 0 < num_dup && num_dup <= MAX_NUM_CORES;
+    VLOG(1) << "num_cores=" << num_cores;
+    VLOG(1) << "num_dup=" << num_dup;
+    if (!(num_cores_is_legal && num_dup_is_legal)) {
+      LOG(WARNING) << "NEURONCORE_GROUP_SIZES=" << group_sizes
+                   << " looks ill-formatted -- ignoring.";
+      break;
+    }
+    max_num_dup_ = std::min(max_num_dup_, num_dup);
+    num_cores_specified += num_cores * num_dup;
+  }
+  VLOG(1) << "num_cores_specified=" << num_cores_specified;
+  VLOG(1) << "max_num_dup_=" << max_num_dup_;
+  if (max_num_dup_ > 1 && engine_specs.size() > 1) {
+    status_ = errors::Unimplemented("NEURONCORE_GROUP_SIZES with ",
+                                    engine_specs.size(),
+                                    " groups and automatic data parallel (",
+                                    max_num_dup_, ") is not implemented yet");
+    return;
+  }
+
+  // Use limited number of cores if NEURONCORE_GROUP_SIZES is specified
+  if (num_cores_specified) {
+    std::string num_cores_specified_str = std::to_string(num_cores_specified);
+    if (setenv("NEURON_RT_NUM_CORES",
+               /*value=*/num_cores_specified_str.c_str(),
+               /*overwrite=*/0)) {
+      status_ = errors::InvalidArgument(
+          "setenv failed; it is likely that "
+          "NEURONCORE_GROUP_SIZES=",
+          group_sizes, " is ill-formed");
+      return;
+    }
+  }
+
+  // Initialize runtime
   status_ = Nrt::Init();
   if (!status_.ok()) {
     return;
   }
-  status_ = Nrt::GetCoreCount(&num_available_cores_);
-  if (!status_.ok()) {
-    return;
+  if (num_cores_specified) {
+    num_available_cores_ = num_cores_specified;
+  } else {
+    if (!Nrt::GetCoreCount(&num_available_cores_).ok()) {
+      LOG(WARNING) << "Nrt::GetCoreCount failed after successful Nrt::Init; "
+                   << "boldly assuming that there are 4 cores available.";
+      num_available_cores_ = 4;
+      return;
+    }
   }
   core_pointer_ = 0;
 }
@@ -62,15 +115,16 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
     return std::make_pair(error, core_ranges);
   }
   int32_t nc_count = info.optimal_num_cores;
-  if (TF_PREDICT_FALSE(nc_count > 1)) {
+  if (TF_PREDICT_FALSE(nc_count > 1 || 1 == max_num_dup_)) {
     // Model parallel -- turn off data parallel
     std::pair<Status, NeuronCoreRange> status_core_range =
         UnsafeGetCoreRange(info, session_handle);
     core_ranges.push_back(status_core_range.second);
     return std::make_pair(status_core_range.first, core_ranges);
   }
-  // Single-core executable -- place a copy on each core
+  // Single-core executable -- place a copy on each core, up to max_num_dup_
   int32_t num_copies = std::min(info.max_num_duplicates, num_available_cores_);
+  num_copies = std::min(num_copies, max_num_dup_);
   for (int32_t start_nc = 0; start_nc < num_copies; ++start_nc) {
     core_ranges.emplace_back(start_nc, nc_count);
   }
@@ -99,11 +153,13 @@ std::pair<Status, NeuronCoreRange> NeuronCorePlacer::UnsafeGetCoreRange(
 }
 
 int32_t NeuronCorePlacer::UnsafeGetNeuronCoreId(StringPiece session_handle) {
-  if (sess_to_core_id_.count(session_handle)) {
-    return sess_to_core_id_.at(session_handle);
-  }
   int32_t core_id = core_pointer_;
-  sess_to_core_id_.at(session_handle) = core_id;
+  if (!session_handle.empty()) {
+    if (sess_to_core_id_.count(session_handle)) {
+      return sess_to_core_id_.at(session_handle);
+    }
+    sess_to_core_id_.at(session_handle) = core_id;
+  }
   ++core_pointer_;
   core_pointer_ %= num_available_cores_;
   return core_id;
