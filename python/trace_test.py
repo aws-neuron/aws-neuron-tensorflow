@@ -368,14 +368,66 @@ class TestTraceFunction(TestV2Only):
         def func(tensor):
             return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear')
 
-        input_tensor = tf.random.uniform([2, 3, 5])
+        input_tensor = tf.random.uniform([1, 2, 2, 5])
         func_neuron = tfn.trace(func, input_tensor)
         op_list = func_neuron.aws_neuron_function.graph.get_operations()
         assert len([op for op in op_list if op.type == 'ResizeBilinear']) == 0, 'found unfused ResizeBilinear'
         assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'
 
-    def test_custom_call_resize_bilinear_mock(self):
+    def test_custom_call_resize_bilinear_param1(self):
+        '''
+        Test evaluates the preserve aspect ratio argument and forces subgraph build
+        '''
+        def subgraph_builder_function(node):
+            return True
 
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear', preserve_aspect_ratio=True)
+
+        input_tensor = tf.random.uniform([1, 20, 20, 3])
+        result_layer = func(input_tensor)
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
+    def test_custom_call_resize_bilinear_param2(self):
+        '''
+        Test evaluates the antialias argument and forces subgraph build
+        '''
+        def subgraph_builder_function(node):
+            return True
+
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear', antialias=True)
+
+        input_tensor = tf.random.uniform([1, 20, 20, 3])
+        result_layer = func(input_tensor)
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
+
+    def test_custom_call_resize_bilinear_original(self):
+        '''
+        Test evaluates the default parameters
+        '''
+        def subgraph_builder_function(node):
+            return True
+
+        def func(tensor):
+            return tf.image.resize(tensor, (3, 5), method='bilinear')
+
+        input_tensor = tf.random.uniform([1, 20, 20, 3])
+        result_layer = func(input_tensor)
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
+    def test_custom_call_resize_bilinear_mock(self):
+        # skips compiler
         def func(tensor):
             return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear')
 
