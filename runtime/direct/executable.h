@@ -22,6 +22,7 @@ limitations under the License.
 #include "../macros.h"
 #include "adaptor.h"
 #include "core_range.h"
+#include "executable_info.h"
 #include "host_memory.h"
 #include "profiler_context.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -48,14 +49,14 @@ class NeuronExecutable {
 
 class NeuronExecutableProfiler : public NeuronExecutable {
  public:
-  NeuronExecutableProfiler(StringPiece executable,
+  NeuronExecutableProfiler(const NeuronExecutableInfo& info,
                            const NeuronCoreRange& nc_range,
-                           std::string profile_dir);
+                           const std::string& profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
 
  private:
   tensorflow::mutex mu_;
-  StringPiece executable_;
+  const NeuronExecutableInfo& info_;
   std::string profile_dir_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutableProfiler);
 };
@@ -64,9 +65,9 @@ class NeuronDataParallelExecutable {
  public:
   NeuronDataParallelExecutable() {}
   Status AddExecutable(StringPiece executable, const NeuronCoreRange& nc_range);
-  Status AddProfilingExecutable(StringPiece executable,
+  Status AddProfilingExecutable(const NeuronExecutableInfo& info,
                                 const NeuronCoreRange& nc_range,
-                                std::string profile_dir);
+                                const std::string& profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
 
  private:

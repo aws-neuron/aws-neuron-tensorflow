@@ -21,6 +21,7 @@ limitations under the License.
 #include "absl/memory/memory.h"
 #include "adaptor.h"
 #include "core_range.h"
+#include "executable_info.h"
 #include "host_memory.h"
 #include "profiler_context.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -53,17 +54,16 @@ Status NeuronExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
 Status NeuronExecutableProfiler::RunOnHostMemory(NeuronHostMemory* memory) {
   tensorflow::mutex_lock lock(mu_);
   TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status_);
-  ProfilerContext StopsProfilingWhenItLeavesScope(rt_model_, profile_dir_,
-                                                  executable_);
+  ProfilerContext profiler_context(rt_model_, profile_dir_, info_);
   return Nrt::Execute(rt_model_, memory->input_buffer_map_.rt_buffer_map_,
                       &memory->output_buffer_map_.rt_buffer_map_);
 }
 
 NeuronExecutableProfiler::NeuronExecutableProfiler(
-    StringPiece executable, const NeuronCoreRange& nc_range,
-    std::string profile_dir)
-    : NeuronExecutable::NeuronExecutable(executable, nc_range) {
-  executable_ = executable;
+    const NeuronExecutableInfo& info, const NeuronCoreRange& nc_range,
+    const std::string& profile_dir)
+    : NeuronExecutable::NeuronExecutable(info.executable, nc_range),
+      info_(info) {
   profile_dir_ = profile_dir;
 }
 
@@ -82,11 +82,11 @@ Status NeuronDataParallelExecutable::AddExecutable(
 }
 
 Status NeuronDataParallelExecutable::AddProfilingExecutable(
-    StringPiece executable, const NeuronCoreRange& nc_range,
-    std::string profile_dir) {
+    const NeuronExecutableInfo& info, const NeuronCoreRange& nc_range,
+    const std::string& profile_dir) {
   tensorflow::mutex_lock lock(mu_);
-  executables_.push_back(std::make_shared<NeuronExecutableProfiler>(
-      executable, nc_range, profile_dir));
+  executables_.push_back(
+      std::make_shared<NeuronExecutableProfiler>(info, nc_range, profile_dir));
 
   Status status = executables_.back()->GetStatus();
   if (TF_PREDICT_FALSE(!status.ok())) {

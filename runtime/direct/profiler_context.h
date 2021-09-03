@@ -16,16 +16,16 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_DIRECT_PROFILER_CONTEXT_H_
 #define TENSORFLOW_NEURON_RUNTIME_DIRECT_PROFILER_CONTEXT_H_
 
-#include "adaptor.h"
 #include "../macros.h"
-#include "tensorflow/core/lib/core/stringpiece.h"
+#include "adaptor.h"
+#include "executable_info.h"
 
 namespace tensorflow {
 namespace neuron {
 class ProfilerContext {
  public:
-  ProfilerContext(const NrtModel& model, std::string profile_dir,
-                  const StringPiece& executable);
+  ProfilerContext(const NrtModel& model, const std::string& profile_dir,
+                  const NeuronExecutableInfo& info);
   ProfilerContext();
   ~ProfilerContext();
   const char* get_path_to_profile_file();
@@ -35,7 +35,6 @@ class ProfilerContext {
   std::string path_to_profile_file_;
   Status status_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(ProfilerContext);
-
 };
 }  // namespace neuron
 }  // namespace tensorflow

@@ -17,12 +17,17 @@ limitations under the License.
 
 #include <fstream>
 
+#include "../env.h"
+#include "adaptor.h"
+#include "executable_info.h"
 #include "tensorflow/core/platform/env.h"
 
 namespace tensorflow {
 namespace neuron {
-ProfilerContext::ProfilerContext(const NrtModel& model, std::string profile_dir,
-                                 const StringPiece& executable) {
+
+ProfilerContext::ProfilerContext(const NrtModel& model,
+                                 const std::string& profile_dir,
+                                 const NeuronExecutableInfo& info) {
   model_ = model;
 
   status_ = Env::Default()->RecursivelyCreateDir(profile_dir);
@@ -32,15 +37,25 @@ ProfilerContext::ProfilerContext(const NrtModel& model, std::string profile_dir,
     return;
   }
 
-  std::string filename_neff = profile_dir + "/someneffname.neff";
+  std::string mangled_op_name = mangle_op_name(info.name);
+  std::string filename_prefix = profile_dir + "/" + mangled_op_name;
 
-  status_ = WriteStringToFile(Env::Default(), filename_neff, executable);
+  std::string filename_neff = filename_prefix + ".neff";
+  status_ = WriteStringToFile(Env::Default(), filename_neff, info.executable);
   if (!status_.ok()) {
     LOG(ERROR) << "Failed create neff file..., turning off profiler";
     return;
   }
 
-  path_to_profile_file_ = profile_dir + "/someopname.ntff";
+  std::string filename_graph_def = filename_prefix + ".graph_def.pb";
+  status_ = WriteStringToFile(Env::Default(), filename_graph_def,
+                              info.serialized_graph_def);
+  if (!status_.ok()) {
+    LOG(ERROR) << "Failed create graph_def file..., turning off profiler";
+    return;
+  }
+
+  path_to_profile_file_ = filename_prefix + ".ntff";
   status_ = Nrt::ProfileStart(model, get_path_to_profile_file());
   if (!status_.ok()) {
     LOG(ERROR) << "Failed to start profiling at " << get_path_to_profile_file();

@@ -279,6 +279,7 @@ cc_library(
     deps = [
         ":direct/adaptor",
         ":direct/core_range",
+        ":direct/executable_info",
         ":direct/host_memory",
         ":direct/profiler_context",
         ":macros",
@@ -305,6 +306,18 @@ cc_library(
     ],
 )
 
+# nrt profiler
+cc_library(
+    name = "direct/profiler_context",
+    hdrs = ["direct/profiler_context.h"],
+    srcs = ["direct/profiler_context.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/executable_info",
+        ":utils",
+    ],
+)
+
 cc_library(
     name = "direct/executable_info",
     hdrs = ["direct/executable_info.h"],
@@ -318,16 +331,6 @@ cc_library(
 cc_library(
     name = "direct/core_range",
     hdrs = ["direct/core_range.h"],
-)
-# nrt profiler
-cc_library(
-    name = "direct/profiler_context",
-    hdrs = ["direct/profiler_context.h"],
-    srcs = ["direct/profiler_context.cc"],
-    deps = [
-        ":direct/adaptor"
-    ],
-
 )
 
 # tensorflow-adapted nrt library

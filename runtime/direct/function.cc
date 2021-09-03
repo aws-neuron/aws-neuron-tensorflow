@@ -109,10 +109,11 @@ Status NeuronFunction::MaybeInit(const NodeDef& node_def,
       placer.GetParallelCoreRanges(info_, session_handle);
   TF_RETURN_IF_ERROR(status_core_ranges.first);
   // check to see if profiling is on
-  if (const char* profile_dir = std::getenv("NEURON_PROFILE")) {
+  if (const char* profile_dir_raw = std::getenv("NEURON_PROFILE")) {
+    std::string profile_dir(profile_dir_raw);
     for (const auto& nc_range : status_core_ranges.second) {
-      TF_RETURN_IF_ERROR(exe_->AddProfilingExecutable(info_.executable,
-                                                      nc_range, profile_dir));
+      TF_RETURN_IF_ERROR(exe_->AddProfilingExecutable(info_, nc_range,
+                                                      profile_dir));
       break;
     }
   } else {
