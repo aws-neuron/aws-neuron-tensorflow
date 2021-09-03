@@ -30,6 +30,7 @@ namespace neuron {
 class NeuronExecutableInfo {
  public:
   Status ParseFromNodeDef(const NodeDef& node_def);
+  StringPiece name;
   StringPiece executable;
   StringPiece serialized_graph_def;
   int32_t optimal_num_cores;

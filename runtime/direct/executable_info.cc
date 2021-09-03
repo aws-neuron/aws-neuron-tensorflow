@@ -43,6 +43,7 @@ constexpr char kOutputBatchAxis[] = "output_batch_axis";
 constexpr char kInputShuffles[] = "_input_shuffles";
 
 Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
+  name = node_def.name();
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
 #define NODE_DEF_CHECK_KEY(key)                                 \
   if (TF_PREDICT_FALSE(!attr.count(key))) {                     \
