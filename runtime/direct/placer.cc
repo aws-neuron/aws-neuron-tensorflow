@@ -158,7 +158,7 @@ int32_t NeuronCorePlacer::UnsafeGetNeuronCoreId(StringPiece session_handle) {
     if (sess_to_core_id_.count(session_handle)) {
       return sess_to_core_id_.at(session_handle);
     }
-    sess_to_core_id_.at(session_handle) = core_id;
+    sess_to_core_id_[session_handle] = core_id;
   }
   ++core_pointer_;
   core_pointer_ %= num_available_cores_;
