@@ -16,6 +16,7 @@ limitations under the License.
 #include "env.h"
 #include <stdexcept>
 #include <sstream>
+#include "tensorflow/core/lib/core/stringpiece.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -78,6 +79,16 @@ std::vector<std::pair<int, int>> parse_engine_specs() {
     engine_specs.push_back(std::make_pair(num_cores, num_dup));
   }
   return engine_specs;
+}
+
+std::string mangle_op_name(StringPiece op_name) {
+  std::string new_op_name(op_name);
+  for (size_t idx = 0; idx < new_op_name.length(); ++idx) {
+    if ('/' == new_op_name[idx]) {
+      new_op_name[idx] = '+';
+    }
+  }
+  return new_op_name;
 }
 
 }  // namespace neuron

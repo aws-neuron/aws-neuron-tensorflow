@@ -19,6 +19,7 @@ limitations under the License.
 #include <string>
 #include <vector>
 #include <utility>
+#include "tensorflow/core/lib/core/stringpiece.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -26,6 +27,7 @@ namespace neuron {
 std::string env_get(const char* env_var, const char* default_env_var = "");
 int stoi_no_throw(const std::string& str);
 std::vector<std::pair<int, int>> parse_engine_specs();
+std::string mangle_op_name(StringPiece op_name);
 
 }  // namespace neuron
 }  // namespace tensorflow

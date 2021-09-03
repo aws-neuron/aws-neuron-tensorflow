@@ -18,6 +18,7 @@ limitations under the License.
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fstream>
+#include "env.h"
 #include "macros.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
@@ -41,16 +42,6 @@ Status subprocess_run(Args... args) {
     }
   }
   return Status::OK();
-}
-
-static std::string mangle_op_name(const std::string& op_name) {
-  std::string new_op_name(op_name);
-  for (size_t idx = 0; idx < new_op_name.length(); ++idx) {
-    if ('/' == new_op_name[idx]) {
-      new_op_name[idx] = '+';
-    }
-  }
-  return new_op_name;
 }
 
 void ProfilerInterface::initialize(const std::string& profile_dir,
