@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 from tensorflow.core.framework import attr_value_pb2
+from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework import node_def_pb2
 from tensorflow.python.framework import importer
 from tensorflow.python.framework import ops
@@ -31,9 +32,12 @@ class CustomCallLowering:
     def lower(self, graph_def):
         if not any(get_custom_call_target(node) for node in graph_def.node):
             return graph_def
+        graph_def_lite = graph_pb2.GraphDef()
+        graph_def_lite.CopyFrom(graph_def)
+        graph_def_lite = gdu.erase_large_constants(graph_def_lite)
         graph = ops.Graph()
         with graph.as_default():
-            importer.import_graph_def(graph_def, name='')
+            importer.import_graph_def(graph_def_lite, name='')
         name_to_op = {op.name: op for op in graph.get_operations()}
         for node in graph_def.node:
             custom_call_target = get_custom_call_target(node)
