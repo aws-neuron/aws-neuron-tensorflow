@@ -20,7 +20,7 @@ from tensorflow.neuron.python.custom_call import CustomCallLowering
 from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo, tf2xla_pb2
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
-from tensorflow.neuron.python.ops.gen_checkruntime_op import checkruntime_op
+from tensorflow.neuron.python.ops.gen_neuron_op import check_runtime_op
 
 
 def run_channels_first_simple(mode):

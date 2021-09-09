@@ -9,7 +9,6 @@ cc_library(
     name = "all_ops",
     deps = [
         ":neuron_op_op_lib",
-        ":checkruntime_op_op_lib",
         ":neuron_op_kernel",
         ":identity_op",
         ":avgpooling_op",
@@ -20,10 +19,7 @@ cc_library(
 )
 
 tf_gen_op_libs(
-    op_lib_names = ["neuron_op", ],
-)
-tf_gen_op_libs(
-    op_lib_names = ["checkruntime_op", ],
+    op_lib_names = ["neuron_op"],
 )
 
 tf_kernel_library(
