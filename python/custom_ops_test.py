@@ -20,6 +20,7 @@ from tensorflow.neuron.python.custom_call import CustomCallLowering
 from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo, tf2xla_pb2
 import numpy as np
 from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow.neuron.python.ops.gen_checkruntime_op import checkruntime_op
 
 
 def run_channels_first_simple(mode):
@@ -492,6 +493,8 @@ class TestMaxPool(TestV2Only):
 
 
 class TestCustomOp(TestV2Only):
+    def test_checkruntime(self):
+        print(dir(test))
 
     def test_aws_neuron_erf(self):
         self._tf2hlo_test_unary_op('AwsNeuronErf')

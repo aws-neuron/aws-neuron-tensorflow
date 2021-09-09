@@ -9,6 +9,7 @@ cc_library(
     name = "all_ops",
     deps = [
         ":neuron_op_op_lib",
+        ":checkruntime_op_op_lib",
         ":neuron_op_kernel",
         ":identity_op",
         ":avgpooling_op",
@@ -19,7 +20,10 @@ cc_library(
 )
 
 tf_gen_op_libs(
-    op_lib_names = ["neuron_op"],
+    op_lib_names = ["neuron_op", ],
+)
+tf_gen_op_libs(
+    op_lib_names = ["checkruntime_op", ],
 )
 
 tf_kernel_library(
@@ -90,6 +94,18 @@ tf_kernel_library(
     deps = [
         ":device",
         ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "checkruntime_op",
+    srcs = [
+        "kernels/checkruntime_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+        ":direct/placer",
     ],
 )
 

@@ -80,6 +80,9 @@ REGISTER_OP("NeuronOp")
     .Output("output_tensors: output_dtypes")
     .SetShapeFn(NeuronOpShape);
 
+REGISTER_OP("CheckRuntimeOp")
+    .SetIsStateful();
+
 }  // namespace tensorflow
 
 // model_config format:

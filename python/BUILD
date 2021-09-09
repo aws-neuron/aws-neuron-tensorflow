@@ -125,13 +125,19 @@ tf_custom_op_library(
 tf_custom_op_py_library(
     name = "neuron_op_py",
     dso = [":aws_neuron_plugin"],
-    deps = [":gen_neuron_op_py"]
+    deps = [":gen_neuron_op_py", ":gen_checkruntime_op_py"]
 )
 
 tf_gen_op_wrapper_py(
     name = "gen_neuron_op_py",
     out = "ops/gen_neuron_op.py",
     deps = ["//tensorflow/neuron/runtime:neuron_op_op_lib"],
+)
+
+tf_gen_op_wrapper_py(
+    name = "gen_checkruntime_op_py",
+    out = "ops/gen_checkruntime_op.py",
+    deps = ["//tensorflow/neuron/runtime:checkruntime_op_op_lib"],
 )
 
 py_library(
