@@ -40,6 +40,7 @@ NeuronCorePlacer::NeuronCorePlacer() {
   int num_cores_specified = 0;
   max_num_dup_ = MAX_NUM_CORES;
   std::string group_sizes = env_get("NEURONCORE_GROUP_SIZES", "");
+  specified_num_dup_.reserve(engine_specs.size());
   for (const auto& spec : engine_specs) {
     int num_cores = spec.first;
     bool num_cores_is_legal = 0 < num_cores && num_cores <= MAX_NUM_CORES;
@@ -52,6 +53,7 @@ NeuronCorePlacer::NeuronCorePlacer() {
                    << " looks ill-formatted -- ignoring.";
       break;
     }
+    specified_num_dup_.push_back(num_dup);
     max_num_dup_ = std::min(max_num_dup_, num_dup);
     num_cores_specified += num_cores * num_dup;
   }
@@ -123,7 +125,13 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
     return std::make_pair(status_core_range.first, core_ranges);
   }
   // Single-core executable -- place a copy on each core, up to max_num_dup_
-  int32_t num_copies = std::min(info.max_num_duplicates, num_available_cores_);
+  int32_t num_copies;
+  if (specified_num_dup_.empty()) {
+    num_copies = std::min(info.max_num_duplicates, num_available_cores_);
+  } else {
+    // TODO: implement NEURONCORE_GROUP_SIZES + automatic data parallel
+    num_copies = specified_num_dup_.at(0);
+  }
   num_copies = std::min(num_copies, max_num_dup_);
   for (int32_t start_nc = 0; start_nc < num_copies; ++start_nc) {
     core_ranges.emplace_back(start_nc, nc_count);

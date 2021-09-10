@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstdint>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 #include "../macros.h"
 #include "core_range.h"
 #include "executable_info.h"
@@ -47,6 +48,7 @@ class NeuronCorePlacer {
   int32_t num_available_cores_;
   int32_t core_pointer_;
   int max_num_dup_;
+  std::vector<int> specified_num_dup_;
   static const int MAX_NUM_CORES = 64;
   // A map from tensorflow session handles to NeuronCore IDs that is not going
   // to be cleaned up until the process dies. This is presumably OK as each new
