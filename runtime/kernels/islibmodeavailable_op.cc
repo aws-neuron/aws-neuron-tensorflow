@@ -13,25 +13,36 @@ See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
 
-#include "registration.h"
 #include "../device.h"
 #include "../direct/placer.h"
+#include "registration.h"
 
 namespace tensorflow {
 namespace neuron {
 
-class CheckRuntimeOp : public OpKernel {
+class IsLibmodeAvailableOp : public OpKernel {
  public:
-  explicit CheckRuntimeOp(OpKernelConstruction* context) : OpKernel(context) {}
+  explicit IsLibmodeAvailableOp(OpKernelConstruction* context) : OpKernel(context) {}
 
   void Compute(OpKernelContext* context) override {
-      OP_REQUIRES_OK(context, NeuronCorePlacer::Singleton().GetStatus());
+    Tensor* output_tensor = NULL;
+    TensorShape output_shape{}; //empty outputshpae = scalar
+    OP_REQUIRES_OK(context,
+                   context->allocate_output(0, output_shape, &output_tensor));
+    auto outscalar = output_tensor->tensor<bool, 0>();
+    //check runtime libmode availability
+    Status status = NeuronCorePlacer::Singleton().GetStatus();
+    if (!status.ok()) {
+      outscalar() = false;
+    } else {
+      outscalar() = true;
+    }
   }
 
   bool IsExpensive() override { return false; }
 };
 
-NEURON_REGISTER_KERNEL_BUILDER("CheckRuntimeOp", DEVICE_CPU, CheckRuntimeOp);
+NEURON_REGISTER_KERNEL_BUILDER("IsLibmodeAvailableOp", DEVICE_CPU, IsLibmodeAvailableOp);
 
 }  // namespace neuron
 }  // namespace tensorflow

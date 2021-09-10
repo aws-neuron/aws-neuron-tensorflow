@@ -14,6 +14,7 @@ cc_library(
         ":avgpooling_op",
         ":maxpooling_op",
         ":constant_op",
+        ":islibmodeavailable_op",
         ":init",
     ],
 )
@@ -94,9 +95,9 @@ tf_kernel_library(
 )
 
 tf_kernel_library(
-    name = "checkruntime_op",
+    name = "islibmodeavailable_op",
     srcs = [
-        "kernels/checkruntime_op.cc",
+        "kernels/islibmodeavailable_op.cc",
     ],
     deps = [
         ":device",
