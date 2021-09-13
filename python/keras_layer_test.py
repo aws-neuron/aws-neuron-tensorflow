@@ -594,7 +594,6 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
-        'Embedding',
         'UpSampling2D',
     }
     return layer_names

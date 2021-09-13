@@ -60,6 +60,7 @@ ExpandDims
 FusedBatchNorm
 FusedBatchNormV2
 FusedBatchNormV3
+GatherV2
 Greater
 Identity
 LeakyRelu

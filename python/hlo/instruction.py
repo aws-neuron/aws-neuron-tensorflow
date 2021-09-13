@@ -114,6 +114,11 @@ class BatchHloInstructionPool:
     def exponential_minus_one(op):
         return [op.id, *op.operand_ids], None
 
+    def gather(op):
+        if 0 not in op.inst.gather_dimension_numbers.offset_dims:
+            return [op.id, op.operand_ids[1]], None
+        return None
+
     def get_dimension_size(op):
         return None
 
