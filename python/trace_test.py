@@ -391,6 +391,7 @@ class TestTraceFunction(TestV2Only):
         output_tensor_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
 
+    @unittest.expectedFailure
     def test_custom_call_resize_bilinear_param2(self):
         '''
         Test evaluates the antialias argument and forces subgraph build
