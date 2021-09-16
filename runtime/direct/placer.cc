@@ -22,6 +22,7 @@ limitations under the License.
 #include "adaptor.h"
 #include "core_range.h"
 #include "executable_info.h"
+#include "absl/memory/memory.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/env.h"
@@ -97,12 +98,21 @@ NeuronCorePlacer::NeuronCorePlacer() {
     }
   }
   core_pointer_ = 0;
+
+  // Initialize ThreadPool
+  thread_pool_ = absl::make_unique<thread::ThreadPool>(
+      Env::Default(), ThreadOptions(), /*pool_name=*/"nrt_thread_pool",
+      /*pool_size=*/num_available_cores_ * 2, /*low_latency_hint=*/false);
 }
 
 NeuronCorePlacer::~NeuronCorePlacer() {
   if (status_.ok()) {
     Nrt::Close();
   }
+}
+
+thread::ThreadPool* NeuronCorePlacer::GetThreadPool() {
+  return thread_pool_.get();
 }
 
 std::pair<Status, std::vector<NeuronCoreRange>>

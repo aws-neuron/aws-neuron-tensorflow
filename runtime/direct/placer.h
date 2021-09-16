@@ -17,6 +17,7 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_DIRECT_PLACER_H_
 
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -24,6 +25,7 @@ limitations under the License.
 #include "core_range.h"
 #include "executable_info.h"
 #include "tensorflow/core/lib/core/status.h"
+#include "tensorflow/core/lib/core/threadpool.h"
 #include "tensorflow/core/lib/hash/hash.h"
 #include "tensorflow/core/platform/mutex.h"
 
@@ -34,6 +36,7 @@ class NeuronCorePlacer {
  public:
   static NeuronCorePlacer& Singleton();
   Status GetStatus() { return status_; }
+  thread::ThreadPool* GetThreadPool();
   std::pair<Status, std::vector<NeuronCoreRange>> GetParallelCoreRanges(
       const NeuronExecutableInfo& info, StringPiece session_handle);
 
@@ -50,6 +53,7 @@ class NeuronCorePlacer {
   int max_num_dup_;
   std::vector<int> specified_num_dup_;
   static const int MAX_NUM_CORES = 64;
+  std::unique_ptr<thread::ThreadPool> thread_pool_;
   // A map from tensorflow session handles to NeuronCore IDs that is not going
   // to be cleaned up until the process dies. This is presumably OK as each new
   // session handle means a new tf 1.x Session or a new tf 2.x Function.

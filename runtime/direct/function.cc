@@ -83,8 +83,8 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   };
 
   // Run shards using CPU thread pool
-  thread::ThreadPool* thread_pool =
-      ctx->device()->tensorflow_cpu_worker_threads()->workers;
+  thread::ThreadPool* thread_pool
+      = NeuronCorePlacer::Singleton().GetThreadPool();
   TFN_RETURN_IF_NULLPTR(thread_pool);
   int64 cost_per_unit = 1000000000;  // An arbitrary large number
   thread_pool->ParallelFor(num_shards, cost_per_unit, std::move(RunShard));
