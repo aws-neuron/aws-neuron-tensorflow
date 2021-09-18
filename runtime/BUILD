@@ -3,6 +3,7 @@ package(default_visibility = ["//visibility:public"])
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
 load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_kernel_library")
+load(":build_defs.bzl", "if_tf_serving")
 
 
 cc_library(
@@ -215,6 +216,7 @@ cc_library(
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
     ],
+    defines = if_tf_serving(["AWS_NEURON_TFSERV"]),
 )
 
 cc_library(
