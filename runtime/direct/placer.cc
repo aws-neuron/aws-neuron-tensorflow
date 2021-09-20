@@ -41,6 +41,10 @@ NeuronCorePlacer::NeuronCorePlacer() {
   int num_cores_specified = 0;
   max_num_dup_ = MAX_NUM_CORES;
   std::string group_sizes = env_get("NEURONCORE_GROUP_SIZES", "");
+  if (!group_sizes.empty()) {
+    LOG(WARNING) << "NEURONCORE_GROUP_SIZES is being deprecated. "
+                 << "Please see Neuron documentation for more details.";
+  }
   specified_num_dup_.reserve(engine_specs.size());
   for (const auto& spec : engine_specs) {
     int num_cores = spec.first;
@@ -87,15 +91,18 @@ NeuronCorePlacer::NeuronCorePlacer() {
   if (!status_.ok()) {
     return;
   }
-  if (num_cores_specified) {
-    num_available_cores_ = num_cores_specified;
-  } else {
-    if (!Nrt::GetCoreCount(&num_available_cores_).ok()) {
-      LOG(WARNING) << "Nrt::GetCoreCount failed after successful Nrt::Init; "
-                   << "boldly assuming that there are 4 cores available.";
-      num_available_cores_ = 4;
-      return;
-    }
+  status_ = Nrt::GetCoreCount(&num_available_cores_);
+  if (!status_.ok()) {
+    Nrt::Close();
+    return;
+  }
+  if (num_cores_specified > num_available_cores_) {
+    Nrt::Close();
+    status_ = errors::InvalidArgument(
+        "NEURONCORE_GROUP_SIZES=", group_sizes, " requires ",
+        num_cores_specified, " NeuronCores, but there are only ",
+        num_available_cores_, " cores available");
+    return;
   }
   core_pointer_ = 0;
 
