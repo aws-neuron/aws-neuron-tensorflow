@@ -150,8 +150,16 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
     num_copies = specified_num_dup_.at(0);
   }
   num_copies = std::min(num_copies, max_num_dup_);
-  for (int32_t start_nc = 0; start_nc < num_copies; ++start_nc) {
-    core_ranges.emplace_back(start_nc, nc_count);
+  if (num_available_cores_ <= 4) {
+    for (int32_t start_nc = 0; start_nc < num_copies; ++start_nc) {
+      core_ranges.emplace_back(start_nc, nc_count);
+    }
+  } else {
+    for (int32_t idx = 0; idx < num_copies; ++idx) {
+      core_ranges.emplace_back(core_pointer_, nc_count);
+      ++core_pointer_;
+      core_pointer_ %= num_available_cores_;
+    }
   }
   return std::make_pair(Status::OK(), core_ranges);
 }
