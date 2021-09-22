@@ -249,6 +249,8 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
         command.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
     command = _insert_private_cc_flags(command, parsed_args)
     command.extend(compiler_args)
+    with open(os.path.join(workdir, 'neuron_cc_xla_command.log'), 'w') as f:
+        f.write(' '.join(command))
     with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
         proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
     if proc.returncode == 0:
