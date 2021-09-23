@@ -241,13 +241,12 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     with open(input_path, 'wb') as f:
         f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
     command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
-               '--pipeline', 'compile', 'SaveTemps', '--output', output_path, '--verbose=35']
-    command.append('--fp32-cast={}'.format(parsed_args.fp32_cast))
+               '--pipeline', 'compile', 'SaveTemps', '--output', output_path,
+               '--verbose=35', '--fast-math=none', '--fp32-cast={}'.format(parsed_args.fp32_cast)]
     if parsed_args.neuroncore_pipeline_cores is None:
         command.append('--enable-fast-context-switch')
     else:
         command.append('--neuroncore-pipeline-cores={}'.format(parsed_args.neuroncore_pipeline_cores))
-    command = _insert_private_cc_flags(command, parsed_args)
     command.extend(compiler_args)
     with open(os.path.join(workdir, 'neuron_cc_xla_command.log'), 'w') as f:
         f.write(' '.join(command))
@@ -263,17 +262,3 @@ def _maybe_dump_bytes_as(parsed_args, lazy_content, name):
     if parsed_args.dump_prefix is not None:
         with open(os.path.join(parsed_args.dump_prefix, name), 'wb') as f:
             f.write(lazy_content())
-
-
-def _insert_private_cc_flags(command, parsed_args):
-    if 'matmult' in parsed_args.fp32_cast:
-        try:
-            import neuroncc
-        except ImportError:
-            pass
-        else:
-            if hasattr(neuroncc, '__version__'):
-                if LooseVersion(neuroncc.__version__) < LooseVersion('1.7.0.0'):
-                    # Enable bitcasted-transpose for the high-precision use case
-                    command.append('--tensorizer-options=--no-disable-bitcasted-transpose')
-    return command

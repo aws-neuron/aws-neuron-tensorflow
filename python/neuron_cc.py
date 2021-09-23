@@ -95,7 +95,7 @@ def supports_xla():
     ncc_ver = LooseVersion(neuroncc.__version__)
     dev_delim_ver = LooseVersion('1.1.0.0')
     dev_min_ver = LooseVersion('1.0.35000.0')
-    rel_min_ver = LooseVersion('1.6.0.0')
+    rel_min_ver = LooseVersion('1.7.0.0')
     return dev_min_ver <= ncc_ver < dev_delim_ver or rel_min_ver <= ncc_ver
 
 

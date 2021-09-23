@@ -84,7 +84,7 @@ def get_extras_require_cc():
     if LooseVersion(get_version()) < LooseVersion('2.0'):
         return 'neuron-cc'
     else:
-        return 'neuron-cc >= 1.6.0'
+        return 'neuron-cc >= 1.7.0'
 
 
 setup(
