@@ -389,6 +389,37 @@ def amp_optimization(graph_def, signature_def):
 
     return graph_def
 
+def conv2d_padding_optimization(graph_def, signature_def):
+    """Runs a pass to split a Conv2D operation with SAME to one with VALID and a Pad operation
+
+    Args:
+        graph_def: input `GraphDef` proto.
+        signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
+
+    Returns:
+        A `GraphDef` proto with cast operators inserted at appropriate places.
+    """
+
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = 2
+    rewriter_config.optimizers.append('aws_neuron_split_conv2d_same_padding')
+
+    # Setting the device to CPU (do I need this for conv2d padding?)
+    for node in graph_def.node:
+        node.device = "/device:CPU:0"
+
+    # create meta_graph_def and run grappler passes
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+
+    # Resetting the device to empty
+    for node in graph_def.node:
+        node.device = ''
+
+    return graph_def
 
 def whitelist_partition(graph_def, signature_def,
                         supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None,
