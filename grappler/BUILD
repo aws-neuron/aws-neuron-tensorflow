@@ -8,6 +8,7 @@ cc_library(
         ":fuse_supported_operators",
         ":auto_mixed_precision",
         ":mark_ops_in_fixed_shape_context",
+        ":split_conv2d_same_padding",
     ],
 )
 
@@ -59,6 +60,18 @@ cc_library(
 cc_library(
     name = "mark_ops_in_fixed_shape_context",
     srcs = ["mark_ops_in_fixed_shape_context.cc"],
+    deps = [
+        "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
+        "//tensorflow/core/grappler:grappler_item",
+        "//tensorflow/neuron/grappler:graph_constructor_wrapper",
+        ":graph_optimizer_registry",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "split_conv2d_same_padding",
+    srcs = ["split_conv2d_same_padding.cc"],
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",

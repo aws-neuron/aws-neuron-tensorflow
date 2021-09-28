@@ -23,6 +23,7 @@ import unittest
 import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
+from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util
@@ -37,30 +38,42 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         Test asserts that the SAME padding has been removed from Conv2D
         and asserts that the new padding op has been added
         '''
-        
-        graph = tf.Graph()
-        with graph.as_default():
             
-            # Model Creation
-            input0 = tf.keras.layers.Input(shape=(1,28,28,3))
-            conv0 = tf.keras.layers.Conv2D(1, (3,3), padding='same')(input0)
+        # Model Creation
+        model = tf.keras.Sequential(layers=[
+            tf.keras.layers.InputLayer(input_shape=(1, 28, 28, 3), name="input"),
+            tf.keras.layers.Conv2D(1, (3,3), padding="same")
+        ], name="Conv")
+        
+        model.summary()
 
-            signature_def0 = meta_graph_util.build_signature_def([input0], [conv0])
-            graph_def = graph.as_graph_def()
-            amp_graph_def = graph_util.conv2d_padding_optimization(graph_def, signature_def0)
+        # convert keras model to ConcreteFunction
+        full_model = tf.function(lambda x: model(x))
+        full_model = full_model.get_concrete_function(
+            x=tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
 
-            padding_op_exists = False
-            # TODO: Modify so that this only happens on the first pad?
-            for node in amp_graph_def.node:
-                if node.op == "Conv2D":
-                    for attr in node.attr:
-                        if attr == "padding":
-                           padding_str = node.attr["padding"].s.decode("utf-8")
-                           assert(padding_str != "SAME")
-                if node.op == "PadV2/padding":
-                    padding_op_exists = True
+        # Frozen model
+        frozen_func = convert_variables_to_constants_v2(full_model)
+        graph_def = frozen_func.graph.as_graph_def()
 
-            assert(padding_op_exists)
+        signature_def0 = meta_graph_util.build_signature_def(frozen_func.inputs, frozen_func.outputs)
+        amp_graph_def = graph_util.conv2d_padding_optimization(graph_def, signature_def0)
+
+        padding_op_exists = False
+        conv2d_checked = False
+        # Ensures padding for first Conv2D layer is not same and that padding was added
+        for node in amp_graph_def.node:
+            if node.op == "Conv2D" and not conv2d_checked:
+                for attr in node.attr:
+                    if attr == "padding":
+                       print(node.attr["padding"].s)
+                       padding_str = node.attr["padding"].s.decode("utf-8")
+                       assert(padding_str != "SAME")
+                       conv2d_checked = True
+            if node.op == "Pad/padding":
+                padding_op_exists = True
+
+        assert(padding_op_exists)
 
     def test_pad_proto(self):
         graph = tf.Graph()

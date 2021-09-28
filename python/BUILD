@@ -158,6 +158,7 @@ py_library(
     name = "unittest_py",
     srcs = [
         "graph_util_test.py",
+        "graph_util_v2_test.py",
         "tfv1_while_loop_test.py",
         "saved_model_test.py",
         "keras_test.py",

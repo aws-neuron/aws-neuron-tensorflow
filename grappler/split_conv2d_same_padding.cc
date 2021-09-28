@@ -62,31 +62,29 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
   TF_RETURN_IF_ERROR(
       ConvertGraphDefToGraph(GraphConstructorOptions(), item.graph, &graph));
 
-  // Collect node names with fixed shape outputs
-  std::unordered_set<std::string> fixed_shape_node_names;
   for (Node* node : graph.op_nodes()) {
     // Determine if there is a Conv2D with same padding
-    VLOG(1) << "Node being passed";
     bool first_pass = true;
-    NodeDef node_def = node->def();
+    NodeDef& node_def = node.def();
     if (node_def.op() == "Conv2D") {
-      AttrValue& padding_property = node_def->mutable_attr().at("padding");
+      const AttrValue& padding_property = node_def.attr().at("padding");
       std::string padding_str = padding_property.s();
 
-      VLOG(1) << "Found Conv2D Node";
+      VLOG(1) << "Found Conv2D Node: " << padding_str;
       if (padding_str == "SAME" && first_pass) {
+        VLOG(1) << "Found SAME Padding Str";
         // 2) Grab a random node, deep copy and clear it out auto_mixed_precision.cc:1081
-        NodeDef dummy_node(node->def());
-        dummy_node.clear_name(); 
         // 3) Change Conv2D with Same to Valid
-        padding_property.set_s("VALID");
+        (*node_def.mutable_attr())["padding"].set_s("VALID");
+        //SetAttrValue("VALID", padding_property) 
+        const AttrValue& padding_property_a = node_def.attr().at("padding");
+        std::string padding_str_a = padding_property.s();
+        VLOG(1) << (*node_def.mutable_attr())["padding"].s();
+        VLOG(1) << "Check modification?: " << padding_str_a;
         // 4) Add the right padv2 after the convolution
       }
     }
-
-
-    
-
+    node->def()->Swap(&node_def);
     
     /*
     AttrValue_ListValue inferred_shapes =
@@ -105,20 +103,28 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     }
     */
   }
-
+  for (Node* node : graph.op_nodes()) {
+    // Determine if there is a Conv2D with same padding
+    bool first_pass = true;
+    NodeDef node_def = node->def();
+    if (node_def.op() == "Conv2D") {
+      const AttrValue& padding_property = node_def.attr().at("padding");
+      std::string padding_str = padding_property.s();
+    }
+  }
   // Mark nodes whose all inputs and outputs are fixed shape tensors
   graph.ToGraphDef(output);
   return Status::OK();
 }
 
-void MarkOpsInFixedShapeContext::Feedback(Cluster* cluster,
+void SplitConv2DSamePadding::Feedback(Cluster* cluster,
                                           const GrapplerItem& item,
                                           const GraphDef& optimize_output,
                                           double result) {
   // Nothing to do for MarkOpsInFixedShapeContext.
 }
 
-REGISTER_NEURON_GRAPH_OPTIMIZER_AS(MarkOpsInFixedShapeContext, kNameOptimizer);
+REGISTER_NEURON_GRAPH_OPTIMIZER_AS(SplitConv2DSamePadding, kNameOptimizer);
 
 }  // end namespace
 }  // end namespace neuron

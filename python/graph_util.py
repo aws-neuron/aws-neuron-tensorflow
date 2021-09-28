@@ -403,7 +403,7 @@ def conv2d_padding_optimization(graph_def, signature_def):
     opt_config = config_pb2.ConfigProto()
     rewriter_config = opt_config.graph_options.rewrite_options
     rewriter_config.meta_optimizer_iterations = 1
-    rewriter_config.min_graph_nodes = 2
+    rewriter_config.min_graph_nodes = 1
     rewriter_config.optimizers.append('aws_neuron_split_conv2d_same_padding')
 
     # Setting the device to CPU (do I need this for conv2d padding?)
