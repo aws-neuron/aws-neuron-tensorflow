@@ -23,6 +23,7 @@ limitations under the License.
 #include "../macros.h"
 #include "../version.h"
 #include "nrt/nrt.h"
+#include "nrt/nrt_experimental.h"
 #include "nrt/nrt_profile.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -119,6 +120,42 @@ Status Nrt::Close() {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   nrt_close();
   VLOG(1) << "Nrt::Close OK";
+  return Status::OK();
+#else
+  return errors::Unimplemented(__func__);
+#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
+Status Nrt::AllocEmptyBuffer(NrtBuffer* buffer) {
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  TFN_RETURN_IF_NULLPTR(buffer);
+  NRT_STATUS rt_status = nrt_tensor_allocate_empty(
+      /*name=*/NULL, /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
+  if (TF_PREDICT_FALSE(rt_status != NRT_SUCCESS)) {
+    buffer->raw_ = nullptr;
+  }
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "AllocEmptyBuffer failed: nrt_tensor_allocate_empty");
+  return Status::OK();
+#else
+  return errors::Unimplemented(__func__);
+#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
+Status Nrt::AttachCpuToBuffer(NrtBuffer* buffer,
+                              void* cpu_buffer, size_t size) {
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  TFN_RETURN_IF_NULLPTR(buffer);
+  TFN_RETURN_IF_NULLPTR(cpu_buffer);
+  TFN_RETURN_IF_ZERO_SIZE(size);
+  NRT_STATUS rt_status = nrt_tensor_attach_buffer(
+      /*tensor=*/(nrt_tensor_t*)buffer->raw_,
+      /*buffer=*/cpu_buffer, /*size=*/size);
+  if (TF_PREDICT_FALSE(rt_status != NRT_SUCCESS)) {
+    buffer->raw_ = nullptr;
+  }
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "AttachCpuToBuffer failed: nrt_tensor_attach_buffer");
   return Status::OK();
 #else
   return errors::Unimplemented(__func__);
