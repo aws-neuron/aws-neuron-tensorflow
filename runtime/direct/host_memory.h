@@ -31,8 +31,10 @@ namespace neuron {
 class NeuronHostBuffer {
  public:
   NeuronHostBuffer(size_t size);
+  NeuronHostBuffer(void* cpu_buffer, size_t size);
   ~NeuronHostBuffer();
   Status GetStatus();
+  bool Owned() { return payload_ != 0; }
   size_t GetSize() { return size_; }
   Status CopyCpuToBuffer(const void* cpu_buffer, size_t size, size_t offset=0);
   Status CopyBufferToCpu(void* cpu_buffer, size_t size, size_t offset=0);
@@ -41,6 +43,7 @@ class NeuronHostBuffer {
   friend class NeuronHostBufferMap;
   NrtBuffer rt_buffer_;
   size_t size_ = 0;
+  size_t payload_ = 0;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronHostBuffer);
 };
 
@@ -62,7 +65,9 @@ class NeuronHostBufferMap {
 class NeuronHostMemory {
  public:
   NeuronHostMemory() {}
-  Status SetupBuffers(const NeuronExecutableInfo& info);
+  Status SetupBuffers(const NeuronExecutableInfo& info,
+                      std::vector<Tensor>* input_tensors,
+                      std::vector<Tensor>* output_tensors);
   Status CopyCPUToInputBuffers(const std::vector<Tensor>& input_tensors);
   Status CopyOutputBuffersToCPU(const std::vector<Tensor>& output_tensors);
 

@@ -35,6 +35,7 @@ namespace tensorflow {
 namespace neuron {
 
 NeuronHostBuffer::NeuronHostBuffer(size_t size) {
+  // Allocate a new host buffer
   if (TF_PREDICT_FALSE(0 == size)) {
     return;
   }
@@ -44,10 +45,26 @@ NeuronHostBuffer::NeuronHostBuffer(size_t size) {
     return;
   }
   size_ = size;
+  payload_ = size;
+}
+
+NeuronHostBuffer::NeuronHostBuffer(void* cpu_buffer, size_t size) {
+  // Donate a CPU buffer
+  Status status = Nrt::AllocEmptyBuffer(&rt_buffer_);
+  if (TF_PREDICT_FALSE(!status.ok())) {
+    LOG(ERROR) << status.error_message();
+    return;
+  }
+  status = Nrt::AttachCpuToBuffer(&rt_buffer_, cpu_buffer, size);
+  if (TF_PREDICT_FALSE(!status.ok())) {
+    LOG(ERROR) << status.error_message();
+    return;
+  }
+  size_ = size;
 }
 
 NeuronHostBuffer::~NeuronHostBuffer() {
-  if (TF_PREDICT_TRUE(0 != size_)) {
+  if (TF_PREDICT_FALSE(Owned())) {
     Nrt::FreeBuffer(&rt_buffer_);
   }
 }
@@ -100,13 +117,30 @@ static size_t TensorSize(DataType dype, const TensorShapeProto& shape_proto) {
   return (size_t)(dtype_size * num_elements);
 }
 
-Status NeuronHostMemory::SetupBuffers(const NeuronExecutableInfo& info) {
+static inline void* GetData(const Tensor& tensor) {
+#if TF_VERSION_LESS_THAN(2, 2)
+  return (void*)(const_cast<char*>(tensor.tensor_data().data()));
+#else
+  return tensor.data();
+#endif
+}
+
+Status NeuronHostMemory::SetupBuffers(const NeuronExecutableInfo& info,
+                                      std::vector<Tensor>* input_tensors,
+                                      std::vector<Tensor>* output_tensors) {
   VLOG(1) << "entering NeuronHostMemory::SetupBuffers";
   input_buffers_.reserve(info.input_dtypes.type_size());
   for (int idx = 0; idx < info.input_dtypes.type_size(); ++idx) {
     size_t size =
         TensorSize(info.input_dtypes.type(idx), info.input_shapes.shape(idx));
-    input_buffers_.push_back(std::make_shared<NeuronHostBuffer>(size));
+    std::shared_ptr<NeuronHostBuffer> buffer;
+    const Tensor& tensor = input_tensors->at(idx);
+    if (TF_PREDICT_TRUE(tensor.tensor_data().size() == size)) {
+      buffer = std::make_shared<NeuronHostBuffer>(GetData(tensor), size);
+    } else {
+      buffer = std::make_shared<NeuronHostBuffer>(size);
+    }
+    input_buffers_.push_back(buffer);
     TF_RETURN_IF_ERROR(input_buffers_.back()->GetStatus());
   }
   VLOG(1) << "NeuronHostMemory::SetupBuffers input_buffers_ done";
@@ -119,7 +153,14 @@ Status NeuronHostMemory::SetupBuffers(const NeuronExecutableInfo& info) {
   for (int idx = 0; idx < info.output_dtypes.type_size(); ++idx) {
     size_t size =
         TensorSize(info.output_dtypes.type(idx), info.output_shapes.shape(idx));
-    output_buffers_.push_back(std::make_shared<NeuronHostBuffer>(size));
+    std::shared_ptr<NeuronHostBuffer> buffer;
+    const Tensor& tensor = output_tensors->at(idx);
+    if (TF_PREDICT_TRUE(tensor.tensor_data().size() == size)) {
+      buffer = std::make_shared<NeuronHostBuffer>(GetData(tensor), size);
+    } else {
+      buffer = std::make_shared<NeuronHostBuffer>(size);
+    }
+    output_buffers_.push_back(buffer);
     TF_RETURN_IF_ERROR(output_buffers_.back()->GetStatus());
   }
   VLOG(1) << "NeuronHostMemory::SetupBuffers output_buffers_ done";
@@ -129,14 +170,6 @@ Status NeuronHostMemory::SetupBuffers(const NeuronExecutableInfo& info) {
   }
   VLOG(1) << "NeuronHostMemory::SetupBuffers done";
   return Status::OK();
-}
-
-static inline void* GetData(const Tensor& tensor) {
-#if TF_VERSION_LESS_THAN(2, 2)
-  return (void*)(const_cast<char*>(tensor.tensor_data().data()));
-#else
-  return tensor.data();
-#endif
 }
 
 Status NeuronHostMemory::CopyCPUToInputBuffers(
@@ -157,9 +190,13 @@ Status NeuronHostMemory::CopyCPUToInputBuffers(
     }
   }
   for (size_t idx = 0; idx < input_buffers_.size(); ++idx) {
+    std::shared_ptr<NeuronHostBuffer> buffer = input_buffers_.at(idx);
+    if (TF_PREDICT_TRUE(!buffer->Owned())) {
+      // Skip copy if buffer is donated
+      continue;
+    }
     const Tensor& tensor = input_tensors.at(idx);
     size_t tensor_size = tensor.tensor_data().size();
-    std::shared_ptr<NeuronHostBuffer> buffer = input_buffers_.at(idx);
     TF_RETURN_IF_ERROR(buffer->CopyCpuToBuffer(GetData(tensor), tensor_size));
     if (TF_PREDICT_FALSE(tensor_size < buffer->GetSize())) {
       VLOG(1) << "Filling the uninitialized part of input " << idx << " with 0";
@@ -191,9 +228,15 @@ Status NeuronHostMemory::CopyOutputBuffersToCPU(
     }
   }
   for (size_t idx = 0; idx < output_buffers_.size(); ++idx) {
+    std::shared_ptr<NeuronHostBuffer> buffer = output_buffers_.at(idx);
+    if (TF_PREDICT_TRUE(!buffer->Owned())) {
+      // Skip copy if buffer is donated
+      continue;
+    }
+    VLOG(1) << "Calling CopyBufferToCpu with small performance impact, likely "
+            << "due to shape mismatch between CPU tensor and NeuronHostBuffer";
     const Tensor& tensor = output_tensors.at(idx);
     size_t tensor_size = tensor.tensor_data().size();
-    std::shared_ptr<NeuronHostBuffer> buffer = output_buffers_.at(idx);
     TF_RETURN_IF_ERROR(buffer->CopyBufferToCpu(GetData(tensor), tensor_size));
   }
   VLOG(1) << "NeuronHostMemory::CopyOutputBuffersToCPU done";

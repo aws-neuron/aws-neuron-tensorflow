@@ -209,7 +209,7 @@ Status NeuronFunction::RunWithIO(OpKernelContext* ctx,
                                  std::vector<Tensor>* outputs) {
   TF_RETURN_IF_ERROR(MaybeShuffle(ctx, inputs));
   NeuronHostMemory memory;
-  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_));
+  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs));
   TF_RETURN_IF_ERROR(memory.CopyCPUToInputBuffers(*inputs));
   TF_RETURN_IF_ERROR(exe_->RunOnHostMemory(&memory));
   TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
