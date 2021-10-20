@@ -174,18 +174,11 @@ std::pair<Status, NeuronCoreRange> NeuronCorePlacer::UnsafeGetCoreRange(
   }
   int32_t start_nc;
   int32_t nc_count = info.optimal_num_cores;
-  if (TF_PREDICT_FALSE(nc_count > 1)) {
-    // Model parallel -- always load from core 0
-    start_nc = 0;
-  } else {
-    // Single-core executable
-    // Reuse core if session_handle is seen, or get a new core otherwise
-    start_nc = UnsafeGetNeuronCoreId(session_handle);
-  }
+  start_nc = UnsafeGetNeuronCoreId(session_handle, nc_count);
   return std::make_pair(Status::OK(), NeuronCoreRange(start_nc, nc_count));
 }
 
-int32_t NeuronCorePlacer::UnsafeGetNeuronCoreId(StringPiece session_handle) {
+int32_t NeuronCorePlacer::UnsafeGetNeuronCoreId(StringPiece session_handle, int32_t nc_count) {
   int32_t core_id = core_pointer_;
   if (!session_handle.empty()) {
     if (sess_to_core_id_.count(session_handle)) {
@@ -193,7 +186,7 @@ int32_t NeuronCorePlacer::UnsafeGetNeuronCoreId(StringPiece session_handle) {
     }
     sess_to_core_id_[session_handle] = core_id;
   }
-  ++core_pointer_;
+  core_pointer_ += nc_count;
   core_pointer_ %= num_available_cores_;
   return core_id;
 }

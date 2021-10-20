@@ -45,7 +45,7 @@ class NeuronCorePlacer {
   ~NeuronCorePlacer();
   std::pair<Status, NeuronCoreRange> UnsafeGetCoreRange(
       const NeuronExecutableInfo& info, StringPiece session_handle);
-  int32_t UnsafeGetNeuronCoreId(StringPiece session_handle);
+  int32_t UnsafeGetNeuronCoreId(StringPiece session_handle, int32_t nc_count);
   tensorflow::mutex mu_;
   Status status_;
   int32_t num_available_cores_;
