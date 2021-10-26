@@ -76,6 +76,7 @@ cc_library(
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
         "//tensorflow/neuron/grappler:graph_constructor_wrapper",
+        "//tensorflow/lite/toco:toco_port",
         ":graph_optimizer_registry",
     ],
     alwayslink = 1,

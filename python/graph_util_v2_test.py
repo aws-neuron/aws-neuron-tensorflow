@@ -41,7 +41,8 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
             
         # Model Creation
         model = tf.keras.Sequential(layers=[
-            tf.keras.layers.InputLayer(input_shape=(1, 28, 28, 3), name="input"),
+            tf.keras.layers.InputLayer(input_shape=(28, 28, 3), name="input"),
+            tf.keras.layers.ZeroPadding2D(padding=((1,2),(3,4) ), name='conv1_pad'),
             tf.keras.layers.Conv2D(1, (3,3), padding="same")
         ], name="Conv")
         
@@ -63,14 +64,15 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         conv2d_checked = False
         # Ensures padding for first Conv2D layer is not same and that padding was added
         for node in amp_graph_def.node:
+            if node.name == "Conv/conv1_pad/Pad/paddings":
+                print(tf.make_ndarray(node.attr["value"].tensor))
             if node.op == "Conv2D" and not conv2d_checked:
                 for attr in node.attr:
                     if attr == "padding":
-                       print(node.attr["padding"].s)
                        padding_str = node.attr["padding"].s.decode("utf-8")
                        assert(padding_str != "SAME")
                        conv2d_checked = True
-            if node.op == "Pad/padding":
+            if node.op == "Pad":
                 padding_op_exists = True
 
         assert(padding_op_exists)
