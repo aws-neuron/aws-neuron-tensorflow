@@ -130,6 +130,7 @@ cc_library(
         ":utils",
         ":shared_memory",
         ":runtime_grpc",
+        ":libnrt",
     ],
 )
 
