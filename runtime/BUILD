@@ -3,6 +3,7 @@ package(default_visibility = ["//visibility:public"])
 load("@com_google_protobuf//:protobuf.bzl", "cc_proto_library")
 load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_gen_op_libs")
 load("@org_tensorflow//tensorflow:tensorflow.bzl", "tf_kernel_library")
+load(":build_defs.bzl", "if_tf_serving")
 
 
 cc_library(
@@ -12,7 +13,10 @@ cc_library(
         ":neuron_op_kernel",
         ":identity_op",
         ":avgpooling_op",
+        ":maxpooling_op",
         ":constant_op",
+        ":islibmodeavailable_op",
+        ":init",
     ],
 )
 
@@ -30,6 +34,7 @@ tf_kernel_library(
         ":model",
         ":device",
         ":registration",
+        ":direct",
     ],
 )
 
@@ -52,6 +57,30 @@ tf_kernel_library(
     deps = [
         ":device",
         ":registration",
+        ":pooling_utils",
+    ],
+)
+
+tf_kernel_library(
+    name = "maxpooling_op",
+    srcs = [
+        "kernels/maxpooling_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+        ":pooling_utils",
+    ],
+)
+
+tf_kernel_library(
+    name = "conv_ops",
+    srcs = [
+        "kernels/conv_ops.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
     ],
 )
 
@@ -63,6 +92,18 @@ tf_kernel_library(
     deps = [
         ":device",
         ":registration",
+    ],
+)
+
+tf_kernel_library(
+    name = "islibmodeavailable_op",
+    srcs = [
+        "kernels/islibmodeavailable_op.cc",
+    ],
+    deps = [
+        ":device",
+        ":registration",
+        ":direct/placer",
     ],
 )
 
@@ -89,7 +130,13 @@ cc_library(
         ":utils",
         ":shared_memory",
         ":runtime_grpc",
+        ":libnrt",
     ],
+)
+
+cc_library(
+    name = "init",
+    srcs = ["init.cc"],
 )
 
 cc_library(
@@ -119,19 +166,21 @@ cc_library(
     name = "runtime_grpc",
     srcs = [
         "runtime_grpc.cc",
-        "version.h",
+        "profiler.cc",
     ],
-    hdrs = ["runtime_grpc.h"],
+    hdrs = [
+        "runtime_grpc.h",
+        "profiler.h",
+    ],
     deps = [
         ":utils",
+        ":nmgr_service.grpc.o",
     ],
 )
 
 cc_library(
     name = "utils",
     srcs = [
-        "profiler.h",
-        "profiler.cc",
         "tensor_util.h",
         "tensor_util.cc",
         "semaphore.h",
@@ -140,7 +189,7 @@ cc_library(
         "env.cc",
     ],
     hdrs = [
-        "profiler.h",
+        "version.h",
         "tensor_util.h",
         "semaphore.h",
         "env.h",
@@ -148,7 +197,6 @@ cc_library(
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
-        ":nmgr_service.grpc.o",
         ":macros",
     ],
 )
@@ -157,12 +205,25 @@ cc_library(
     name = "macros",
     srcs = ["macros.h"],
     hdrs = ["macros.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
 )
 
 cc_library(
     name = "registration",
     srcs = ["kernels/registration.h"],
     hdrs = ["kernels/registration.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
+    defines = if_tf_serving(["AWS_NEURON_TFSERV"]),
+)
+
+cc_library(
+    name = "pooling_utils",
+    srcs = ["kernels/pooling_utils.h"],
+    hdrs = ["kernels/pooling_utils.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
     ],
@@ -183,4 +244,134 @@ cc_proto_library(
     include = "proto/",
     use_grpc_plugin = True,
     default_runtime = "@com_google_protobuf//:protobuf",
+)
+
+# direct-link mode runtime
+cc_library(
+    name = "direct",
+    deps = [
+        ":direct/adaptor",
+        ":direct/core_range",
+        ":direct/executable_info",
+        ":direct/host_memory",
+        ":direct/executable",
+        ":direct/dynamic_batch",
+        ":direct/placer",
+        ":direct/function",
+    ],
+)
+
+cc_library(
+    name = "direct/function",
+    hdrs = ["direct/function.h"],
+    srcs = ["direct/function.cc"],
+    deps = [
+        ":direct/core_range",
+        ":direct/executable",
+        ":direct/executable_info",
+        ":direct/dynamic_batch",
+        ":direct/host_memory",
+        ":direct/placer",
+        ":macros",
+    ],
+)
+
+cc_library(
+    name = "direct/placer",
+    hdrs = ["direct/placer.h"],
+    srcs = ["direct/placer.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/core_range",
+        ":direct/executable_info",
+        ":utils",
+    ],
+)
+
+cc_library(
+    name = "direct/executable",
+    hdrs = ["direct/executable.h"],
+    srcs = ["direct/executable.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/core_range",
+        ":direct/executable_info",
+        ":direct/host_memory",
+        ":direct/profiler_context",
+        ":macros",
+    ],
+)
+
+cc_library(
+    name = "direct/host_memory",
+    hdrs = ["direct/host_memory.h"],
+    srcs = ["direct/host_memory.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/executable_info",
+        ":macros",
+    ],
+)
+
+cc_library(
+    name = "direct/dynamic_batch",
+    hdrs = ["direct/dynamic_batch.h"],
+    srcs = ["direct/dynamic_batch.cc"],
+    deps = [
+        ":direct/executable_info",
+    ],
+)
+
+# nrt profiler
+cc_library(
+    name = "direct/profiler_context",
+    hdrs = ["direct/profiler_context.h"],
+    srcs = ["direct/profiler_context.cc"],
+    deps = [
+        ":direct/adaptor",
+        ":direct/executable_info",
+        ":utils",
+    ],
+)
+
+cc_library(
+    name = "direct/executable_info",
+    hdrs = ["direct/executable_info.h"],
+    srcs = ["direct/executable_info.cc"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+    ],
+)
+
+cc_library(
+    name = "direct/core_range",
+    hdrs = ["direct/core_range.h"],
+)
+
+# tensorflow-adapted nrt library
+cc_library(
+    name = "direct/adaptor",
+    hdrs = ["direct/adaptor.h"],
+    srcs = ["direct/adaptor.cc"],
+    deps = [
+        ":libnrt",
+        ":utils",
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+    ],
+)
+
+# nrt C library
+cc_library(
+    name = "libnrt",
+    hdrs = glob(["direct/include/nrt/*.h"]),
+    srcs = [":libnrt_shared_library"],
+    linkopts = ["-Wl,-rpath,$$ORIGIN/../tensorflow_neuron/runtime/direct/lib/nrt:$$ORIGIN/nrt"],
+    strip_include_prefix = "direct/include",
+)
+
+filegroup(
+    name = "libnrt_shared_library",
+    srcs = glob(["direct/lib/nrt/*.so.*", "direct/lib/nrt/fake_nrt.cc"]),
 )

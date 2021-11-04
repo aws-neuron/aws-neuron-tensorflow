@@ -14,21 +14,41 @@ limitations under the License.
 ==============================================================================*/
 
 #include "neuron_op.h"
+#include "tensorflow/core/framework/op_kernel.h"
 #include "registration.h"
 #include "../device.h"
+#include "../engine.h"
 
 namespace tensorflow {
 namespace neuron {
 
-void NeuronOp::Compute(OpKernelContext* ctx) {
-  std::vector<Tensor> input_tensors(ctx->num_inputs());
-  for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
-    input_tensors[idx] = ctx->input(idx);
-  }
-  OP_REQUIRES_OK(ctx, model_.compute(ctx, def(), input_tensors));
+NeuronOp::NeuronOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
+  VLOG(1) << "NeuronOp contructor " << this;
+  grpc_runtime_status_ =
+      NeuronEngineManager::GetNeuronEngineManager().runtime_status();
 }
 
+void NeuronOp::Compute(OpKernelContext* ctx) {
+  // Fail early if there is a precondition error
+  if (grpc_runtime_status_.code() == error::Code::FAILED_PRECONDITION) {
+    OP_REQUIRES_OK(ctx, grpc_runtime_status_);
+  }
+
+  // Use GRPC runtime if available and there is no precondition error
+  if (grpc_runtime_status_.ok()) {
+    OP_REQUIRES_OK(ctx, model_.compute(ctx, def()));
+    return;
+  }
+
+  // Call direct-link runtime
+  OP_REQUIRES_OK(ctx, function_.Run(ctx, def()));
+}
+
+#if TF_VERSION_LESS_THAN(2, 0)
+NEURON_REGISTER_KERNEL_BUILDER("NeuronOp", DEVICE_CPU, NeuronOp);
+#else
 NEURON_REGISTER_KERNEL_BUILDER("NeuronOp", DEVICE_NEURON, NeuronOp);
+#endif
 
 }  // namespace neuron
 }  // namespace tensorflow

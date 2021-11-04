@@ -37,6 +37,7 @@ class NeuronEngine {
   Status load(uint32_t* nn_id, const StringPiece& executable,
               const uint32_t timeout, const uint32_t ninfer,
               const bool profile_enabled);
+  Status start_ping();
   Status infer(RuntimeIO* runtime_io);
   Status infer_with_profiling(RuntimeIO* runtime_io,
                               ProfilerInterface* profile);
@@ -45,6 +46,7 @@ class NeuronEngine {
   size_t num_executable() { return nn_id_to_all_nn_ids_.size(); };
   uint32_t num_cores() { return num_cores_; };
   std::shared_ptr<RuntimeSession> get_session() { return session_; }
+  thread::ThreadPool* get_thread_pool() { return thread_pool_.get(); }
 
  private:
   Status start_model_unsafe(const uint32_t nn_id);
@@ -55,11 +57,13 @@ class NeuronEngine {
   Status get_active(uint32_t* active_nn_id,
                     std::shared_ptr<xla::Semaphore>* sem, const uint32_t nn_id);
   tensorflow::mutex mutex_eg_;
+  std::unique_ptr<thread::ThreadPool> thread_pool_;
   bool closed_ = false;
   RuntimeGRPC runtime_;
   uint64_t session_id_ = RuntimeSession::INVALID_ID;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
   std::vector<uint32_t> vec_eg_id_;
+  uint64 last_active_timestamp_ = 0;
   uint32_t running_nn_id_;
   uint32_t num_cores_ = 0;
   std::string nrtd_address_ = "";
@@ -73,6 +77,7 @@ class NeuronEngine {
 class NeuronEngineManager {
  public:
   static NeuronEngineManager& GetNeuronEngineManager();
+  Status runtime_status() { return runtime_status_; }
   SharedMemoryAllocator* get_shm_allocator() { return shm_allocator_.get(); }
   Status apply_for_engine(NeuronEngine** engine,
                           const std::string& session_handle,
@@ -87,14 +92,14 @@ class NeuronEngineManager {
  private:
   NeuronEngineManager();
   ~NeuronEngineManager();
-  Status init_default_engine(const int64_t opt_engine_size,
-                             const int64_t max_num_duplicates);
-  Status init_engines(const std::vector<int>& num_cores_req_vector,
-                      const std::vector<int>& num_dup_vector);
+  std::vector<std::pair<int, int>> get_default_device_spec(
+      const int64_t opt_engine_size, const int64_t max_num_duplicates);
+  Status init_engines(const std::vector<std::pair<int, int>>& device_specs);
   Status initialize(const int64_t opt_engine_size,
                     const int64_t max_num_duplicates);
   void clear();
   tensorflow::mutex global_mutex_;
+  static const int64_t ONE_DEVICE_NUM_CORES = 4;
   static const int DEFAULT_NUM_CORES = -65536;  // any number < -MAX_NUM_CORES
   std::string nrtd_address_;
   std::shared_ptr<RuntimeSession> session_ = nullptr;
@@ -103,7 +108,7 @@ class NeuronEngineManager {
   std::unordered_map<std::string, size_t> session_handle_to_engine_index_;
   size_t engine_index_ = 0;
   size_t num_engines_ = 0;
-  Status runtime_status_ = errors::InvalidArgument("Uninitialized");
+  Status runtime_status_ = errors::Unavailable("Uninitialized");
   bool ready_ = false;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronEngineManager);
 };

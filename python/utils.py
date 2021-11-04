@@ -67,12 +67,22 @@ def model_conversion_report(model_dir, new_model_dir, on_neuron_ratio):
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
 
 
-def parse_neuron_cc_flags():
-    neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
+def parse_neuron_cc_flags(args=None, dest_set=None):
+    if args is None:
+        neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
+        args = shlex.split(neuron_cc_flags)
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dump-prefix', default=None)
-    parser.add_argument('--log-level', type=int, default=logging.WARN)
-    tfn_args, compiler_args = parser.parse_known_args(shlex.split(neuron_cc_flags))
+
+    def maybe_add_argument(dest, *args, **kwargs):
+        if dest_set is None or dest in dest_set:
+            parser.add_argument(dest, *args, **kwargs)
+
+    maybe_add_argument('--dump-prefix', default=None)
+    maybe_add_argument('--log-level', type=int, default=logging.WARN)
+    maybe_add_argument('--dynamic-batch-size', action='store_true')
+    maybe_add_argument('--fp32-cast', default='matmult-fp16')
+    maybe_add_argument('--neuroncore-pipeline-cores', default=None)
+    tfn_args, compiler_args = parser.parse_known_args(args)
     return tfn_args, compiler_args
 
 
@@ -93,3 +103,14 @@ def change_grappler_logging_level_according_to_cc_flags():
         yield
     finally:
         tf_optimizer.OptimizeGraph = original_optimize_graph
+
+
+def decorate_methods_with(decorator):
+
+    def decorate_methods(cls):
+        for key, value in vars(cls).items():
+            if callable(value) and key != '__init__':
+                setattr(cls, key, decorator(value))
+        return cls
+
+    return decorate_methods

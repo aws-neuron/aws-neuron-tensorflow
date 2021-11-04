@@ -22,6 +22,7 @@ from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.neuron.python.neuron_cc import compile_savetemps
 from tensorflow.neuron.python import neff_util
+from tensorflow.neuron.python import utils
 
 
 tNeuronOp = 'NeuronOp'
@@ -36,6 +37,9 @@ knInputDtypes = 'input_dtypes'
 knOutputDtypes = 'output_dtypes'
 knInputShapes = 'input_shapes'
 knOutputShapes = 'output_shapes'
+knInputBatchAxis = 'input_batch_axis'
+knInputShuffles = '_input_shuffles'
+knInputCanUseShm = '_input_can_use_shm'
 vInvalidAxis = -1
 
 
@@ -173,33 +177,120 @@ def shape_inference_with_inputs(graph_def, sess, feed_dict):
     return graph_def
 
 
+def inline_shape_inputs_in_subgraphs(graph_def):
+    """
+    If NeuronOp has inputs that come from shape-related operators, then inline
+    them as constants in the subgraph and remove them from the input signature.
+
+    Note that the current approach only deals with inputs that come from
+    shape-related operators directly. In theory, a safer approach is to copy
+    the entire graph, turn all inferrable shapes into constants, and then
+    propagate through constant folding. It is not practical at this point as
+    copying the entire graph would consume too much memory and it will become
+    practical once we don't have to freeze the entire graph.
+    """
+    name_to_node = {node.name: node for node in graph_def.node}
+    shape_content_fn_map = {'Shape': TensorShape.as_list, 'Size': TensorShape.num_elements}
+
+    def get_node(name):
+        node_name, _ = split_tensor_name(name)
+        return name_to_node[node_name]
+
+    def contains_shape_input(node):
+        # Returns True if any non-control input node is a shape-related operator
+        return any(get_node(name).op in shape_content_fn_map for name in node.input if not name.startswith('^'))
+
+    if not any(contains_shape_input(node) for node in get_neuron_nodes(graph_def)):
+        return graph_def
+    for node in get_neuron_nodes(graph_def):
+        subgraph_def = get_subgraph_def(node)
+        subgraph_name_to_node = {sn.name: sn for sn in subgraph_def.node}
+        attr = node.attr
+        discards = set()
+        for idx, (input_name, ph_name) in enumerate(zip(node.input, attr[knInputNames].list.s)):
+            input_node = get_node(input_name)
+            if input_node.op in shape_content_fn_map:
+                shape_input_name, = input_node.input
+                shape_input_node_name, port = split_tensor_name(shape_input_name)
+                shape_input_node = name_to_node[shape_input_node_name]
+                shape_attr = shape_input_node.attr.get(kNeuronInferredShapes, None)
+                if shape_attr is None:
+                    shape_attr = shape_input_node.attr.get(knOutputShapes, None)
+                if shape_attr is None:
+                    continue
+                shape_proto = shape_attr.list.shape[port]
+                shape = TensorShape(shape_proto)
+                dtype_enum = input_node.attr['out_type'].type
+                dtype = dtypes.as_dtype(dtype_enum)
+                tensor_content = shape_content_fn_map[input_node.op](shape)
+                shape_tensor = convert_to_tensor(tensor_content, dtype)
+                ph_node_name, _ = split_tensor_name(ph_name.decode())
+                ph_node = subgraph_name_to_node[ph_node_name]
+                ph_node.attr['dtype'].type = dtype_enum
+                ph_node.attr.pop('shape')
+                tensor_proto = ph_node.attr['value'].tensor
+                tensor_proto.dtype = dtype_enum
+                tensor_proto.tensor_shape.CopyFrom(shape_tensor.shape.as_proto())
+                tensor_proto.tensor_content = shape_tensor.numpy().tobytes()
+                ph_node.op = 'Const'
+                discards.add(idx)
+        if not discards:
+            continue
+
+        def maybe_discard_from_scalar_container(container):
+            if container:
+                container[:] = [value for idx, value in enumerate(container) if idx not in discards]
+
+        def maybe_discard_from_composite_container(container):
+            if container:
+                new_values = [value for idx, value in enumerate(container) if idx not in discards]
+                while container:
+                    container.pop()
+                for value in new_values:
+                    container.add().CopyFrom(value)
+
+        scalar_containers = [
+            node.input,
+            attr[knInputNames].list.s,
+            attr[knInputDtypes].list.type,
+            attr[knInputBatchAxis].list.i,
+        ]
+        for container in scalar_containers:
+            maybe_discard_from_scalar_container(container)
+        maybe_discard_from_composite_container(attr[knInputShapes].list.shape)
+        if knInputShuffles in attr:
+            maybe_discard_from_composite_container(attr[knInputShuffles].list.tensor)
+        if knInputCanUseShm in attr:
+            maybe_discard_from_scalar_container(attr[knInputCanUseShm].list.b)
+        node.attr[knGraphDef].s = subgraph_def.SerializeToString()
+    return graph_def
+
+
 def convert_shape_to_constant(graph_def):
     name_to_node = {node.name: node for node in graph_def.node}
     for node in graph_def.node:
-        if node.op == 'Shape':
-            input_name = node.input[0]
-            if ':' in input_name:
-                input_node_name, index = input_name.split(':')
-                index = int(index)
-            else:
-                input_node_name = input_name
-                index = 0
+        if node.op in {'Shape', 'Size'}:
+            input_node_name, port = split_tensor_name(node.input[0])
             input_node = name_to_node[input_node_name]
-            shape_proto = input_node.attr[kNeuronInferredShapes].list.shape[index]
+            shape_proto = input_node.attr[kNeuronInferredShapes].list.shape[port]
             shape = TensorShape(shape_proto)
             if shape.is_fully_defined():
-                node.op = 'Const'
                 node.input[:] = []
                 dtype_enum = node.attr['out_type'].type
                 node.attr['dtype'].type = dtype_enum
                 node.attr.pop('T')
                 node.attr.pop('out_type')
                 dtype = dtypes.as_dtype(dtype_enum)
-                shape_tensor = convert_to_tensor(shape.as_list(), dtype)
                 tensor_proto = node.attr['value'].tensor
                 tensor_proto.dtype = dtype_enum
+                if node.op == 'Shape':
+                    tensor_content = shape.as_list()
+                elif node.op == 'Size':
+                    tensor_content = shape.num_elements()
+                shape_tensor = convert_to_tensor(tensor_content, dtype)
                 tensor_proto.tensor_shape.CopyFrom(shape_tensor.shape.as_proto())
                 tensor_proto.tensor_content = shape_tensor.numpy().tobytes()
+                node.op = 'Const'
     return graph_def
 
 
@@ -211,7 +302,7 @@ def run_graph_def_pass_in_subgraphs(graph_def, graph_def_pass):
     return graph_def
 
 
-def run_compiler_on_subgraphs(graph_def):
+def run_compiler_on_subgraphs(graph_def, dumper):
     IOTensor = namedtuple('IOTensor', 'name, dtype, shape')
     for node in get_neuron_nodes(graph_def):
         is_compilable, reason = neuron_node_is_compilable(node)
@@ -238,7 +329,7 @@ def run_compiler_on_subgraphs(graph_def):
             sg_node.attr.pop(kNeuronInferredShapes)
 
         # setup workdir and run neuron-cc
-        executable, inputs, outputs = compile_savetemps(subgraph_def, inputs, outputs, node.name)
+        executable, inputs, outputs = compile_savetemps(subgraph_def, inputs, outputs, node.name, dumper)
         if executable:
             node.attr[knExecutable].s = executable
             node.attr[knInputNames].list.s[:] = [ts.name.encode() for ts in inputs]
@@ -269,6 +360,14 @@ def run_compiler_on_subgraphs(graph_def):
                         if [dim.size for dim in shape.dim] != ts.shape:
                             for dim, size in zip(shape.dim, ts.shape):
                                 dim.size = size
+            try:
+                input_can_use_shm = [ts.can_use_shm for ts in inputs]
+                output_can_use_shm = [ts.can_use_shm for ts in outputs]
+            except AttributeError:
+                pass
+            else:
+                node.attr['_input_can_use_shm'].list.b[:] = input_can_use_shm
+                node.attr['_output_can_use_shm'].list.b[:] = output_can_use_shm
     return graph_def
 
 
@@ -290,7 +389,12 @@ def neuron_node_is_compilable(node):
 
 
 def restore_compiler_failures(compiled_graph_def, original_graph_def):
-    """Restore `NeuronOp`'s that failed to compile
+    """
+    Restore `NeuronOp`'s that failed to compile.
+
+    TODO: Some passes introduced recently can change subgraph input/output
+    signatures. To deal with these cases properly, we need to obtain original
+    NodeDef messages from `original_graph_def` instead of `subgraph_def`.
     """
     neuron_op_dict = {node.name: node for node in get_neuron_nodes(compiled_graph_def)}
     restore_nodes = []
@@ -395,7 +499,7 @@ def set_execution_plan(compiled_graph_def):
         # Minimum timeout is 10 sec
         # For big models, we arbitrarily allocate 10 sec quota per 1 GB model size.
         est_timeout = len(node.attr[knExecutable].s) / 1e8
-        timeout = max(est_timeout, 10)
+        timeout = int(max(est_timeout, 10))
         # if this_opt_num_cores is smaller than actual num_cores in runtime, will enforce ninfer==1
         model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
         node.attr['model_config'].list.i[:] = model_config
@@ -450,8 +554,31 @@ def maybe_relax_placeholder_shapes(graph_def):
     return graph_def
 
 
+def prefix_node_names(graph_def):
+    name_change_map = {}
+    for node in get_neuron_nodes(graph_def):
+        prefix = utils.most_popular_namescope(sn.name for sn in get_subgraph_def(node).node)
+        if not prefix:
+            continue
+        new_op_name = '/'.join([prefix, node.name])
+        num_tensor = len(node.attr[knOutputNames].list.s)
+        for idx in range(num_tensor):
+            tensor_name = format_tensor_name('{}:{}'.format(node.name, idx))
+            new_tensor_name = format_tensor_name('{}:{}'.format(new_op_name, idx))
+            name_change_map[tensor_name] = new_tensor_name
+        node.name = new_op_name
+    for node in graph_def.node:
+        node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
+    return graph_def
+
+
 def format_tensor_name(tensor_name):
     return tensor_name.split(':')[0] if tensor_name.endswith(':0') else tensor_name
+
+
+def split_tensor_name(tensor_name):
+    op_name, port = tensor_name.split(':') if ':' in tensor_name else (tensor_name, 0)
+    return op_name, int(port)
 
 
 def get_node_with_control_inputs(graph_def):

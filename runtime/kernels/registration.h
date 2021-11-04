@@ -43,6 +43,10 @@ static KernelDef* neuron_kernel(const std::string& type,
   return kernel;
 }
 
+#ifdef AWS_NEURON_TFSERV
+#define NEURON_REGISTER_KERNEL_BUILDER(type, device_type, class_name) \
+  REGISTER_KERNEL_BUILDER(Name(type).Device(device_type), class_name);
+#else
 #define NEURON_REGISTER_KERNEL_BUILDER(type, device_type, class_name) \
   static kernel_factory::OpKernelRegistrar                            \
       neuron_##device_type##_##class_name##_registrar(                \
@@ -50,6 +54,7 @@ static KernelDef* neuron_kernel(const std::string& type,
           [](OpKernelConstruction* context) -> OpKernel* {            \
             return new (class_name)(context);                         \
           });
+#endif
 
 }  // namespace neuron
 }  // namespace tensorflow

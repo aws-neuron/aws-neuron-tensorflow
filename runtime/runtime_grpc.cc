@@ -21,6 +21,35 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
+#define NRT_GRPC(func, request, response)                       \
+  ({                                                            \
+    grpc::Status status;                                        \
+    grpc::ClientContext context;                                \
+    status = (func)(&context, (request), (response));           \
+    if (grpc::StatusCode::UNAVAILABLE == status.error_code()) { \
+      grpc::ClientContext context;                              \
+      status = (func)(&context, (request), (response));         \
+    }                                                           \
+    status;                                                     \
+  })
+
+#define NRT_CHECK_RETURN(fn_name, grpc_status, response)                      \
+  {                                                                           \
+    nrt::status nrtd_status = (response).status();                            \
+    if (!((grpc_status).ok() && nrt::nerr::NERR_OK == nrtd_status.code())) {  \
+      return nrt_error_status((fn_name), (grpc_status), (response).status()); \
+    }                                                                         \
+  }
+
+inline Status nrt_error_status(const std::string& fn_name,
+                               const grpc::Status& status,
+                               const nrt::status& nrt_status) {
+  return errors::Internal(
+      "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
+      ", error message \"", status.error_message(), "\"; nrt status code ",
+      nrt_status.code(), ", details \"", nrt_status.details(), "\"");
+}
+
 Status RuntimeIO::setup(AttrList& input_names, AttrList& output_names,
                         const uint32_t nn_id, bool use_shm,
                         const std::vector<StringPiece>& input_paths,
@@ -74,7 +103,7 @@ Status RuntimeIO::finish(std::vector<Tensor*>* output_tensors,
     }
     for (auto idx = 0; idx < output_names_->s_size(); ++idx) {
       if (map_name_raw.find(output_names_->s(idx)) == map_name_raw.end()) {
-        return errors::NotFound("tensor name", output_names_->s(idx),
+        return errors::NotFound("tensor name ", output_names_->s(idx),
                                 " not found in infer_response.ofmap()");
       }
       raw_output_tensors.push_back(map_name_raw[output_names_->s(idx)]);
@@ -114,6 +143,15 @@ Status RuntimeGRPC::initialize(const std::string& nrtd_address) {
   if (!stub_) {
     return errors::Unavailable("cannot create stub");
   }
+  return Status::OK();
+}
+
+Status RuntimeGRPC::list_egs(int* num_egs) {
+  nrt::empty request;
+  nrt::out_list_egs response;
+  grpc::Status status = NRT_GRPC(stub_->list_egs, request, &response);
+  NRT_CHECK_RETURN("list_egs", status, response);
+  *num_egs = response.eg_info_size();
   return Status::OK();
 }
 
@@ -241,6 +279,20 @@ static Status wait_grpc_cq(grpc::CompletionQueue* cq, const int64_t post_tag) {
   return Status::OK();
 }
 
+Status RuntimeGRPC::start_ping() {
+  // this function is only used as a hack to re-establish channel in case of
+  // grpc 14 and so intentionally returns OK as long as grpc status is ok
+  constexpr uint32_t INVALID_ID = 0;
+  nrt::start_request request;
+  request.mutable_h_nn()->set_id(INVALID_ID);
+  nrt::start_response response;
+  grpc::Status status = NRT_GRPC(stub_->start, request, &response);
+  if (!status.ok()) {
+    NRT_CHECK_RETURN("start", status, response);
+  }
+  return Status::OK();
+}
+
 Status RuntimeGRPC::post_start(RuntimeStarter* starter, const uint32_t nn_id) {
   starter->request_.mutable_h_nn()->set_id(nn_id);
   starter->rpc_ =
@@ -311,7 +363,7 @@ Status RuntimeGRPC::wait_stop(RuntimeStopper* stopper) {
   return Status::OK();
 }
 
-Status RuntimeGRPC::unload(const uint32_t nn_id, bool from_global_state) {
+Status RuntimeGRPC::unload(const uint32_t nn_id) {
   nrt::unload_request request;
   request.mutable_h_nn()->set_id(nn_id);
   nrt::unload_response response;
@@ -320,7 +372,7 @@ Status RuntimeGRPC::unload(const uint32_t nn_id, bool from_global_state) {
   return Status::OK();
 }
 
-Status RuntimeGRPC::destroy_eg(const uint32_t eg_id, bool from_global_state) {
+Status RuntimeGRPC::destroy_eg(const uint32_t eg_id) {
   nrt::destroy_eg_request request;
   request.mutable_h_eg()->set_id(eg_id);
   nrt::destroy_eg_response response;

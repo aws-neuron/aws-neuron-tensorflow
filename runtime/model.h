@@ -25,18 +25,25 @@ namespace neuron {
 class NeuronModel {
  public:
   NeuronModel();
-  Status compute(OpKernelContext* ctx, const NodeDef& node_def,
-                 const std::vector<Tensor>& input_tensors);
+  Status compute(OpKernelContext* ctx, const NodeDef& node_def);
   ~NeuronModel();
 
  private:
+  // works that needs to be done before allocating outputs
+  Status pre_initialize(const NodeDef& node_def);
+
+  // works that needs to be done after allocating outputs
   Status initialize(const NodeDef& node_def, const std::string& session_handle);
+
   tensorflow::mutex mutex_model_;
   NeuronEngine* neuron_engine_ = nullptr;
   uint32_t nn_id_ = NRT_INVALID_NN_ID;
   int64 estimated_cost_ = 0;
   ProfilerInterface profile_;
   thread::ThreadPool h2d_transfer_pool_;
+  bool can_use_shm_ = true;
+  bool allow_dynamic_batch_size_ = false;
+  bool pre_initialization_done_ = false;
 };
 
 }  // namespace neuron

@@ -15,8 +15,10 @@ limitations under the License.
 
 #include "shared_memory.h"
 #include <fcntl.h>
+#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include "env.h"
 #include "tensorflow/core/platform/env.h"
 

@@ -6,7 +6,6 @@ py_library(
     srcs = [
         "__init__.py",
         "api/__init__.py",
-        "tensorflow.py",
     ],
     deps = [
         "//tensorflow/neuron/python:saved_model_py",
@@ -35,5 +34,6 @@ sh_binary(
         ":license",
         ":neuron_py",
         "//tensorflow/neuron/tf2hlo:aws_neuron_tf2hlo",
+        "//tensorflow/neuron/runtime:libnrt_shared_library",
     ],
 )

@@ -57,7 +57,7 @@ def inference_graph_from_session(
         supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None, minimum_segment_size=None,
         grappler=False, max_num_compilers=None,
         compiler_args=None, compiler_workdir=None, compiler_timeout=None, compiler_recovery=True,
-        compiler_verbose=None):
+        compiler_verbose=None, amp_pass=False):
     """Constructs an inference graph from a tensorflow session.
 
     Generally decomposes into 5 passes:
@@ -225,6 +225,10 @@ def inference_graph_from_session(
     # initialize inferred shapes
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
+    # Adding the auto-mixed precision pass
+    if amp_pass:
+        graph_def = amp_optimization(graph_def, signature_def)
+
     # fuse ops into `NeuronOp`'s and determine tensors that require shapes
     part_graph_def = whitelist_partition(
         graph_def, signature_def, supported_op_types=supported_op_types,
@@ -258,20 +262,7 @@ def inference_graph_from_session(
         compiled_graph_def, dynamic_batch_size = set_dynamic_batch_size(compiled_graph_def)
 
     # rename NeuronOp's for better visualization
-    name_change_map = {}
-    for node in gdu.get_neuron_nodes(compiled_graph_def):
-        prefix = utils.most_popular_namescope(sn.name for sn in gdu.get_subgraph_def(node).node)
-        if not prefix:
-            continue
-        new_op_name = '/'.join([prefix, node.name])
-        num_tensor = len(node.attr['output_names'].list.s)
-        for idx in range(num_tensor):
-            tensor_name = gdu.format_tensor_name('{}:{}'.format(node.name, idx))
-            new_tensor_name = gdu.format_tensor_name('{}:{}'.format(new_op_name, idx))
-            name_change_map[tensor_name] = new_tensor_name
-        node.name = new_op_name
-    for node in compiled_graph_def.node:
-        node.input[:] = [name_change_map.get(inp, inp) for inp in node.input]
+    compiled_graph_def = gdu.prefix_node_names(compiled_graph_def)
 
     # raise exception if NeuronOp is still uncompiled after fallback pass
     uncompiled_node_names = []
@@ -362,6 +353,40 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
     value.extend(getattr(key, 'name', key) for key in shape_feed_dict)
     value.extend(getattr(ts, 'name', ts) for ts in output_tensors)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def
+
+def amp_optimization(graph_def, signature_def):
+    """Runs a AutoMixedPrecision pass to insert fp16/bf16 cast nodes at appropriate places.
+
+    Args:
+        graph_def: input `GraphDef` proto.
+        signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
+
+    Returns:
+        A `GraphDef` proto with cast operators inserted at appropriate places.
+    """
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = 2
+    rewriter_config.optimizers.append('auto_mixed_precision_neuron')
+    # Need to add constant fold since TVM has issues getting cast operators applied after constants.
+    # Hence, we need to fold them to get cast const ops.
+    rewriter_config.optimizers.append('constfold')
+
+    # Setting the devidde to CPU before AMP pass
+    for node in graph_def.node:
+        node.device = "/device:CPU:0"
+
+    # create meta_graph_def and run grappler passes
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+
+    # Resetting the device to empty
+    for node in graph_def.node:
+        node.device = ''
+
     return graph_def
 
 
@@ -483,6 +508,7 @@ def compile_subgraphs(graph_def,
     neuron_nodes = gdu.get_neuron_nodes(graph_def)
     if not neuron_nodes:
         return graph_def
+    command = []
     for node in neuron_nodes:
         if len(node.attr['input_names'].list.s) == 0 or len(node.attr['output_names'].list.s) == 0:
             continue

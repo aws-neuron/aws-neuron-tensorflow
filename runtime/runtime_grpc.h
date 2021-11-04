@@ -25,37 +25,7 @@ limitations under the License.
 namespace tensorflow {
 namespace neuron {
 
-#define NRT_INVALID_COOKIE 0
 #define ASYNC_GRPC_INVALID_TAG -1
-
-#define NRT_GRPC(func, request, response)                       \
-  ({                                                            \
-    grpc::Status status;                                        \
-    grpc::ClientContext context;                                \
-    status = (func)(&context, (request), (response));           \
-    if (grpc::StatusCode::UNAVAILABLE == status.error_code()) { \
-      grpc::ClientContext context;                              \
-      status = (func)(&context, (request), (response));         \
-    }                                                           \
-    status;                                                     \
-  })
-
-#define NRT_CHECK_RETURN(fn_name, grpc_status, response)                      \
-  {                                                                           \
-    nrt::status nrtd_status = (response).status();                            \
-    if (!((grpc_status).ok() && nrt::nerr::NERR_OK == nrtd_status.code())) {  \
-      return nrt_error_status((fn_name), (grpc_status), (response).status()); \
-    }                                                                         \
-  }
-
-inline Status nrt_error_status(const std::string& fn_name,
-                               const grpc::Status& status,
-                               const nrt::status& nrt_status) {
-  return errors::Internal(
-      "nrt::", fn_name, " failed with grpc status code ", status.error_code(),
-      ", error message \"", status.error_message(), "\"; nrt status code ",
-      nrt_status.code(), ", details \"", nrt_status.details(), "\"");
-}
 
 template <class T_request, class T_response>
 class RuntimeSwitcher {
@@ -116,12 +86,14 @@ class RuntimeGRPC {
  public:
   RuntimeGRPC() {}
   Status initialize(const std::string& nrtd_address);
+  Status list_egs(int* num_egs);
   Status create_eg(uint32_t* eg_id, uint32_t* num_cores,
                    const int num_cores_req, const uint64_t session_id);
   Status load(uint32_t* nn_id, const uint32_t eg_id,
               const StringPiece& executable, const uint32_t timeout,
               const uint32_t ninfer, const bool profile_enabled,
               const uint64_t session_id);
+  Status start_ping();
   Status post_start(RuntimeStarter* starter, const uint32_t nn_id);
   Status wait_start(RuntimeStarter* starter);
   Status infer_post(RuntimeIO* runtime_io);
@@ -129,8 +101,8 @@ class RuntimeGRPC {
   Status stop(const uint32_t nn_id);
   Status post_stop(RuntimeStopper* stopper, const uint32_t nn_id);
   Status wait_stop(RuntimeStopper* stopper);
-  Status unload(const uint32_t nn_id, bool from_global_state = false);
-  Status destroy_eg(const uint32_t eg_id, bool from_global_state = false);
+  Status unload(const uint32_t nn_id);
+  Status destroy_eg(const uint32_t eg_id);
   Status shm_map(const std::string& path, const uint32_t mmap_prot,
                  const uint64_t session_id);
   Status shm_unmap(const std::string& path, const uint32_t mmap_prot);

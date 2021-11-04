@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 import os
+import unittest
 from unittest.mock import patch
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
@@ -332,6 +333,116 @@ class TestTraceFunction(TestV2Only):
         op_list = compiled_func.graph.get_operations()
         assert len(op_list) == 7
         assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'
+
+    def test_custom_call_erf_simple(self):
+
+        def func(tensor):
+            return tf.math.erf(tensor)
+
+        input_tensor = tf.random.uniform([2, 3, 5])
+        func_neuron = tfn.trace(func, input_tensor)
+        output_tensor_func = func(input_tensor)
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, output_tensor_func, rtol=1e-3, atol=1e-5)
+
+    def test_custom_call_erf_composite(self):
+
+        def func(tensor):
+            tensor = tf.nn.relu(tensor)
+            tensor = tf.math.erf(tensor)
+            return tf.nn.relu(tensor)
+
+        input_tensor = tf.random.uniform([2, 3, 5])
+        func_neuron = tfn.trace(func, input_tensor)
+        output_tensor_func = func(input_tensor)
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, output_tensor_func, rtol=1e-3, atol=1e-5)
+
+    @unittest.expectedFailure
+    def test_custom_call_resize_bilinear(self):
+        '''
+        Test evaluates to see if the neuron trace fuses the resize op into a NeuronOp
+        Currently expects failure
+        '''
+
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear')
+
+        input_tensor = tf.random.uniform([1, 2, 2, 5])
+        func_neuron = tfn.trace(func, input_tensor)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        assert len([op for op in op_list if op.type == 'ResizeBilinear']) == 0, 'found unfused ResizeBilinear'
+        assert len([op for op in op_list if op.type == 'NeuronOp']) == 1, 'found multiple NeuronOps'
+
+    def test_custom_call_resize_bilinear_param1(self):
+        '''
+        Test evaluates the preserve aspect ratio argument and forces subgraph build
+        '''
+        def subgraph_builder_function(node):
+            return True
+
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear', preserve_aspect_ratio=True)
+
+        input_tensor = tf.random.uniform([1, 20, 20, 3])
+        result_layer = func(input_tensor)
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
+    @unittest.expectedFailure
+    def test_custom_call_resize_bilinear_param2(self):
+        '''
+        Test evaluates the antialias argument and forces subgraph build
+        '''
+        def subgraph_builder_function(node):
+            return True
+
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear', antialias=True)
+
+        input_tensor = tf.random.uniform([1, 20, 20, 3])
+        result_layer = func(input_tensor)
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
+
+    def test_custom_call_resize_bilinear_original(self):
+        '''
+        Test evaluates the default parameters
+        '''
+        def subgraph_builder_function(node):
+            return True
+
+        def func(tensor):
+            return tf.image.resize(tensor, (3, 5), method='bilinear')
+
+        input_tensor = tf.random.uniform([1, 20, 20, 3])
+        result_layer = func(input_tensor)
+        func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
+        op_list = func_neuron.aws_neuron_function.graph.get_operations()
+        output_tensor_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(output_tensor_func_neuron, result_layer, rtol=1e-2, atol=1e-2)
+
+    def test_custom_call_resize_bilinear_mock(self):
+        # skips compiler
+        def func(tensor):
+            return tf.image.resize(tensor, (tensor.shape[1] * 2, tensor.shape[2] * 2), method='bilinear')
+
+        input_tensor = tf.random.uniform([2, 3, 5])
+
+        def do_nothing(graph_def, *args, **kwargs):
+            return graph_def
+
+        with patch('tensorflow.neuron.python.graph_def_util.run_compiler_on_subgraphs', do_nothing):
+            layer_neuron = tfn.trace(func, input_tensor)
+
+        result_layer = func(input_tensor)
+        result_layer_neuron = layer_neuron(input_tensor)
+        self.assertAllClose(result_layer_neuron, result_layer, rtol=1e-2, atol=1e-2)
 
 
 def _assert_compiler_success_func(wfunc):

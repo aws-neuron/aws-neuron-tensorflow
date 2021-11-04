@@ -75,6 +75,18 @@ py_library(
         ":graph_def_util_py",
         ":meta_graph_util_py",
         ":neuron_cc_py",
+        ":custom_call_py",
+        "//tensorflow/neuron/python/hlo:hlo_py",
+    ],
+)
+
+py_library(
+    name = "custom_call_py",
+    srcs = [
+        "custom_call.py",
+    ],
+    deps = [
+        ":graph_def_util_py",
     ],
 )
 
@@ -159,7 +171,7 @@ py_library(
         "saved_model_v2_test.py",
         "tf2_keras_test.py",
         "keras_layer_test.py",
-        "avg_pool_test.py",
+        "custom_ops_test.py",
     ],
     deps = [
         ":graph_util_py",

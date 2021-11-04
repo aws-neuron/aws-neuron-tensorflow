@@ -64,6 +64,13 @@ typedef const AttrValue_ListValue AttrList;
     }                                       \
   }
 
+#define TFN_CHECK_ARG(cond, ...)                                       \
+  {                                                                    \
+    if (TF_PREDICT_FALSE(cond)) {                                      \
+      return errors::InvalidArgument(__FILE__, __LINE__, __VA_ARGS__); \
+    }                                                                  \
+  }
+
 #define TFN_DISALLOW_COPY_MOVE_ASSIGN(TypeName) \
   TypeName(const TypeName&) = delete;           \
   void operator=(const TypeName&) = delete;     \
@@ -86,6 +93,20 @@ typedef const AttrValue_ListValue AttrList;
     return errors::InvalidArgument("size mismatch: ", (#lhs_size),        \
                                    " == ", (lhs_size), ", ", (#rhs_size), \
                                    " == ", (rhs_size));
+
+#define TFN_RETURN_IF_NULLPTR(ptr)                                  \
+  if (TF_PREDICT_FALSE(nullptr == (ptr))) {                         \
+    return errors::InvalidArgument(__func__, " called on nullptr"); \
+  }
+#define TFN_RETURN_IF_ZERO_SIZE(size)                                   \
+  if (TF_PREDICT_FALSE(0 == (size))) {                                  \
+    return errors::InvalidArgument(__func__, " called with size == 0"); \
+  }
+#define TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status)           \
+  if (TF_PREDICT_FALSE(!(status).ok())) {                         \
+    return errors::FailedPrecondition(                            \
+        (__func__), " called without successful initialization"); \
+  }
 
 }  // namespace neuron
 }  // namespace tensorflow

@@ -26,15 +26,30 @@ namespace tensorflow {
 namespace neuron {
 namespace convert {
 
-const char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+constexpr char kNeuronInFixedShapeContext[] =
+    "_aws_neuron_in_fixed_shape_context";
 
-// Copied from tensorflow/compiler/tf2tensorrt/convert/convert_nodes.h
+class EdgeValidator {
+ public:
+  // Return true if the specified edge is eligible to be an input edge of the
+  // Neuron segment.
+  bool operator()(const Edge* edge) const {
+    const Node* node = edge->src();
+    int port = edge->src_output();
+    DataType dtype = node->output_type(port);
+    return !illegal_dtypes_.count(dtype);
+  }
+ private:
+  const std::unordered_set<DataType> illegal_dtypes_ = {DT_INT64, DT_DOUBLE};
+};
+
 // Helper class for the segmenter to determine whether an output edge from the
-// TRT segment is valid.
+// Neuron segment is valid.
 class OutputEdgeValidator {
  public:
   // Return true if the specified edge is eligible to be an output edge of the
-  // TRT segment.
+  // Neuron segment.
   bool operator()(const Edge* out_edge) const {
     if (out_edge->IsControlEdge()) return true;
     if (out_edge->src()->type_string() == "Const") {
@@ -42,7 +57,7 @@ class OutputEdgeValidator {
               << " which is a Const.";
       return false;
     }
-    return true;
+    return EdgeValidator()(out_edge);
   }
 };
 
@@ -691,14 +706,16 @@ static Status FindConstantFoldableNodes(
   }
   for (const auto& node : graph_def.node()) {
     bool foldable = false;
-    if (node.op() == "Shape") {
-      const NodeDef* in_node = name_to_node.at(node.input(0));
+    if (node.op() == "Shape" || node.op() == "Size") {
+      VLOG(1) << "looking at input " << node.input(0);
+      auto in_name_port = ParseTensorName(node.input(0));
+      std::string in_name = in_name_port.first;
+      int in_port = in_name_port.second;
+      const NodeDef* in_node = name_to_node.at(in_name);
       const auto& attr = in_node->attr();
-      const auto& shape_list = attr.at(kNeuronInferredShapes).list().shape();
-      auto predicate = [](const TensorShapeProto& sp) {
-        return PartialTensorShape(sp).IsFullyDefined();
-      };
-      foldable = std::all_of(shape_list.begin(), shape_list.end(), predicate);
+      const auto& shape = attr.at(kNeuronInferredShapes).list().shape(in_port);
+      foldable = PartialTensorShape(shape).IsFullyDefined();
+      VLOG(1) << "node " << node.name() << ", foldable " << foldable;
     } else {
       const auto& inputs = node.input();
       auto predicate = [foldable_nodes,
@@ -712,6 +729,7 @@ static Status FindConstantFoldableNodes(
         if (index_start != std::string::npos) {
           node_name = node_name.substr(0, index_start);
         }
+        VLOG(1) << "determining status of node " << node_name;
         return foldable_nodes->count(node_name) ||
                name_to_node.at(node_name)->op() == "Const";
       };
@@ -746,27 +764,6 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   tensorflow::FunctionLibraryDefinition flib(tensorflow::OpRegistry::Global(),
                                              graph_def.library());
 
-  // Build output tensor names
-  std::unordered_map<std::string, const NodeDef*> op_name_to_node;
-  for (const auto& node : graph_def.node()) {
-    op_name_to_node[node.name()] = &node;
-  }
-  std::vector<std::string> outputs;
-  for (const auto& op_name : output_op_names) {
-    const tensorflow::OpRegistrationData* op_reg_data;
-    const NodeDef* node = op_name_to_node[op_name];
-    TF_RETURN_IF_ERROR(flib.LookUp(node->op(), &op_reg_data));
-    int64 num_outputs = op_reg_data->op_def.output_arg_size();
-    if ("Split" == node->op()) {
-      num_outputs = node->attr().at("num_split").i();
-    }
-    VLOG(1) << "Output " << op_name << " contains " << num_outputs
-            << " outputs";
-    for (int64 idx = 0; idx < num_outputs; ++idx) {
-      outputs.push_back(op_name + ":" + std::to_string(idx));
-    }
-  }
-
   GraphDef temp_graph_def;
   temp_graph_def.CopyFrom(graph_def);
   TF_RETURN_IF_ERROR(PreProcessingGraphDef(temp_graph_def));
@@ -775,6 +772,22 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
 
   TF_CHECK_OK(tensorflow::ConvertGraphDefToGraph(
       tensorflow::GraphConstructorOptions(), temp_graph_def, &graph));
+
+  // Build output tensor names
+  std::unordered_map<std::string, const Node*> op_name_to_node;
+  for (const Node* node : graph.op_nodes()) {
+    op_name_to_node[node->name()] = node;
+  }
+  std::vector<std::string> outputs;
+  for (const auto& op_name : output_op_names) {
+    const Node* node = op_name_to_node[op_name];
+    int64 num_outputs = node->num_outputs();
+    VLOG(1) << "Output " << op_name << " contains " << num_outputs
+            << " outputs";
+    for (int64 idx = 0; idx < num_outputs; ++idx) {
+      outputs.push_back(op_name + ":" + std::to_string(idx));
+    }
+  }
 
   // Find "constant-foldable" nodes and claim them as supported
   std::unordered_set<std::string> foldable_nodes;
@@ -788,15 +801,20 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   segment_options.minimum_segment_size = minimum_segment_size;
 
   // Setup exclude_node_list
-  for (int i = 0; i < graph.num_node_ids(); ++i) {
-    tensorflow::Node* node = graph.FindNodeId(i);
+  for (Node* node : graph.nodes()) {
     bool is_source_or_sink = node->IsSink() || node->IsSource();
     bool is_supported = supported_op_types.count(node->type_string());
     bool no_fuse = no_fuse_ops.count(node->name());
     bool force_fuse = force_fuse_ops.count(node->name());
     bool is_foldable = foldable_nodes.count(node->name());
-    if (!((is_supported && !is_source_or_sink && !no_fuse) || force_fuse ||
-          is_foldable)) {
+    bool supported_can_fuse = is_supported && !is_source_or_sink && !no_fuse;
+    bool fuseable = supported_can_fuse || force_fuse || is_foldable;
+    if (node->def().attr().count(kNeuronInFixedShapeContext)) {
+      bool fixed_shape = node->def().attr().at(kNeuronInFixedShapeContext).b();
+      VLOG(1) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
+      fuseable &= fixed_shape;
+    }
+    if (!fuseable) {
       segment_options.exclude_node_list.insert(node->name());
     }
   }
@@ -814,10 +832,20 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   }
 
   tensorflow::tensorrt::segment::SegmentNodesVector segments;
+  std::function<bool(const Edge*)> input_edge_validator;
+  std::function<bool(const Edge*)> output_edge_validator;
+  if (force_fuse_ops.size()) {
+    // Don't exclude edges if manual segmentation is specified
+    input_edge_validator = [](const Edge* edge) { return true; };
+    output_edge_validator = [](const Edge* edge) { return true; };
+  } else {
+    input_edge_validator = EdgeValidator();
+    output_edge_validator = OutputEdgeValidator();
+  }
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
       &graph, [](const Node* node) { return Status::OK(); },
-      [](const Edge* edge) { return true; }, OutputEdgeValidator(),
+      input_edge_validator, output_edge_validator,
       segment_options, &segments));
   if (segments.size() > 1) {
     VLOG(1) << "MULTIPLE Neuron candidate conversion: " << segments.size();

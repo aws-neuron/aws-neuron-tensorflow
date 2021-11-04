@@ -133,6 +133,16 @@ static Status tensor_shuffle_impl(Tensor* dst, const Tensor& src,
 }
 
 Status tensor_shuffle(Tensor* dst, const Tensor& src, const TensorProto& shf) {
+  if (TF_PREDICT_FALSE(dst->tensor_data().size() < src.tensor_data().size())) {
+    return errors::InvalidArgument("tensor_shuffle dst size ",
+                                   dst->tensor_data().size(),
+                                   ", src size ", src.tensor_data().size());
+  }
+  if (TF_PREDICT_FALSE(shf.int64_val_size() < src.NumElements())) {
+    return errors::InvalidArgument("tensor_shuffle shuffle int64_val_size ",
+                                   shf.int64_val_size(),
+                                   ", src NumElements ", src.NumElements());
+  }
   switch (src.dtype()) {
 #define CASE(type)                                   \
   case DataTypeToEnum<type>::value: {                \

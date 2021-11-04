@@ -39,6 +39,8 @@ namespace neuron {
 
 // some keys
 const char kInputShuffles[] = "_input_shuffles";
+const char kInputCanUseShm[] = "_input_can_use_shm";
+const char kOutputCanUseShm[] = "_output_can_use_shm";
 
 // some magic numbers
 static const int64 UNINIT_BATCH_SIZE = -8;
@@ -232,6 +234,75 @@ NeuronModel::NeuronModel()
   VLOG(1) << "NeuronModel contructor " << this;
 }
 
+Status NeuronModel::pre_initialize(const NodeDef& node_def) {
+  tensorflow::mutex_lock lock(mutex_model_);
+  if (TF_PREDICT_TRUE(pre_initialization_done_)) {
+    VLOG(1) << "NeuronModel is already initialized";
+    return Status::OK();
+  }
+  const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
+
+  std::vector<size_t> output_tensor_sizes;
+  TF_RETURN_IF_ERROR(
+      get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
+
+  // can_use_shm directives
+  AttrList& input_names = attr.at("input_names").list();
+  AttrList& output_names = attr.at("output_names").list();
+  AttrValue_ListValue input_can_use_shm;
+  AttrValue_ListValue output_can_use_shm;
+  if (attr.count(kInputCanUseShm)) {
+    VLOG(1) << "reading input_can_use_shm compiler directive";
+    input_can_use_shm = attr.at(kInputCanUseShm).list();
+  } else {
+    VLOG(1) << "initializing input_can_use_shm to all true";
+    for (const auto& name : input_names.s()) {
+      input_can_use_shm.mutable_b()->Add(true);
+    }
+  }
+  if (attr.count(kInputCanUseShm)) {
+    VLOG(1) << "reading output_can_use_shm compiler directive";
+    output_can_use_shm = attr.at(kOutputCanUseShm).list();
+  } else {
+    VLOG(1) << "initializing output_can_use_shm to all true";
+    for (const auto& name : output_names.s()) {
+      output_can_use_shm.mutable_b()->Add(true);
+    }
+  }
+
+  for (size_t buf_size : output_tensor_sizes) {
+    can_use_shm_ &= buf_size != 0;
+  }
+  for (bool can_use : input_can_use_shm.b()) {
+    can_use_shm_ &= can_use;
+  }
+  for (bool can_use : output_can_use_shm.b()) {
+    can_use_shm_ &= can_use;
+  }
+
+  if (attr.count(kInputShuffles)) {
+    AttrList& input_shuffles = attr.at(kInputShuffles).list();
+    TFNN_ASSERT(input_shuffles.tensor_size() == input_names.s_size(),
+                errors::InvalidArgument("illegal _input_shuffles attribute"));
+  }
+
+  AttrList& input_batch_axis = attr.at("input_batch_axis").list();
+  AttrList& output_batch_axis = attr.at("output_batch_axis").list();
+  if (TF_PREDICT_TRUE(input_names.s_size() == input_batch_axis.i_size())) {
+    if (TF_PREDICT_TRUE(output_names.s_size() == output_batch_axis.i_size())) {
+      for (int64 batch_axis : input_batch_axis.i()) {
+        if (batch_axis != STATIC_BATCH_AXIS) {
+          allow_dynamic_batch_size_ = true;
+          break;
+        }
+      }
+    }
+  }
+
+  pre_initialization_done_ = true;
+  return Status::OK();
+}
+
 Status NeuronModel::initialize(const NodeDef& node_def,
                                const std::string& session_handle) {
   tensorflow::mutex_lock lock(mutex_model_);
@@ -296,50 +367,96 @@ Status NeuronModel::initialize(const NodeDef& node_def,
   return Status::OK();
 }
 
-Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
-                            const std::vector<Tensor>& input_tensors) {
-  uint64 start_time = Env::Default()->NowMicros();
-#define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
+#if TF_VERSION_LESS_THAN(2, 0)
+static Status allocate_outputs(OpKernelContext* ctx, const bool use_shm,
+                               AttrList& output_shapes,
+                               std::vector<Tensor*>* output_tensors) {
   SharedMemoryAllocator* shm_allocator =
       NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
-  thread::ThreadPool* thread_pool =
-      ctx->device()->tensorflow_cpu_worker_threads()->workers;
+  for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+    if (use_shm) {
+      AllocationAttributes attr;
+      Tensor output(shm_allocator, ctx->expected_output_dtype(idx),
+                    output_shapes.shape(idx), attr);
+      ctx->set_output(idx, output);
+      output_tensors->at(idx) = ctx->mutable_output(idx);
+    } else {
+      TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
+                                              &output_tensors->at(idx)));
+    }
+  }
+  return Status::OK();
+}
+
+static Status allocate_temp(OpKernelContext* ctx, DataType dtype,
+                            const TensorShape& shape, Tensor* shm_tensor) {
+  SharedMemoryAllocator* shm_allocator =
+      NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
+  AllocationAttributes attr;
+  *shm_tensor = Tensor(shm_allocator, dtype, shape, attr);
+  return Status::OK();
+}
+#else
+static Status allocate_outputs(OpKernelContext* ctx, const bool use_shm,
+                               AttrList& output_shapes,
+                               std::vector<Tensor*>* output_tensors) {
+  for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
+    AllocatorAttributes attr;
+    NeuronDevice::set_on_shm(&attr, use_shm);
+    TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
+                                            &output_tensors->at(idx), attr));
+  }
+  return Status::OK();
+}
+
+static Status allocate_temp(OpKernelContext* ctx, DataType dtype,
+                            const TensorShape& shape, Tensor* shm_tensor) {
+  AllocatorAttributes attr;
+  NeuronDevice::set_on_shm(&attr, true);
+  return ctx->allocate_temp(dtype, shape, shm_tensor, attr);
+}
+#endif
+
+Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def) {
+  uint64 start_time = Env::Default()->NowMicros();
+#define VLOG_TIME(msg) VLOG_TIME_BASE(start_time, 1, msg);
+
+  std::vector<Tensor> input_tensors(ctx->num_inputs());
+  for (auto idx = 0; idx < ctx->num_inputs(); ++idx) {
+    input_tensors.at(idx) = ctx->input(idx);
+  }
+
+  // pre-initialize
+  TF_RETURN_IF_ERROR(pre_initialize(node_def));
+
+  SharedMemoryAllocator* shm_allocator =
+      NeuronEngineManager::GetNeuronEngineManager().get_shm_allocator();
   const google::protobuf::Map<std::string, AttrValue>& attr = node_def.attr();
   AttrList& input_names = attr.at("input_names").list();
+  AttrList& output_names = attr.at("output_names").list();
   AttrList& output_shapes = attr.at("output_shapes").list();
   TFNN_ASSERT((int)input_tensors.size() == input_names.s_size(),
               errors::InvalidArgument("incorrect number of input tensors"));
-  if (attr.count(kInputShuffles)) {
-    AttrList& input_shuffles = attr.at(kInputShuffles).list();
-    TFNN_ASSERT(input_shuffles.tensor_size() == (int64)input_tensors.size(),
-                errors::InvalidArgument("illegal _input_shuffles attribute"));
-  }
-   std::vector<size_t> output_tensor_sizes;
-  TF_RETURN_IF_ERROR(
-      get_io_tensor_sizes(&output_tensor_sizes, node_def, "output"));
+
+  // lambda for enabling shared memory
+  auto UseShmForIO = [&](const std::vector<Tensor>& input_tensors) {
+    bool use_shm = can_use_shm_ && shm_allocator->is_valid();
+    for (const Tensor& tensor : input_tensors) {
+      use_shm &= tensor.NumElements() != 0;
+    }
+    return use_shm;
+  };
 
   // enable/disable dynamic batch size
   int64_t batch_size = UNINIT_BATCH_SIZE;
   int64_t k_batch_size = UNINIT_BATCH_SIZE;
   std::vector<bool> is_batch_inputs(input_tensors.size());
   std::vector<bool> is_batch_outputs(ctx->num_outputs());
-  AttrList& output_names = attr.at("output_names").list();
   AttrList& input_batch_axis = attr.at("input_batch_axis").list();
   AttrList& output_batch_axis = attr.at("output_batch_axis").list();
-  bool found_batch_axis = false;
-  if (TF_PREDICT_TRUE(input_names.s_size() == input_batch_axis.i_size())) {
-    if (TF_PREDICT_TRUE(output_names.s_size() == output_batch_axis.i_size())) {
-      for (int64 batch_axis : input_batch_axis.i()) {
-        if (batch_axis != STATIC_BATCH_AXIS) {
-          found_batch_axis = true;
-          break;
-        }
-      }
-    }
-  }
   bool use_dynamic_batch_size = false;
   int64 input_copy_cost_per_unit = 0;
-  if (found_batch_axis) {
+  if (allow_dynamic_batch_size_) {
     AttrList& input_shapes = attr.at("input_shapes").list();
     for (size_t idx = 0; idx < input_tensors.size(); ++idx) {
       bool is_batch_tensor = false;
@@ -423,19 +540,23 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       output_tensors[idx] = batch_out_tensor;
     }
   } else {
-    for (auto idx = 0; idx < ctx->num_outputs(); ++idx) {
-      AllocatorAttributes attr;
-      NeuronDevice::set_on_shm(&attr, shm_allocator->is_valid());
-      TF_RETURN_IF_ERROR(ctx->allocate_output(idx, output_shapes.shape(idx),
-                                              &output_tensors[idx], attr));
-    }
+    bool use_shm = UseShmForIO(input_tensors);
+    TF_RETURN_IF_ERROR(allocate_outputs(ctx, use_shm, output_shapes,
+                                        &output_tensors));
   }
 
   // initialize the model
   RIE_IGNORE_ABORTED(initialize(node_def, ctx->session_handle()));
 
+  // need an extra unary grpc call to re-establish channel in case of seeing grpc 14
+  // as start_model_unsafe may not call grpc start
+  RIE_IGNORE_ABORTED(neuron_engine_->start_ping());
+
   // keep a shared pointer so that RuntimeSession outlives shared memory buffers
   std::shared_ptr<RuntimeSession> session_alive = neuron_engine_->get_session();
+
+  // get thread pool associated with the engine
+  thread::ThreadPool* thread_pool = neuron_engine_->get_thread_pool();
 
   // run inference
   if (use_dynamic_batch_size) {
@@ -511,24 +632,16 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       RuntimeIO runtime_io;
       std::vector<Tensor> input_shm_tensors;
       std::vector<Tensor> output_shm_tensors;
-      bool use_shm = shm_allocator->is_valid();
-      for (const Tensor& tensor : sliced_inputs) {
-        use_shm &= tensor.NumElements() != 0;
-      }
-      for (size_t buf_size : output_tensor_sizes) {
-        use_shm &= buf_size != 0;
-      }
+      bool use_shm = UseShmForIO(sliced_inputs);
       if (TF_PREDICT_TRUE(use_shm)) {
         input_shm_tensors.resize(sliced_inputs.size());
         for (size_t idx = 0; idx < sliced_inputs.size(); ++idx) {
           const Tensor& tensor = sliced_inputs.at(idx);
           TensorShape shape = tensor.shape();
           DataType dtype = tensor.dtype();
-          AllocatorAttributes attr;
-          NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = input_shm_tensors.at(idx);
           SHARD_LOG_ERROR(status_sd,
-                          ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+                          allocate_temp(ctx, dtype, shape, &shm_tensor));
         }
         output_shm_tensors.resize(sliced_outputs.size());
         for (size_t idx = 0; idx < output_shm_tensors.size(); ++idx) {
@@ -540,11 +653,9 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
             }
           }
           DataType dtype(tensor.dtype());
-          AllocatorAttributes attr;
-          NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = output_shm_tensors.at(idx);
           SHARD_LOG_ERROR(status_sd,
-                          ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+                          allocate_temp(ctx, dtype, shape, &shm_tensor));
         }
       }
       std::vector<Tensor*> output_shm_ptrs;
@@ -643,13 +754,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
     RuntimeIO runtime_io;
     std::vector<Tensor> input_shm_tensors;
     std::vector<Tensor> output_shm_tensors;
-    bool use_shm = shm_allocator->is_valid();
-    for (const Tensor& tensor : input_tensors) {
-      use_shm &= tensor.NumElements() != 0;
-    }
-    for (size_t buf_size : output_tensor_sizes) {
-      use_shm &= buf_size != 0;
-    }
+    bool use_shm = UseShmForIO(input_tensors);
     if (TF_PREDICT_TRUE(use_shm)) {
       input_shm_tensors.resize(input_tensors.size());
       for (size_t idx = 0; idx < input_shm_tensors.size(); ++idx) {
@@ -657,10 +762,8 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
         if (need_copy_inputs.at(idx)) {
           TensorShape shape = tensor.shape();
           DataType dtype = tensor.dtype();
-          AllocatorAttributes attr;
-          NeuronDevice::set_on_shm(&attr, true);
           Tensor& shm_tensor = input_shm_tensors.at(idx);
-          TF_RETURN_IF_ERROR(ctx->allocate_temp(dtype, shape, &shm_tensor, attr));
+          TF_RETURN_IF_ERROR(allocate_temp(ctx, dtype, shape, &shm_tensor));
         } else {
           input_shm_tensors[idx] = tensor;
         }
@@ -685,7 +788,7 @@ Status NeuronModel::compute(OpKernelContext* ctx, const NodeDef& node_def,
       RIE_IGNORE_ABORTED(neuron_engine_->infer(&runtime_io));
     }
     VLOG_TIME("after infer");
-    if (TF_PREDICT_FALSE(!shm_allocator->is_valid())) {
+    if (TF_PREDICT_FALSE(!use_shm)) {
       RIE_IGNORE_ABORTED(
           runtime_io.finish(&output_tensors, output_shm_tensors, thread_pool));
     }

@@ -42,7 +42,7 @@ def list_operators():
     return supported_op_types.difference(tf_reserved_ops)
 
 
-def compile_savetemps(graph_def, inputs, outputs, node_name):
+def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
     """Returns raw neff bytes (empty bytes if neuron-cc crashed)
     """
     error_return_value = b'', None, None
@@ -89,10 +89,20 @@ def find_neuron_cc():
     return spawn.find_executable('neuron-cc', path)
 
 
+def supports_xla():
+    if not hasattr(neuroncc, '__version__'):
+        return False
+    ncc_ver = LooseVersion(neuroncc.__version__)
+    dev_delim_ver = LooseVersion('1.1.0.0')
+    dev_min_ver = LooseVersion('1.0.35000.0')
+    rel_min_ver = LooseVersion('1.7.0.0')
+    return dev_min_ver <= ncc_ver < dev_delim_ver or rel_min_ver <= ncc_ver
+
+
 try:
-    import hlo2neuron
+    import neuroncc
 except ImportError:
-    pass
+    neuroncc = None
 else:
-    if LooseVersion(__version__) >= LooseVersion('2.0.0'):
+    if LooseVersion(__version__) >= LooseVersion('2.0.0') and supports_xla():
         from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps

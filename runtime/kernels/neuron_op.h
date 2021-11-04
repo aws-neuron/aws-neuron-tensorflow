@@ -17,6 +17,7 @@ limitations under the License.
 #define TENSORFLOW_NEURON_RUNTIME_KERNELS_NEURON_OP_H_
 
 #include "../model.h"
+#include "../direct/function.h"
 #include "tensorflow/core/framework/op.h"
 #include "tensorflow/core/framework/op_kernel.h"
 
@@ -25,13 +26,13 @@ namespace neuron {
 
 class NeuronOp : public OpKernel {
  public:
-  explicit NeuronOp(OpKernelConstruction* ctx) : OpKernel(ctx) {
-    VLOG(1) << "NeuronOp contructor " << this;
-  }
+  explicit NeuronOp(OpKernelConstruction* ctx);
   void Compute(OpKernelContext* ctx) override;
 
  private:
+  Status grpc_runtime_status_;
   NeuronModel model_;
+  NeuronFunction function_;
 };
 
 }  // namespace neuron

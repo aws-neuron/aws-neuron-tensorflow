@@ -37,6 +37,7 @@ class TestOpRegister(TestV1Only):
     def test_clean_process(self):
         subprocess.check_call([sys.executable, __file__, 'TestOpRegister.test_simple'])
 
+    @unittest.skip('unsupported in libmode')
     def test_neuron_op_runtime_import(self):
         self.test_simple()
         subprocess.check_call([sys.executable, '-c', _content_neuron_op_runtime_import.format(self.export_dir_test)])

@@ -51,9 +51,9 @@ def get_version():
 
 
 def get_install_requires():
-    major, minor, *_ = LooseVersion(get_version()).version
-    tf_compat_version = '{}.{}.0'.format(major, minor)
-    install_requires = ['tensorflow ~= {}'.format(tf_compat_version)]
+    major, minor, patch, *_ = LooseVersion(get_version()).version
+    tf_compat_version = '{}.{}.{}'.format(major, minor, patch)
+    install_requires = ['tensorflow == {}'.format(tf_compat_version)]
     install_requires.append('tensorboard-plugin-neuron')
     return install_requires
 
@@ -62,9 +62,14 @@ def get_package_data():
     package_data = {
         'tensorflow-plugins': ['*'],
         'tensorflow_neuron': [
-            '../tensorflow.py',
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
+            'runtime/direct/lib/nrt/*.so.*',
+            'neuroncc/*/*',
+            'neuroncc/*/*/*',
+            'neuroncc/*/*/*/*',
+            'neuroncc/*/*/*/*/*',
+            'neuroncc/*/*/*/*/*/*',
         ],
     }
     if LooseVersion(get_version()) < LooseVersion('2.2'):
@@ -73,6 +78,13 @@ def get_package_data():
         package_key = 'tensorflow'
     package_data[package_key] = ['neuron/tf2hlo/aws_neuron_tf2hlo']
     return package_data
+
+
+def get_extras_require_cc():
+    if LooseVersion(get_version()) < LooseVersion('2.0'):
+        return 'neuron-cc'
+    else:
+        return 'neuron-cc >= 1.7.0'
 
 
 setup(
@@ -89,9 +101,9 @@ setup(
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
         'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Mathematics',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
@@ -109,4 +121,5 @@ setup(
         'install': InstallCommand,
     },
     install_requires=get_install_requires(),
+    extras_require={'cc': [get_extras_require_cc()]},
 )
