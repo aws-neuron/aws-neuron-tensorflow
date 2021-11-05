@@ -87,6 +87,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
     // Change Conv2D with Same to Valid
     NodeDef* node_def = output->mutable_node(idx);
+    VLOG(1) << "Node: " << node_def->DebugString();
 
     if (node_def->op() == "Conv2D" && !found_conv2d) {
       (*node_def->mutable_attr())["padding"].set_s("VALID");
@@ -94,14 +95,15 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       // Grabs the first conv2d input which is the tensor being operated on
 			conv2d_original_input = node_def->input(0);
       conv2d_idx = idx;
+      VLOG(1) << "Conv2d node: " << node_def->DebugString();
     }
 
-		if (node_def->op() == "Const" && (*node_def->mutable_attr())["value"].has_tensor()) {
-		  copy_node_idx = idx;	
-			VLOG(1) << "Tensor: " << node_def;
-			//VLOG(1) << "Tensor: " << (*node_def->mutable_attr())["value"].mutable_tensor()->tensor_content();
-		}
+    if (node_def->op() == "Const" && (*node_def->mutable_attr())["value"].has_tensor()) {
+      copy_node_idx = idx;
+    }
 
+
+    /*
     if (node_def->name() == "Conv/conv1_pad/Pad/paddings") {
       TensorProto* tensor2 = (*node_def->mutable_attr())["value"].mutable_tensor();
       const int64_t num_bytes = tensor2->tensor_content().size();
@@ -109,6 +111,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
           tensor2->tensor_content().size() / sizeof(int), 0);
       toco::port::CopyToBuffer(tensor2->tensor_content(), reinterpret_cast<char*>(shape_values.data()));
     }
+    */
    
   }
 
@@ -128,7 +131,8 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 			x.set_op("Const");
 			x.clear_device();
 			x.set_device(output->node(0).device());
-			(*x.mutable_attr())["dtype"].clear_value();
+      x.clear_attr();
+			//(*x.mutable_attr())["dtype"].clear_value();
 			(*x.mutable_attr())["dtype"] = TypeAttrValue(DT_INT32);
 
 			//Set values of padding array
@@ -139,20 +143,21 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 																	values.size() * sizeof(int)));
 			mutable_tensor->set_dtype(DT_INT32);
 			auto* tensor_shape = mutable_tensor->mutable_tensor_shape();
-			//tensor_shape->clear_dim();
-			//auto tensor_shape_dim0 = tensor_shape->add_dim();
-			//tensor_shape_dim0->set_size(values.size());
+			tensor_shape->clear_dim();
+			auto tensor_shape_dim0 = tensor_shape->add_dim();
+			tensor_shape_dim0->set_size(values.size());
 			
 			//auto tensor_shape_dim1 = tensor_shape->add_dim();
 			//tensor_shape_dim1->set_size(2);
 			mutable_tensor->set_dtype(DT_INT32);
 
-    	VLOG(1) << "X node: " << x.DebugString();
 
 			(*output->add_node()) = x;
+		  VLOG(1) << "X Node: " << x.DebugString();
 		}
 
 		// Add operator for pad and set inputs to original Conv2D input and pad value tensor
+    /*
 		NodeDef y(output->node(0));
 		y.clear_name();
 		y.set_name(pad_op_name);
@@ -168,11 +173,13 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 		y.clear_attr();
 		(*y.mutable_attr())["T"] = TypeAttrValue(DT_FLOAT);
 		(*y.mutable_attr())["Tpaddings"] = TypeAttrValue(DT_INT32);
+		VLOG(1) << "Y Node: " << y.DebugString();
 		(*output->add_node()) = y;
 
     // Rewire input of Conv 2D to be the pad
     NodeDef* conv2d_node_def = output->mutable_node(conv2d_idx);
     conv2d_node_def->set_input(0, pad_name);
+    */
 		//VLOG(1) << "Neuron graphdef: " << output->DebugString();
 		//VLOG(1) << "Conv2D Original Input: " << conv2d_original_input;
 	}

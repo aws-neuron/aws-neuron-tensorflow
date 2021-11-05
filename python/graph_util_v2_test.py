@@ -22,6 +22,7 @@ import time
 import unittest
 import numpy as np
 import tensorflow as tf
+import tensorflow.neuron as tfn
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
 from tensorflow.neuron.python import graph_def_util as gdu
@@ -42,13 +43,18 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         # Model Creation
         model = tf.keras.Sequential(layers=[
             tf.keras.layers.InputLayer(input_shape=(28, 28, 3), name="input"),
-            tf.keras.layers.ZeroPadding2D(padding=((1,2),(3,4) ), name='conv1_pad'),
+            #tf.keras.layers.ZeroPadding2D(padding=((1,2),(3,4) ), name='conv1_pad'),
             tf.keras.layers.Conv2D(1, (3,3), padding="same")
         ], name="Conv")
         
-        model.summary()
+
+        example_inputs = tf.random.uniform([1, 28, 28, 3])
+
+        layer_neuron = tfn.trace(model, example_inputs)
+        print(layer_neuron.aws_neuron_function.graph.as_graph_def())
 
         # convert keras model to ConcreteFunction
+        '''
         full_model = tf.function(lambda x: model(x))
         full_model = full_model.get_concrete_function(
             x=tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
@@ -76,6 +82,7 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
                 padding_op_exists = True
 
         assert(padding_op_exists)
+        '''
 
     def test_pad_proto(self):
         graph = tf.Graph()
