@@ -454,8 +454,6 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
 
 def set_execution_plan(compiled_graph_def):
     # scan to get num neuroncores and total number of bytes of input and output tensors
-    default_io_buffer_size = 128 * 1024 * 1024
-    cpu_extra_ninfer = 1
     num_cores_tuple_map = {}
     mis_config = False
     neuron_nodes = list(get_neuron_nodes(compiled_graph_def))
@@ -466,23 +464,7 @@ def set_execution_plan(compiled_graph_def):
         else:
             opt_num_cores, _ = num_cores_tuple
             num_cores_tuple_map[node.name] = num_cores_tuple
-    total_io_bytes = 0
-    for node in neuron_nodes:
-        model_io_bytes = 0
-        for enum, shape in zip(node.attr[knInputDtypes].list.type, node.attr[knInputShapes].list.shape):
-            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
-        for enum, shape in zip(node.attr[knOutputDtypes].list.type, node.attr[knOutputShapes].list.shape):
-            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
-        if node.name not in num_cores_tuple_map:
-            total_io_bytes = 0
-            break
-        this_opt_num_cores, _ = num_cores_tuple_map[node.name]
-        total_io_bytes += model_io_bytes * (this_opt_num_cores + cpu_extra_ninfer)  # io size * ninfer
-    max_num_duplicates = 1
-    if total_io_bytes > 0:
-        max_num_duplicates = math.floor(default_io_buffer_size / total_io_bytes)
-        max_num_duplicates = min(max_num_duplicates, 4)  # use at most 1 MLA (4 cores) by default
-        max_num_duplicates = max(max_num_duplicates, 1)
+    max_num_duplicates = 64
     if mis_config or not num_cores_tuple_map:
         global_opt_num_cores = -1
         max_num_duplicates = 1
