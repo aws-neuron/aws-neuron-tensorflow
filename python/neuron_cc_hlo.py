@@ -127,13 +127,13 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
             item.type = ts.dtype.as_datatype_enum
 
     # call graph_def_to_hlo and then hlo_to_neff
-    tfn_args, compiler_args = utils.parse_neuron_cc_flags(dest_set={'--dump-prefix'})
+    tfn_args, compiler_args = utils.parse_neuron_cc_flags(flag_set={'--workdir'})
     with tempfile.TemporaryDirectory() as workdir:
         if tfn_args.dump_prefix is not None:
             workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
             os.makedirs(workdir, exist_ok=True)
         hlo_module = graph_def_to_hlo(graph_def, tf2xla_config, workdir)
-        compiler_args.append('--dump-prefix={}'.format(workdir))
+        compiler_args.append('--workdir={}'.format(workdir))
         executable, new_inputs, new_outputs = hlo_to_neff(hlo_module, compiler_args, dumper)
     return executable, new_inputs, new_outputs
 
@@ -242,7 +242,8 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
         f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
     command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
                '--pipeline', 'compile', 'SaveTemps', '--output', output_path,
-               '--verbose=35', '--fast-math=none', '--fp32-cast={}'.format(parsed_args.fp32_cast)]
+               '--verbose={}'.format(parsed_args.verbose),
+               '--fast-math=none', '--fp32-cast={}'.format(parsed_args.fp32_cast)]
     if parsed_args.neuroncore_pipeline_cores is None:
         command.append('--enable-fast-context-switch')
     else:

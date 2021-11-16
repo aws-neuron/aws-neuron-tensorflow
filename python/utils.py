@@ -67,22 +67,23 @@ def model_conversion_report(model_dir, new_model_dir, on_neuron_ratio):
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
 
 
-def parse_neuron_cc_flags(args=None, dest_set=None):
+def parse_neuron_cc_flags(args=None, flag_set=None):
     if args is None:
         neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
         args = shlex.split(neuron_cc_flags)
     parser = argparse.ArgumentParser()
 
-    def maybe_add_argument(dest, *args, **kwargs):
-        if dest_set is None or dest in dest_set:
-            parser.add_argument(dest, *args, **kwargs)
+    def maybe_add_argument(flag, *args, **kwargs):
+        if flag_set is None or flag in flag_set:
+            parser.add_argument(flag, *args, **kwargs)
 
-    maybe_add_argument('--dump-prefix', default=None)
-    maybe_add_argument('--log-level', type=int, default=logging.WARN)
+    maybe_add_argument('--workdir', dest='dump_prefix', default=None)
+    maybe_add_argument('--verbose', choices=['DEBUG', 'INFO', 'WARN', 'ERROR'], default='WARN')
     maybe_add_argument('--dynamic-batch-size', action='store_true')
     maybe_add_argument('--fp32-cast', default='matmult-fp16')
     maybe_add_argument('--neuroncore-pipeline-cores', default=None)
     tfn_args, compiler_args = parser.parse_known_args(args)
+    tfn_args.log_level = getattr(logging, getattr(tfn_args, 'verbose', 'WARN'))
     return tfn_args, compiler_args
 
 

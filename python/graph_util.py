@@ -108,7 +108,7 @@ def inference_graph_from_session(
     if 'NEURON_CC_FLAGS' in os.environ:
         parser = argparse.ArgumentParser()
         parser.add_argument('--must-compile', action='store_true')
-        parser.add_argument('--dump-prefix', default=None)
+        parser.add_argument('--workdir', dest='dump_prefix', default=None)
         parser.add_argument('--verbose', type=int, default=None)
         tf_neuron_args, neuron_cc_args = parser.parse_known_args(shlex.split(os.environ['NEURON_CC_FLAGS']))
         if tf_neuron_args.verbose is not None:

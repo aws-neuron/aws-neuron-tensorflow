@@ -980,7 +980,7 @@ class TestNeuronCCFlagsEnv(unittest.TestCase):
         return ['relu0:0', 'relu1:0'], feed_dict
 
 class TestNeuronCCFlagsEnvMustCompileSuccess(TestNeuronCCFlagsEnv):
-    _neuron_cc_flags = '--must-compile --dump-prefix ./workdir --fp32-cast matmult'
+    _neuron_cc_flags = '--must-compile --workdir ./workdir --fp32-cast matmult'
     def test(self):
         np.random.seed(_RANDOM_SEED)
         with tf.Session(graph=tf.Graph()) as sess:
@@ -1002,7 +1002,7 @@ class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
             assert cm.exception.args[0].startswith('The following subgraphs failed')
 
 class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
-    _neuron_cc_flags = '--dump-prefix ./workdir_neuron_cc_flags_dump --fp32-cast matmult'
+    _neuron_cc_flags = '--workdir ./workdir_neuron_cc_flags_dump --fp32-cast matmult'
     def test(self):
         np.random.seed(_RANDOM_SEED)
         workdir = './workdir_neuron_cc_flags_dump'
