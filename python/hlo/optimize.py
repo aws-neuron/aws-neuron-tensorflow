@@ -165,14 +165,21 @@ class HloOptimizer:
             broadcast_op.inst.shape.dimensions[:] = op.shape
             broadcast_op.inst.shape.element_type = op.inst.shape.element_type
             broadcast_op.inst.dimensions[:] = gdns.offset_dims
+            minor_to_major = broadcast_op.inst.shape.layout.minor_to_major
+            minor_to_major[:] = reversed([idx for idx, _ in enumerate(op.shape)])
+            broadcast_op.inst.shape.is_dynamic_dimension[:] = [False for _ in op.shape]
 
             # generate new gather instruction
             op.inst.operand_ids[1] = start_indices_op.id
             op.inst.shape.dimensions[:] = [op.shape[dim] for dim in gdns.offset_dims]
+            is_dynamic_dimension = op.inst.shape.is_dynamic_dimension
+            is_dynamic_dimension[:] = [False for _ in gdns.offset_dims]
+            minor_to_major = op.inst.shape.layout.minor_to_major
+            minor_to_major[:] = reversed([idx for idx, _ in enumerate(gdns.offset_dims)])
             gdns.index_vector_dim = 0
             gdns.offset_dims[:] = [0]
-            gdns.collapsed_slice_dims[:] = []
-            gdns.start_index_map[:] = []
+            gdns.collapsed_slice_dims[:] = [0]
+            gdns.start_index_map[:] = [0]
 
             # prepare for code motion
             moving_broadcast_ids.add(broadcast_op.id)
