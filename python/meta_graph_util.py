@@ -49,7 +49,6 @@ def run_grappler_on_subgraphs(graph_def):
         'constfold',
         'loop',
         'constfold',
-        'aws_neuron_split_conv2d_same_padding'
     ]
     for node in gdu.get_neuron_nodes(graph_def):
         is_compilable, reason = gdu.neuron_node_is_compilable(node)

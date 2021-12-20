@@ -41,17 +41,21 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         '''
             
         # Model Creation
-        model = tf.keras.Sequential(layers=[
-            tf.keras.layers.InputLayer(input_shape=(28, 28, 3), name="input"),
-            #tf.keras.layers.ZeroPadding2D(padding=((1,2),(3,4) ), name='conv1_pad'),
-            tf.keras.layers.Conv2D(1, (3,3), padding="same")
-        ], name="Conv")
-        
+        kernel = tf.random.uniform([7,7,3,64])
+        kernel = tf.cast(kernel, tf.float16)
 
-        example_inputs = tf.random.uniform([1, 28, 28, 3])
+        def func(tensor):
+            #tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
+            tensor = tf.nn.conv2d(tensor, kernel, padding='SAME', strides=[1, 1, 2, 2], data_format='NCHW')
+            return tensor
 
-        layer_neuron = tfn.trace(model, example_inputs)
-        print(layer_neuron.aws_neuron_function.graph.as_graph_def())
+        input_tensor = tf.random.uniform([1, 3, 224, 224])
+        input_tensor = tf.cast(input_tensor, tf.float16)
+
+        layer_neuron = tfn.trace(func, input_tensor)
+
+        #print(layer_neuron.aws_neuron_function.graph.as_graph_def())
+
 
         # convert keras model to ConcreteFunction
         '''
