@@ -35,7 +35,7 @@ class FuseSupportedOperators : public CustomGraphOptimizer {
   Status Optimize(Cluster* cluster, const GrapplerItem& item,
                   GraphDef* output) override;
   void Feedback(Cluster* cluster, const GrapplerItem& item,
-                const GraphDef& optimize_output, double result) override;
+                const GraphDef& optimize_output, double result);
 
  private:
   int minimum_segment_size_ = 1;
