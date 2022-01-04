@@ -151,6 +151,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         )
 
     """
+    original_func = func
     if not supports_xla():
         raise RuntimeError(
             'tfn.trace requires neuron-cc version >= 1.6.0.0; please update to latest neuron-cc '
@@ -162,11 +163,12 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         if all(isinstance(item, ops.Tensor) for item in example_inputs):
             input_signature = [TensorSpec(ts.shape, ts.dtype) for ts in example_inputs]
         func = def_function.function(input_signature=input_signature)(func)
-    original_func = func
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
+    cfunc = func
     dumper = OptionalDumper()
 
+    '''
     # convert all variables to constants
     with utils.change_grappler_logging_level_according_to_cc_flags():
         try:
@@ -186,6 +188,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
                 " layers do not contain StatefulPartitionedCall wrapping custom operators."
             )
             raise InvalidArgumentError(err.node_def, err.op, error_msg)
+    '''
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
         logging.warning('{} does not seem to have any input; returning an uncompiled callable'.format(func))
@@ -194,6 +197,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     # encode known shapes
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
+    wrapped = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
+    import pdb;pdb.set_trace()
+    print(func(*example_inputs))
+    print(wrapped(*example_inputs, *func.graph.variables))
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # call main-graph grappler passes
@@ -443,6 +450,9 @@ def _get_input_names(func):
     captured_inputs = {ts.name for _, ts in func.graph.captures}
     return [ts.name for ts in func.inputs if ts.name not in captured_inputs]
 
+def _get_all_names(func):
+    return [ts.name for ts in func.inputs]
+
 
 def _get_output_names(func):
     outputs, structured_outputs = func.outputs, func.structured_outputs
@@ -464,6 +474,21 @@ def _wrap_graph_def_as_concrete_function(graph_def, func_ref):
     # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
     # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
     input_names = _get_input_names(func_ref)
+    output_names = _get_output_names(func_ref)
+    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
+
+    # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
+    try:
+        if cfunc._arg_keywords != func_ref._arg_keywords:
+            cfunc._arg_keywords = func_ref._arg_keywords
+    except AttributeError:
+        pass
+    return cfunc
+
+def _wrap_variable_graph_def_as_concrete_function(graph_def, func_ref):
+    # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
+    # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
+    input_names = _get_all_names(func_ref)
     output_names = _get_output_names(func_ref)
     cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
 
