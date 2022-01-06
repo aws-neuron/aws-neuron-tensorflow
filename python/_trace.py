@@ -200,7 +200,9 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     wrapped = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
     import pdb;pdb.set_trace()
     print(func(*example_inputs))
-    print(wrapped(*example_inputs, *func.graph.variables))
+    ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
+    reordered_vars = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
+    print(wrapped(*example_inputs, *reordered_vars))
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # call main-graph grappler passes
