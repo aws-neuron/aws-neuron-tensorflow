@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import itertools
 import logging
 import numpy as np
 from tensorflow.compiler.xla import xla_data_pb2
@@ -217,6 +218,35 @@ class HloOptimizer:
                     id_map[inst.id] = id_map.get(input_inst.id, input_inst.id)
         for inst in self.entry_instructions:
             inst.operand_ids[:] = [id_map.get(input_id, input_id) for input_id in inst.operand_ids]
+
+    def rewrite_depthwise_convolution(self):
+        hlo_op_list = [HloOp(inst) for inst in self.entry_instructions]
+        id_to_op = {op.id: op for op in hlo_op_list}
+        for op in hlo_op_list:
+            if op.opcode == 'convolution' and op.inst.feature_group_count > 1:
+                rhs_op = id_to_op[op.operand_ids[1]]
+                cdn = op.inst.convolution_dimension_numbers
+                kif_dim = cdn.kernel_input_feature_dimension
+                if rhs_op.opcode == 'constant' and rhs_op.shape[kif_dim] == 1 and rhs_op.id not in self.output_ids:
+                    ks_dims = cdn.kernel_spatial_dimensions
+                    if op.inst.feature_group_count != rhs_op.shape[cdn.kernel_output_feature_dimension]:
+                        continue
+                    target_shape = rhs_op.shape
+                    target_shape[kif_dim] = op.inst.feature_group_count
+                    literal_value = rhs_op.literal_value
+                    new_slice_list = [slice(None) for _ in op.shape]
+                    new_literal_value = np.zeros(target_shape, dtype=literal_value.dtype)
+                    ks_dims_sizes = [rhs_op.shape[dim] for dim in ks_dims]
+                    index_tuple_list = itertools.product(*[range(size) for size in ks_dims_sizes])
+                    for index_tuple in index_tuple_list:
+                        for dim, index in zip(ks_dims, index_tuple):
+                            new_slice_list[dim] = index
+                        slice_list = list(new_slice_list)
+                        slice_list[kif_dim] = 0
+                        np.fill_diagonal(new_literal_value[tuple(new_slice_list)], literal_value[tuple(slice_list)])
+                    new_literal_value = new_literal_value.reshape(target_shape)
+                    op.inst.feature_group_count = 1
+                    _rewrite_literal_value(rhs_op.inst, new_literal_value)
 
     def batchify_reshape_dot_reshape(self):
         # rewrite (batch) -> reshape -> dot -> reshape -> (batch) with dot to enable batch analyzer
@@ -774,14 +804,7 @@ class RtrRewriter:
         return self.shuffle_indices
 
     def rewrite_kernel(self, kernel_inst):
-        kernel_inst.shape.dimensions[:] = self.kernel_array_prtr.shape
-        kernel_inst.literal.shape.dimensions[:] = self.kernel_array_prtr.shape
-        literal_attr_name = HloOp.xla_dtype_to_literal_attr_name[kernel_inst.shape.element_type]
-        literals = getattr(kernel_inst.literal, literal_attr_name)
-        if isinstance(literals, bytes):
-            setattr(kernel_inst.literal, literal_attr_name, self.kernel_array_prtr.tobytes())
-        else:
-            literals[:] = self.kernel_array_prtr.ravel()
+        _rewrite_literal_value(kernel_inst, self.kernel_array_prtr)
         for dim, prtr_wsize in zip(self.window_dims, self.prtr_window_sizes):
             dim.size = prtr_wsize
             dim.stride = 1
@@ -1000,4 +1023,14 @@ def _get_frontend_attribute(self, key):
     if not value:
         raise ValueError('invalid {} found on instruction {}'.format(key, self.name))
     return value
+
+
+def _rewrite_literal_value(inst, literal_value):
+    inst.shape.dimensions[:] = inst.literal.shape.dimensions[:] = literal_value.shape
+    literal_attr_name = HloOp.xla_dtype_to_literal_attr_name[inst.shape.element_type]
+    literals = getattr(inst.literal, literal_attr_name)
+    if isinstance(literals, bytes):
+        setattr(inst.literal, literal_attr_name, literal_value.tobytes())
+    else:
+        literals[:] = literal_value.ravel()
 
