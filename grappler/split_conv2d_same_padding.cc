@@ -86,13 +86,17 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
   graph.ToGraphDef(output);
   VLOG(1) << "Graph def pre runthrough: " << output->DebugString();
   
-  /*
   for (int idx = 0; idx < output->node_size(); idx++) {
 
     // Change Conv2D with Same to Valid
     NodeDef* node_def = output->mutable_node(idx);
 
     // TODO: check for case when padding is already valid
+    VLOG(1) << "CHECK PADDING";
+    VLOG(1) << node_def->attr().at("padding").s();
+    if(node_def->attr().at("padding").s() == "VALID") { 
+      VLOG(1) << "ALREADY EXISTS";
+    }
     if (node_def->op() == "Conv2D" && !found_conv2d) {
       (*node_def->mutable_attr())["padding"].set_s("VALID");
       found_conv2d = true;
@@ -103,6 +107,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       // Grab values to calculate for padding
       AttrValue_ListValue inferred_shapes = node_def->attr().at(kNeuronInferredShapes).list();
 
+      /*
       for (const int i : inferred_shapes) {
         VLOG(1) << "Conv shape: " << i;
       }
@@ -110,6 +115,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       for (const int i : inferred_shapes) {
         VLOG(1) << "Conv shape: " << i;
       }
+      */
     }
 
     if (node_def->op() == "Const" && (*node_def->mutable_attr())["value"].has_tensor()) {
@@ -154,7 +160,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
 
       // TODO: Remove the hard-coded constants
-      std::vector<int> values{0, 0, 0, 0, 0, 0, 0, 0};
+      std::vector<int> values{0, 0, 0, 0, 3, 3, 3, 3};
       mutable_tensor->set_tensor_content(
               std::string(reinterpret_cast<const char*>(values.data()),
                                   values.size() * sizeof(int)));
@@ -171,6 +177,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 		}
 
 
+    /*
 		// Add operator for pad and set inputs to original Conv2D input and pad value tensor
 		NodeDef y(output->node(0));
 		y.clear_name();
@@ -188,13 +195,13 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 		(*y.mutable_attr())["T"] = TypeAttrValue(src_type);
 		(*y.mutable_attr())["Tpaddings"] = TypeAttrValue(DT_INT32);
 		(*output->add_node()) = y;
+    */
 
     // Rewire input of Conv 2D to be the pad
     NodeDef* conv2d_node_def = output->mutable_node(conv2d_idx);
     conv2d_node_def->set_input(0, pad_name);
 	  VLOG(1) << "Neuron graphdef post runthrough: " << output->DebugString();
 	}
-  */
   return Status::OK();
 }
 

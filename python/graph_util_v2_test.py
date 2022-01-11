@@ -87,6 +87,28 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
 
         assert(padding_op_exists)
         '''
+    def test_valid_padding(self):
+        '''
+        Test asserts that the SAME padding has been removed from Conv2D
+        and asserts that the new padding op has been added
+        '''
+            
+        # Model Creation
+        kernel = tf.random.uniform([7,7,3,64])
+        kernel = tf.cast(kernel, tf.float16)
+
+        def func(tensor):
+            tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
+            tensor = tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 2, 2], data_format='NCHW')
+            return tensor
+
+        input_tensor = tf.random.uniform([1, 3, 224, 224])
+        input_tensor = tf.cast(input_tensor, tf.float16)
+
+        layer_neuron = tfn.trace(func, input_tensor)
+
+        #print(layer_neuron.aws_neuron_function.graph.as_graph_def())
+
 
     def test_pad_proto(self):
         graph = tf.Graph()
