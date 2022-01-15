@@ -78,15 +78,26 @@ def parse_neuron_cc_flags(args=None, flag_set=None):
             parser.add_argument(flag, *args, **kwargs)
 
     maybe_add_argument('--workdir', dest='dump_prefix', default=None)
-    maybe_add_argument('--verbose', choices=['', 'DEBUG', 'INFO', 'WARN', 'ERROR'], default='')
+    verbose_choices = ['debug', 'info', 'warning', 'error', 'critical']
+    verbose_choices.extend([key.upper() for key in verbose_choices])
+    maybe_add_argument('--verbose', choices=verbose_choices, default=None)
     maybe_add_argument('--dynamic-batch-size', action='store_true')
     maybe_add_argument('--fp32-cast', default='matmult-fp16')
     maybe_add_argument('--neuroncore-pipeline-cores', default=None)
     tfn_args, compiler_args = parser.parse_known_args(args)
-    tfn_args.log_level = getattr(logging, getattr(tfn_args, 'verbose', ''), '')
-    if not tfn_args.log_level:
+    verbose = getattr(tfn_args, 'verbose', None)
+    if verbose is None:
         # set between WARN and ERROR to trigger neuron-cc progress bar
         tfn_args.verbose = tfn_args.log_level = 35
+    else:
+        verbose_map = {
+            'debug': 'DEBUG',
+            'info': 'INFO',
+            'warning': 'WARN',
+            'error': 'ERROR',
+            'critical': 'FATAL',
+        }
+        tfn_args.log_level = getattr(logging, verbose_map.get(verbose.lower(), 'WARN'))
     return tfn_args, compiler_args
 
 

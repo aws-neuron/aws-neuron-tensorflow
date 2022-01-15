@@ -255,11 +255,15 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     command.extend(compiler_args)
     with open(os.path.join(workdir, 'neuron_cc_xla_command.log'), 'w') as f:
         f.write(' '.join(command))
-    with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
-        proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
+    stderr_log_path = os.path.join(workdir, 'neuron_cc_xla.stderr.log')
+    with open(stderr_log_path, 'w') as f:
+        proc = subprocess.run(command, cwd=workdir, stderr=f)
     if proc.returncode == 0:
         with open(output_path, 'rb') as f:
             neff_bytes = f.read()
+    else:
+        with open(stderr_log_path, 'r') as f:
+            logging.warning('neuron-cc failed with:\n{}'.format(f.read()))
     return neff_bytes
 
 
