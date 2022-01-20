@@ -62,6 +62,7 @@ FusedBatchNormV2
 FusedBatchNormV3
 Greater
 Identity
+IdentityN
 LeakyRelu
 LogicalAnd
 LogicalNot

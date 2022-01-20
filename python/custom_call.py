@@ -22,7 +22,9 @@ from tensorflow.neuron.python import graph_def_util as gdu
 
 targetAwsNeuronErf = 'AwsNeuronErf'
 targetAwsNeuronSoftplus = 'AwsNeuronSoftplus'
-targetAwsNeuronResizeBilinear = 'AwsNeuronResizeBilinear'
+targetResizeBilinear = 'ResizeBilinear'
+targetResizeNearest = 'ResizeNearest'
+tpuResizeTargets = {targetResizeBilinear, targetResizeNearest}
 
 
 class CustomCallLowering:
@@ -54,7 +56,15 @@ class CustomCallLowering:
                 node.attr.clear()
                 node.op = '_AwsNeuronCustomOp'
                 node.attr['custom_call_target'].s = custom_call_target.encode()
-                node.attr['backend_config'].s = backend_config.SerializeToString()
+                if custom_call_target in tpuResizeTargets:
+                    node.input[1:] = []
+                    input_dtypes[1:] = []
+                    align_corners = int(backend_config.attr['align_corners'].b)
+                    half_pixel_centers = int(backend_config.attr['half_pixel_centers'].b)
+                    backend_config = "\"{}{}\"".format(align_corners, half_pixel_centers).encode()
+                else:
+                    backend_config = backend_config.SerializeToString()
+                node.attr['backend_config'].s = backend_config
                 node.attr['input_dtypes'].list.type[:] = input_dtypes
                 node.attr['output_dtypes'].list.type[:] = output_dtypes
                 node.attr['output_shapes'].CopyFrom(inferred_shapes)
@@ -74,5 +84,7 @@ def get_custom_call_target(node):
     elif node.op == 'Softplus':
         return targetAwsNeuronSoftplus
     elif node.op == 'ResizeBilinear':
-        return targetAwsNeuronResizeBilinear
+        return targetResizeBilinear
+    elif node.op == 'ResizeNearestNeighbor':
+        return targetResizeNearest
     return ''
