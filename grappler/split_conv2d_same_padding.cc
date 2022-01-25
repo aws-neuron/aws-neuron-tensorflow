@@ -16,6 +16,7 @@ limitations under the License.
 #include <string>
 #include <unordered_set>
 #include <vector>
+#include <iterator>
 #include "absl/algorithm/container.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/attr_value_util.h"
@@ -67,6 +68,53 @@ Status SplitConv2DSamePadding::Init(
   return Status::OK();
 }
 
+std::vector<int> CalculateSamePadding(int input_h, 
+                                      int input_w, 
+                                      std::vector<int>& strides,
+                                      int filter_h,
+                                      int filter_w) {
+  // Calculations from: https://mmuratarat.github.io/2019-01-17/implementing-padding-schemes-of-tensorflow-in-python 
+  int pad_height = 0;
+  int pad_width = 0;
+
+
+  // TODO: Confirm strides are [height, width]. 
+  if (strides.size() < 4) {
+    VLOG(1) << "Stride size is invalid";
+    return std::vector<int>();
+  }
+  
+  if (input_h % strides[0] == 0) {
+    pad_height = std::max((filter_h - strides[0]), 0);
+  }
+  else {
+    pad_height = std::max((filter_h - (input_h % strides[0])), 0);
+  }
+
+  
+  if (input_w % strides[2] == 0) {
+    pad_width = std::max((filter_w - strides[2]), 0);
+  }
+  else {
+    pad_width = std::max((filter_w - (input_w % strides[2])), 0);
+  }
+
+  int pad_top = pad_height / 2;
+  int pad_bottom = pad_height - pad_top;
+  int pad_left = pad_width / 2;
+  int pad_right = pad_width - pad_left;
+
+
+  VLOG(1) << "Pad Height " << pad_height << ", Pad Width " << pad_width;
+  VLOG(1) << "Pad Top " << pad_top << ", Pad bottom " << pad_bottom;
+  VLOG(1) << "Pad Left " << pad_left << ", Pad right " << pad_right;
+
+
+  // TODO: Confirm ordering, probably wrong right now
+  std::vector<int> padding = {pad_top, pad_bottom, pad_left, pad_right};
+  return padding;
+}
+
 Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
                                             const GrapplerItem& item,
                                             GraphDef* output) {
@@ -84,63 +132,86 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
   int conv2d_idx = 0;
 	int copy_node_idx = -1;
   graph.ToGraphDef(output);
-  VLOG(1) << "Graph def pre runthrough: " << output->DebugString();
-  
+  std::string data_format = "";
+
+  // Variables to store the information for padding
+  int filter_w = 0, filter_h = 0, input_w = 0, input_h = 0;
+  std::vector<int> stride_vec;
+
+  // Process the graph and find the convolution and the filter
   for (int idx = 0; idx < output->node_size(); idx++) {
 
     // Change Conv2D with Same to Valid
     NodeDef* node_def = output->mutable_node(idx);
 
-    // TODO: check for case when padding is already valid
-    VLOG(1) << "CHECK PADDING";
-    VLOG(1) << node_def->attr().at("padding").s();
-    if(node_def->attr().at("padding").s() == "VALID") { 
-      VLOG(1) << "ALREADY EXISTS";
-    }
     if (node_def->op() == "Conv2D" && !found_conv2d) {
-      (*node_def->mutable_attr())["padding"].set_s("VALID");
-      found_conv2d = true;
-      // Grabs the first conv2d input which is the tensor being operated on
-			conv2d_original_input = node_def->input(0);
-      conv2d_idx = idx;
 
-      // Grab values to calculate for padding
-      AttrValue_ListValue inferred_shapes = node_def->attr().at(kNeuronInferredShapes).list();
+      // Padding is already valid so we can choose to ignore
+      if(node_def->attr().at("padding").s() == "VALID") { 
+        VLOG(1) << "ALREADY EXISTS";
+      }
+      else {
+        found_conv2d = true;
+        (*node_def->mutable_attr())["padding"].set_s("VALID");
+        // Grabs the first conv2d input which is the tensor being operated on
+        // Also store data format for padding order
+        data_format = node_def->attr().at("data_format").s();
+        conv2d_original_input = node_def->input(0);
+        conv2d_idx = idx;
 
-      /*
-      for (const int i : inferred_shapes) {
-        VLOG(1) << "Conv shape: " << i;
+        // Grab value for stride for padding calculation
+        AttrValue_ListValue strides = node_def->attr().at("strides").list();
+        for (int i = 0; i < strides.i_size(); i++) { 
+          stride_vec.push_back(strides.i(i));
+        }
       }
-      AttrValue_ListValue inferred_shapes = node_def().attr().at("strides").list();
-      for (const int i : inferred_shapes) {
-        VLOG(1) << "Conv shape: " << i;
-      }
-      */
     }
+
+    // Grab values from filter for padding calculation
+    if (node_def->name() == "Conv2D/filter") {
+      AttrValue_ListValue filter_shapes = node_def->attr().at(kNeuronInferredShapes).list();
+      const TensorShapeProto shape = filter_shapes.shape(0);
+
+      int HEIGHT_INDEX = 0;
+      int WIDTH_INDEX = 1;
+      filter_w = shape.dim(HEIGHT_INDEX).size();
+      filter_h = shape.dim(WIDTH_INDEX).size();
+    }
+
 
     if (node_def->op() == "Const" && (*node_def->mutable_attr())["value"].has_tensor()) {
       copy_node_idx = idx;
     }
-
    
   }
 
 	if (found_conv2d) {
     // Determine input tensor type
     DataType src_type = DT_INVALID;
+    input_w = 0;
+    input_h = 0;
 
     for (int idx = 0; idx < output->node_size(); idx++) {
 
       NodeDef* node_def = output->mutable_node(idx);
       if (node_def->name() == conv2d_original_input) {
         src_type = (*node_def->mutable_attr())["dtype"].type();
+        
+        // Find input values
+        AttrValue_ListValue input_shapes = node_def->attr().at(kNeuronInferredShapes).list();
+        const TensorShapeProto shape = input_shapes.shape(0);
+        // Dims are ordered as [batch, depth, width, height] 
+        int HEIGHT_INDEX = 2;
+        int WIDTH_INDEX = 3;
+        input_h = shape.dim(HEIGHT_INDEX).size();
+        input_w = shape.dim(WIDTH_INDEX).size();
       }
     }
 
 		// Adding padding requires two nodes: padding and the values of padding
 		// Add operator for value of padding
-		const std::string& pad_name = "conv_padding";
-    const std::string& pad_op_name = "conv_op_padding";
+		const std::string& pad_name = "Pad/paddings";
+    const std::string& pad_op_name = "Pad";
 		if (copy_node_idx == -1) {
 			VLOG(1) << "This grappler pass may fail because a pre-allocated tensor was not found";
 		}
@@ -156,14 +227,39 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
 			//Set values of padding array
 			auto* mutable_tensor = (*x.mutable_attr())["value"].mutable_tensor();
+      AttrValue::ListValue* mutable_inferred_list = (*x.mutable_attr())["_aws_neuron_inferred_shapes"].mutable_list();
 
+      std::vector<int> padding_constants = CalculateSamePadding(input_h, input_w, stride_vec, filter_h, filter_w);
 
+      // TODO: Confirm the order is right, this is dependent on data_format NHWC and NCHW and right now it is coded for NHWC
+      std::vector<int> t_values = {};
+      if (data_format == "NCHW") {
+        // Offset since N/C have no current padding values
+        int PADDING_OFFSET = 4;
+        for(int i = 0; i < padding_constants.size(); i++) {
+          if (i >= PADDING_OFFSET) {
+            t_values.push_back(padding_constants.at(i - PADDING_OFFSET));
+          }
+          else {
+            t_values.push_back(0);
+          }
+        }
+      }
+      else {
+        int PADDING_OFFSET = 2;
+        for(int i = 0; i < padding_constants.size(); i++) {
+          if (i >= PADDING_OFFSET && i < (padding_constants.size() - PADDING_OFFSET)) {
+            t_values.push_back(padding_constants.at(i - PADDING_OFFSET));
+          }
+          else {
+            t_values.push_back(0);
+          }
+        }
+      }
 
-      // TODO: Remove the hard-coded constants
-      std::vector<int> values{0, 0, 0, 0, 3, 3, 3, 3};
       mutable_tensor->set_tensor_content(
-              std::string(reinterpret_cast<const char*>(values.data()),
-                                  values.size() * sizeof(int)));
+              std::string(reinterpret_cast<const char*>(t_values.data()),
+                                  t_values.size() * sizeof(int)));
       mutable_tensor->set_dtype(DT_INT32);
 			auto* tensor_shape = mutable_tensor->mutable_tensor_shape();
 			tensor_shape->clear_dim();
@@ -173,11 +269,17 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 			auto tensor_shape_dim1 = tensor_shape->add_dim();
 			tensor_shape_dim1->set_size(2);
 
+      // Fix the inferred list
+      mutable_inferred_list->clear_shape();
+      auto* inferred_shape = mutable_inferred_list->add_shape();
+      auto* inferred_shape_dim0 = inferred_shape->add_dim();
+      inferred_shape_dim0->set_size(4);
+      auto* inferred_shape_dim1 = inferred_shape->add_dim();
+      inferred_shape_dim1->set_size(2);
+
 			(*output->add_node()) = x;
 		}
 
-
-    /*
 		// Add operator for pad and set inputs to original Conv2D input and pad value tensor
 		NodeDef y(output->node(0));
 		y.clear_name();
@@ -195,13 +297,12 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 		(*y.mutable_attr())["T"] = TypeAttrValue(src_type);
 		(*y.mutable_attr())["Tpaddings"] = TypeAttrValue(DT_INT32);
 		(*output->add_node()) = y;
-    */
 
     // Rewire input of Conv 2D to be the pad
     NodeDef* conv2d_node_def = output->mutable_node(conv2d_idx);
-    conv2d_node_def->set_input(0, pad_name);
-	  VLOG(1) << "Neuron graphdef post runthrough: " << output->DebugString();
+    conv2d_node_def->set_input(0, pad_op_name);
 	}
+	VLOG(1) << "Neuron graphdef post runthrough: " << output->DebugString();
   return Status::OK();
 }
 

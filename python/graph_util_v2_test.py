@@ -98,7 +98,6 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         kernel = tf.cast(kernel, tf.float16)
 
         def func(tensor):
-            tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
             tensor = tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 2, 2], data_format='NCHW')
             return tensor
 
