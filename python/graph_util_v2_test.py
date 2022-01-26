@@ -54,7 +54,8 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
 
         layer_neuron = tfn.trace(func, input_tensor)
 
-        #print(layer_neuron.aws_neuron_function.graph.as_graph_def())
+        graph_def = layer_neuron.aws_neuron_function.graph.as_graph_def()
+        print(graph_def)
 
 
         # convert keras model to ConcreteFunction
@@ -109,20 +110,6 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         #print(layer_neuron.aws_neuron_function.graph.as_graph_def())
 
 
-    def test_pad_proto(self):
-        graph = tf.Graph()
-        with graph.as_default():
-            t = tf.constant([[1, 2, 3], [4, 5, 6]])
-            paddings = tf.constant([[5, 5,], [2, 2]])
-            tf.pad(t, paddings, "CONSTANT")
-
-            graph_def = graph.as_graph_def()
-
-            for node in graph_def.node:
-                if node.op == "Const":
-                    content = node.attr['value'].tensor.tensor_content
-        
-       
 def _assert_neuron_op(infer_graph):
     op_list = [op for op in infer_graph.get_operations() if op.type == 'NeuronOp']
     if not op_list:

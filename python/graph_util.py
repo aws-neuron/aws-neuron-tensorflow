@@ -406,18 +406,10 @@ def conv2d_padding_optimization(graph_def, signature_def):
     rewriter_config.min_graph_nodes = 1
     rewriter_config.optimizers.append('aws_neuron_split_conv2d_same_padding')
 
-    # Setting the device to CPU (do I need this for conv2d padding?)
-    for node in graph_def.node:
-        node.device = "/device:CPU:0"
-
     # create meta_graph_def and run grappler passes
     meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
     meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
-
-    # Resetting the device to empty
-    for node in graph_def.node:
-        node.device = ''
 
     return graph_def
 

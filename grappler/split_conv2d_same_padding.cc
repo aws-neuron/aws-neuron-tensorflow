@@ -77,7 +77,6 @@ std::vector<int> CalculateSamePadding(int input_h,
   int pad_height = 0;
   int pad_width = 0;
 
-
   // TODO: Confirm strides are [height, width]. 
   if (strides.size() < 4) {
     VLOG(1) << "Stride size is invalid";
@@ -104,13 +103,6 @@ std::vector<int> CalculateSamePadding(int input_h,
   int pad_left = pad_width / 2;
   int pad_right = pad_width - pad_left;
 
-
-  VLOG(1) << "Pad Height " << pad_height << ", Pad Width " << pad_width;
-  VLOG(1) << "Pad Top " << pad_top << ", Pad bottom " << pad_bottom;
-  VLOG(1) << "Pad Left " << pad_left << ", Pad right " << pad_right;
-
-
-  // TODO: Confirm ordering, probably wrong right now
   std::vector<int> padding = {pad_top, pad_bottom, pad_left, pad_right};
   return padding;
 }
@@ -148,7 +140,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
       // Padding is already valid so we can choose to ignore
       if(node_def->attr().at("padding").s() == "VALID") { 
-        VLOG(1) << "ALREADY EXISTS";
+        VLOG(1) << "Padding optimization is already valid.";
       }
       else {
         found_conv2d = true;
@@ -188,8 +180,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 	if (found_conv2d) {
     // Determine input tensor type
     DataType src_type = DT_INVALID;
-    input_w = 0;
-    input_h = 0;
 
     for (int idx = 0; idx < output->node_size(); idx++) {
 
@@ -209,7 +199,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     }
 
 		// Adding padding requires two nodes: padding and the values of padding
-		// Add operator for value of padding
+		// Step 1: Add operator for value of padding
 		const std::string& pad_name = "Pad/paddings";
     const std::string& pad_op_name = "Pad";
 		if (copy_node_idx == -1) {
@@ -231,30 +221,32 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
       std::vector<int> padding_constants = CalculateSamePadding(input_h, input_w, stride_vec, filter_h, filter_w);
 
-      // TODO: Confirm the order is right, this is dependent on data_format NHWC and NCHW and right now it is coded for NHWC
-      std::vector<int> t_values = {};
+
+
+      std::vector<int> t_values = {0, 0, 0, 0, 0, 0, 0, 0};
       if (data_format == "NCHW") {
         // Offset since N/C have no current padding values
         int PADDING_OFFSET = 4;
-        for(int i = 0; i < padding_constants.size(); i++) {
+        for(int i = 0; i < t_values.size(); i++) {
           if (i >= PADDING_OFFSET) {
-            t_values.push_back(padding_constants.at(i - PADDING_OFFSET));
-          }
-          else {
-            t_values.push_back(0);
+            t_values[i] = padding_constants.at(i - PADDING_OFFSET);
           }
         }
       }
       else {
+        // Offset: Only code the middle four values since N/C have no padding values
         int PADDING_OFFSET = 2;
         for(int i = 0; i < padding_constants.size(); i++) {
-          if (i >= PADDING_OFFSET && i < (padding_constants.size() - PADDING_OFFSET)) {
-            t_values.push_back(padding_constants.at(i - PADDING_OFFSET));
-          }
-          else {
-            t_values.push_back(0);
+          if (i >= PADDING_OFFSET && i < (t_values.size() - PADDING_OFFSET)) {
+            t_values[i] = padding_constants.at(i - PADDING_OFFSET);
           }
         }
+      }
+
+      VLOG(1) << "DEBUG";
+      VLOG(1) << "Padding constants: " << padding_constants.size();
+      for (int i : t_values) {
+        VLOG(1) << i;
       }
 
       mutable_tensor->set_tensor_content(
@@ -280,7 +272,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 			(*output->add_node()) = x;
 		}
 
-		// Add operator for pad and set inputs to original Conv2D input and pad value tensor
+		// Step 2: Add operator for pad and set inputs to original Conv2D input and pad value tensor
 		NodeDef y(output->node(0));
 		y.clear_name();
 		y.set_name(pad_op_name);
@@ -302,7 +294,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     NodeDef* conv2d_node_def = output->mutable_node(conv2d_idx);
     conv2d_node_def->set_input(0, pad_op_name);
 	}
-	VLOG(1) << "Neuron graphdef post runthrough: " << output->DebugString();
   return Status::OK();
 }
 
