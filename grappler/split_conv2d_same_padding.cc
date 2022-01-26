@@ -60,7 +60,7 @@ class SplitConv2DSamePadding: public CustomGraphOptimizer {
   Status Optimize(Cluster* cluster, const GrapplerItem& item,
                   GraphDef* output) override;
   void Feedback(Cluster* cluster, const GrapplerItem& item,
-                const GraphDef& optimize_output, double result) override;
+                const GraphDef& optimize_output, double result);
 };
 
 Status SplitConv2DSamePadding::Init(
@@ -241,12 +241,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
             t_values[i] = padding_constants.at(i - PADDING_OFFSET);
           }
         }
-      }
-
-      VLOG(1) << "DEBUG";
-      VLOG(1) << "Padding constants: " << padding_constants.size();
-      for (int i : t_values) {
-        VLOG(1) << i;
       }
 
       mutable_tensor->set_tensor_content(
