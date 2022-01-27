@@ -217,7 +217,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
 			//Set values of padding array
 			auto* mutable_tensor = (*x.mutable_attr())["value"].mutable_tensor();
-      AttrValue::ListValue* mutable_inferred_list = (*x.mutable_attr())["_aws_neuron_inferred_shapes"].mutable_list();
+      AttrValue::ListValue* mutable_inferred_list = (*x.mutable_attr())[kNeuronInferredShapes].mutable_list();
 
       std::vector<int> padding_constants = CalculateSamePadding(input_h, input_w, stride_vec, filter_h, filter_w);
 
