@@ -30,9 +30,10 @@ from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
 
 
-class TestConv2dSamePaddingPass(unittest.TestCase):
+class TestConv2dSamePaddingPass(TestV2Only):
 
     def test_same_padding_into_pad_and_no_padding_conv(self):
         '''
@@ -45,7 +46,6 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         kernel = tf.cast(kernel, tf.float16)
 
         def func(tensor):
-            #tensor = tf.pad(tensor, [[0, 0], [0, 0], [3, 3], [3, 3]])
             tensor = tf.nn.conv2d(tensor, kernel, padding='SAME', strides=[1, 1, 2, 2], data_format='NCHW')
             return tensor
 
@@ -55,28 +55,21 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
         layer_neuron = tfn.trace(func, input_tensor)
 
         graph_def = layer_neuron.aws_neuron_function.graph.as_graph_def()
-        print(graph_def)
 
-
-        # convert keras model to ConcreteFunction
-        '''
-        full_model = tf.function(lambda x: model(x))
-        full_model = full_model.get_concrete_function(
-            x=tf.TensorSpec(model.inputs[0].shape, model.inputs[0].dtype))
-
-        # Frozen model
-        frozen_func = convert_variables_to_constants_v2(full_model)
-        graph_def = frozen_func.graph.as_graph_def()
-
-        signature_def0 = meta_graph_util.build_signature_def(frozen_func.inputs, frozen_func.outputs)
-        amp_graph_def = graph_util.conv2d_padding_optimization(graph_def, signature_def0)
-
-        padding_op_exists = False
-        conv2d_checked = False
         # Ensures padding for first Conv2D layer is not same and that padding was added
-        for node in amp_graph_def.node:
-            if node.name == "Conv/conv1_pad/Pad/paddings":
-                print(tf.make_ndarray(node.attr["value"].tensor))
+        conv2d_checked = False
+        padding_op_exists = False
+        test_graph_def = None
+        for node in graph_def.node:
+            print(node.op)
+            if node.op == "NeuronOp":
+                test_graph_def = tf.compat.v1.GraphDef()
+                print(node.attr["graph_def"].s)
+                test_graph_def.ParseFromString(node.attr["graph_def"].s)
+                print(test_graph_def)
+
+        assert(test_graph_def != None)
+        for node in test_graph_def.node:
             if node.op == "Conv2D" and not conv2d_checked:
                 for attr in node.attr:
                     if attr == "padding":
@@ -87,27 +80,7 @@ class TestConv2dSamePaddingPass(unittest.TestCase):
                 padding_op_exists = True
 
         assert(padding_op_exists)
-        '''
-    def test_valid_padding(self):
-        '''
-        Test asserts that the SAME padding has been removed from Conv2D
-        and asserts that the new padding op has been added
-        '''
-            
-        # Model Creation
-        kernel = tf.random.uniform([7,7,3,64])
-        kernel = tf.cast(kernel, tf.float16)
 
-        def func(tensor):
-            tensor = tf.nn.conv2d(tensor, kernel, padding='VALID', strides=[1, 1, 2, 2], data_format='NCHW')
-            return tensor
-
-        input_tensor = tf.random.uniform([1, 3, 224, 224])
-        input_tensor = tf.cast(input_tensor, tf.float16)
-
-        layer_neuron = tfn.trace(func, input_tensor)
-
-        #print(layer_neuron.aws_neuron_function.graph.as_graph_def())
 
 
 def _assert_neuron_op(infer_graph):
