@@ -30,7 +30,7 @@ from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
+from tensorflow.neuron.python.unittest_base import TestV2Only
 
 
 class TestConv2dSamePaddingPass(TestV2Only):
