@@ -117,6 +117,7 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
   // Mark nodes whose all inputs and outputs are fixed shape tensors
   std::string conv2d_original_input = "";
+  std::string conv2d_filter_input = "";
   bool found_conv2d = false;
   int conv2d_idx = 0;
   int copy_node_idx = -1;
@@ -143,6 +144,8 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
         // Also store data format for padding order
         data_format = node_def->attr().at("data_format").s();
         conv2d_original_input = node_def->input(0);
+        conv2d_filter_input = node_def->input(1);
+
         conv2d_idx = idx;
 
         // Grab value for stride for padding calculation
@@ -154,16 +157,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     }
 
     // Grab values from filter for padding calculation
-    if (node_def->name() == "Conv2D/filter") {
-      AttrValue_ListValue filter_shapes =
-          node_def->attr().at(kNeuronInferredShapes).list();
-      const TensorShapeProto shape = filter_shapes.shape(0);
-
-      int HEIGHT_INDEX = 0;
-      int WIDTH_INDEX = 1;
-      filter_w = shape.dim(HEIGHT_INDEX).size();
-      filter_h = shape.dim(WIDTH_INDEX).size();
-    }
 
     if (node_def->op() == "Const" &&
         (*node_def->mutable_attr())["value"].has_tensor()) {
@@ -177,6 +170,20 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
     for (int idx = 0; idx < output->node_size(); idx++) {
       NodeDef* node_def = output->mutable_node(idx);
+
+      // Pull information from the filter op
+      if (node_def->name() == conv2d_filter_input) {
+        AttrValue_ListValue filter_shapes =
+            node_def->attr().at(kNeuronInferredShapes).list();
+        const TensorShapeProto shape = filter_shapes.shape(0);
+
+        int HEIGHT_INDEX = 0;
+        int WIDTH_INDEX = 1;
+        filter_w = shape.dim(HEIGHT_INDEX).size();
+        filter_h = shape.dim(WIDTH_INDEX).size();
+      }
+
+      // Pull information from the conv2d op
       if (node_def->name() == conv2d_original_input) {
         src_type = (*node_def->mutable_attr())["dtype"].type();
 
@@ -185,8 +192,8 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
             node_def->attr().at(kNeuronInferredShapes).list();
         const TensorShapeProto shape = input_shapes.shape(0);
         // Dims are ordered as [batch, depth, width, height]
-        int HEIGHT_INDEX = 2;
-        int WIDTH_INDEX = 3;
+        int HEIGHT_INDEX = data_format.find("H");
+        int WIDTH_INDEX = data_format.find("W");
         input_h = shape.dim(HEIGHT_INDEX).size();
         input_w = shape.dim(WIDTH_INDEX).size();
       }
@@ -217,22 +224,26 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       std::vector<int> padding_constants = CalculateSamePadding(
           input_h, input_w, stride_vec, filter_h, filter_w);
 
+
+      // We use this because the padding constants needs to be exactly 8 values
+      // We then insert the padding constants as needed according to height/width
+      
       std::vector<int> t_values = {0, 0, 0, 0, 0, 0, 0, 0};
       if (data_format == "NCHW") {
         // Offset since N/C have no current padding values
         int PADDING_OFFSET = 4;
         for (int i = 0; i < t_values.size(); i++) {
           if (i >= PADDING_OFFSET) {
-            t_values[i] = padding_constants.at(i - PADDING_OFFSET);
+            t_values[i] = padding_constants[i - PADDING_OFFSET];
           }
         }
       } else {
         // Offset: Only code the middle four values since N/C have no padding
         // values
         int PADDING_OFFSET = 2;
-        for (int i = 0; i < padding_constants.size(); i++) {
+        for (int i = 0; i < t_values.size(); i++) {
           if (i >= PADDING_OFFSET && i < (t_values.size() - PADDING_OFFSET)) {
-            t_values[i] = padding_constants.at(i - PADDING_OFFSET);
+            t_values[i] = padding_constants[i - PADDING_OFFSET];
           }
         }
       }
