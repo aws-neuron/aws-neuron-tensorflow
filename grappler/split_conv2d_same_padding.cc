@@ -83,16 +83,19 @@ std::vector<int> CalculateSamePadding(int input_h, int input_w,
     return std::vector<int>();
   }
 
-  if (input_h % strides[0] == 0) {
-    pad_height = std::max((filter_h - strides[0]), 0);
+  int first_stride = strides[2];
+  int second_stride = strides[3];
+
+  if (input_h % first_stride == 0) {
+    pad_height = std::max((filter_h - first_stride), 0);
   } else {
-    pad_height = std::max((filter_h - (input_h % strides[0])), 0);
+    pad_height = std::max((filter_h - (input_h % first_stride)), 0);
   }
 
-  if (input_w % strides[2] == 0) {
-    pad_width = std::max((filter_w - strides[2]), 0);
+  if (input_w % second_stride == 0) {
+    pad_width = std::max((filter_w - second_stride), 0);
   } else {
-    pad_width = std::max((filter_w - (input_w % strides[2])), 0);
+    pad_width = std::max((filter_w - (input_w % second_stride)), 0);
   }
 
   int pad_top = pad_height / 2;
