@@ -71,20 +71,21 @@ Status SplitConv2DSamePadding::Init(
 
 std::vector<int> CalculateSamePadding(int input_h, int input_w,
                                       std::vector<int>& strides, int filter_h,
-                                      int filter_w) {
+                                      int filter_w, int stride_h_idx,
+                                      int stride_w_idx) {
   // Calculations from:
   // https://mmuratarat.github.io/2019-01-17/implementing-padding-schemes-of-tensorflow-in-python
   int pad_height = 0;
   int pad_width = 0;
 
-  // TODO: Confirm strides are [height, width].
+  // Stride indices are determined by data format
   if (strides.size() < 4) {
     VLOG(1) << "Stride size is invalid";
     return std::vector<int>();
   }
 
-  int first_stride = strides[2];
-  int second_stride = strides[3];
+  int first_stride = strides[stride_h_idx];
+  int second_stride = strides[stride_w_idx];
 
   if (input_h % first_stride == 0) {
     pad_height = std::max((filter_h - first_stride), 0);
@@ -224,13 +225,16 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       AttrValue::ListValue* mutable_inferred_list =
           (*x.mutable_attr())[kNeuronInferredShapes].mutable_list();
 
-      std::vector<int> padding_constants = CalculateSamePadding(
-          input_h, input_w, stride_vec, filter_h, filter_w);
-
+      int STRIDE_HEIGHT_IDX = data_format.find("H");
+      int STRIDE_WIDTH_IDX = data_format.find("W");
+      std::vector<int> padding_constants =
+          CalculateSamePadding(input_h, input_w, stride_vec, filter_h, filter_w,
+                               STRIDE_HEIGHT_IDX, STRIDE_WIDTH_IDX);
 
       // We use this because the padding constants needs to be exactly 8 values
-      // We then insert the padding constants as needed according to height/width
-      
+      // We then insert the padding constants as needed according to
+      // height/width
+
       std::vector<int> t_values = {0, 0, 0, 0, 0, 0, 0, 0};
       if (data_format == "NCHW") {
         // Offset since N/C have no current padding values
