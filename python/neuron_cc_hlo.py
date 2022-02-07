@@ -57,6 +57,7 @@ Elu
 Erf
 Exp
 ExpandDims
+FakeQuantWithMinMaxVars
 FusedBatchNorm
 FusedBatchNormV2
 FusedBatchNormV3

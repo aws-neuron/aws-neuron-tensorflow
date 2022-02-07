@@ -54,6 +54,10 @@ Status MarkOpsInFixedShapeContext::Init(
   return Status::OK();
 }
 
+bool IsFixedShapeDataType(DataType dt) {
+  return dt != DT_STRING;
+}
+
 Status MarkOpsInFixedShapeContext::Optimize(Cluster* cluster,
                                             const GrapplerItem& item,
                                             GraphDef* output) {
@@ -78,11 +82,13 @@ Status MarkOpsInFixedShapeContext::Optimize(Cluster* cluster,
       // by FusedBatchNormV3Grad
       inferred_shapes.mutable_shape()->RemoveLast();
     }
-    bool has_fixed_shape_outputs = absl::c_all_of(
+    bool fixed_shape = absl::c_all_of(
         inferred_shapes.shape(), [](const TensorShapeProto& shape_proto) {
           return PartialTensorShape(shape_proto).IsFullyDefined();
         });
-    if (has_fixed_shape_outputs) {
+    fixed_shape &= absl::c_all_of(node->input_types(), IsFixedShapeDataType);
+    fixed_shape &= absl::c_all_of(node->output_types(), IsFixedShapeDataType);
+    if (fixed_shape) {
       fixed_shape_node_names.insert(node->name());
     }
   }
