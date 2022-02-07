@@ -120,10 +120,11 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       ConvertGraphDefToGraph(GraphConstructorOptions(), item.graph, &graph));
 
   // Mark nodes whose all inputs and outputs are fixed shape tensors
+  NodeDef* conv2d_node_def = nullptr;
   std::string conv2d_original_input = "";
   std::string conv2d_filter_input = "";
+  bool found_first_conv2d = false;
   bool found_conv2d = false;
-  int conv2d_idx = 0;
   int copy_node_idx = -1;
   graph.ToGraphDef(output);
   std::string data_format = "";
@@ -134,14 +135,14 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
   // Process the graph and find the convolution and the filter
   for (int idx = 0; idx < output->node_size(); idx++) {
-    // Change Conv2D with Same to Valid
+    // Change the first Conv2D with Same to Valid.
+    // This optimization only applies to the very first, 3-channel Conv2D.
     NodeDef* node_def = output->mutable_node(idx);
 
-    if (node_def->op() == "Conv2D" && !found_conv2d) {
-      // Padding is already valid so we can choose to ignore
-      if (node_def->attr().at("padding").s() == "VALID") {
-        VLOG(1) << "Padding optimization is already valid.";
-      } else {
+    if (node_def->op() == "Conv2D" && !found_first_conv2d) {
+      found_first_conv2d = true;
+      if (node_def->attr().at("padding").s() == "SAME") {
+        conv2d_node_def = node_def;
         found_conv2d = true;
         (*node_def->mutable_attr())["padding"].set_s("VALID");
         // Grabs the first conv2d input which is the tensor being operated on
@@ -149,8 +150,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
         data_format = node_def->attr().at("data_format").s();
         conv2d_original_input = node_def->input(0);
         conv2d_filter_input = node_def->input(1);
-
-        conv2d_idx = idx;
 
         // Grab value for stride for padding calculation
         AttrValue_ListValue strides = node_def->attr().at("strides").list();
@@ -205,11 +204,14 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
     // Adding padding requires two nodes: padding and the values of padding
     // Step 1: Add operator for value of padding
-    const std::string& pad_name = "Pad/paddings";
-    const std::string& pad_op_name = "Pad";
+    const std::string& conv2d_name = conv2d_node_def->name();
+    // Use graph.NewName to prevent name clash with existing ops
+    std::string pad_op_name = graph.NewName(conv2d_name + "/SamePad");
+    std::string pad_name = graph.NewName(pad_op_name + "/paddings");
     if (copy_node_idx == -1) {
       VLOG(1) << "This grappler pass may fail because a pre-allocated tensor "
                  "was not found";
+      return Status::OK();
     } else {
       NodeDef x(output->node(copy_node_idx));
       x.clear_name();
@@ -217,7 +219,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       x.clear_op();
       x.set_op("Const");
       x.clear_device();
-      x.set_device(output->node(0).device());
       (*x.mutable_attr())["dtype"] = TypeAttrValue(DT_INT32);
 
       // Set values of padding array
@@ -280,25 +281,21 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
     // Step 2: Add operator for pad and set inputs to original Conv2D input and
     // pad value tensor
-    NodeDef y(output->node(0));
+    NodeDef y(*conv2d_node_def);
     y.clear_name();
     y.set_name(pad_op_name);
     y.clear_op();
     y.set_op("Pad");
     y.clear_device();
-    y.set_device(output->node(0).device());
     y.clear_input();
-    y.add_input();
-    y.set_input(0, conv2d_original_input);
-    y.add_input();
-    y.set_input(1, pad_name);
+    y.add_input(conv2d_original_input);
+    y.add_input(pad_name);
     y.clear_attr();
     (*y.mutable_attr())["T"] = TypeAttrValue(src_type);
     (*y.mutable_attr())["Tpaddings"] = TypeAttrValue(DT_INT32);
     (*output->add_node()) = y;
 
     // Rewire input of Conv 2D to be the pad
-    NodeDef* conv2d_node_def = output->mutable_node(conv2d_idx);
     conv2d_node_def->set_input(0, pad_op_name);
   }
   return Status::OK();
