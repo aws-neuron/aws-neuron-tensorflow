@@ -40,6 +40,7 @@ class FuseSupportedOperators : public CustomGraphOptimizer {
  private:
   int minimum_segment_size_ = 1;
   bool fuse_foldable_nodes_ = false;
+  bool automatic_ = false;
   double prune_small_subgraphs_ratio_ = 0.0;
   std::set<std::string> supported_op_types_;
   std::set<std::string> no_fuse_ops_;

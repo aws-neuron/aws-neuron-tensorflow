@@ -14,8 +14,10 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/neuron/grappler/fuse_supported_operators.h"
+#include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/grappler/grappler_item.h"
 #include "tensorflow/neuron/grappler/convert/convert_graph.h"
+#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 
 namespace tensorflow {
@@ -24,11 +26,14 @@ namespace neuron {
 
 constexpr char key_minimum_segment_size[] = "minimum_segment_size";
 constexpr char key_fuse_foldable_nodes[] = "fuse_foldable_nodes";
+constexpr char key_automatic[] = "automatic";
 constexpr char key_prune_small_subgraphs_ratio[] =
     "prune_small_subgraphs_ratio";
 constexpr char key_supported_op_types[] = "supported_op_types";
 constexpr char key_no_fuse_ops[] = "no_fuse_ops";
 constexpr char key_force_fuse_ops[] = "force_fuse_ops";
+constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
+constexpr int kNeuronFewChannelThreshold = 32;
 
 template <class T>
 static std::string container_debug_string(const T& container) {
@@ -48,6 +53,9 @@ Status FuseSupportedOperators::Init(
   }
   if (parameter_map.count(key_fuse_foldable_nodes)) {
     fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
+  }
+  if (parameter_map.count(key_automatic)) {
+    automatic_ = parameter_map.at(key_automatic).b();
   }
   if (parameter_map.count(key_prune_small_subgraphs_ratio)) {
     prune_small_subgraphs_ratio_ =
@@ -80,6 +88,108 @@ Status FuseSupportedOperators::Init(
   return Status::OK();
 }
 
+static PartialTensorShape ReadInferredShape(const Edge* edge) {
+  const Node* node = edge->src();
+  const auto& attr = node->def().attr();
+  if (!attr.count(kNeuronInferredShapes)) {
+    return PartialTensorShape();
+  }
+  const auto& inferred_shapes = attr.at(kNeuronInferredShapes).list();
+  return PartialTensorShape(inferred_shapes.shape(edge->src_output()));
+}
+
+static Status MaybeExcludeFirstConv2DParents(std::set<std::string>* no_fuse_ops,
+                                             const Graph& graph) {
+  // Conditions for mapping Conv2D parents to CPU:
+  //  1. There is no built-in padding
+  //  2. Strides are all greater than 1
+  //  3. Strides are all equal
+  //  4. Input spatial sizes are all divisible by corresponding strides
+  //  5. Number of input channels is small (current threshold is 32)
+  //  6. Kernel spatial sizes are all greater than 1
+  //  7. Not running group convolution
+  //  8. Not running dilated convolution
+  Node* first_conv2d = nullptr;
+  for (Node* node : graph.nodes()) {
+    if (node->type_string() == "Conv2D") {
+      first_conv2d = node;
+      break;
+    }
+  }
+  std::vector<Node*> starts;
+  while (first_conv2d != nullptr) {
+    VLOG(1) << "Found Conv2D " << first_conv2d->name();
+    const auto& attr = first_conv2d->def().attr();
+    if (attr.at("padding").s() != "VALID") break;  // condition 1
+    VLOG(3) << "There is no built-in padding";
+    const Edge* input_edge;
+    TF_RETURN_IF_ERROR(first_conv2d->input_edge(0, &input_edge));
+    PartialTensorShape input_shape = ReadInferredShape(input_edge);
+    if (!input_shape.IsFullyDefined()) break;
+    const std::string data_format = attr.at("data_format").s();
+    if (data_format != "NHWC" && data_format != "NCHW") break;
+    int dim_h = data_format.find("H");
+    int dim_w = data_format.find("W");
+    int dim_c = data_format.find("C");
+    AttrValue_ListValue strides = attr.at("strides").list();
+    int stride_h = strides.i(dim_h);
+    int stride_w = strides.i(dim_w);
+    if (stride_h <= 1 && stride_w <= 1) break;  // condition 2
+    VLOG(3) << "Strides are all greater than 1";
+    if (stride_h != stride_w) break;  // condition 3
+    VLOG(3) << "Strides are all equal";
+    bool h_divisible = (input_shape.dim_size(dim_h) % stride_h) == 0;
+    bool w_divisible = (input_shape.dim_size(dim_w) % stride_w) == 0;
+    if (!(h_divisible && w_divisible)) break;  // condition 4
+    VLOG(3) << "Input spatial sizes are all divisible by corresponding strides";
+    int input_channels = input_shape.dim_size(dim_c);
+    if (input_channels >= kNeuronFewChannelThreshold) break;  // condition 5
+    VLOG(3) << "Number of input channels is small";
+    const Edge* filter_edge;
+    TF_RETURN_IF_ERROR(first_conv2d->input_edge(1, &filter_edge));
+    PartialTensorShape filter_shape = ReadInferredShape(filter_edge);
+    if (!filter_shape.IsFullyDefined()) break;
+    int window_h = filter_shape.dim_size(0);
+    int window_w = filter_shape.dim_size(1);
+    int filter_input_channels = filter_shape.dim_size(2);
+    if (window_h <= 1 && window_w <= 1) break;  // condition 6
+    VLOG(3) << "Kernel spatial sizes are all greater than 1";
+    if (input_channels != filter_input_channels) break;  // condition 7
+    VLOG(3) << "Not running group convolution";
+    AttrValue_ListValue dilations = attr.at("dilations").list();
+    int dilation_h = dilations.i(dim_h);
+    int dilation_w = dilations.i(dim_w);
+    if (dilation_h > 1 || dilation_w > 1) break;  // condition 8
+    VLOG(3) << "Not running dilated convolution";
+    starts.push_back(input_edge->src());
+    break;
+  }
+  if (!starts.empty()) {
+    VLOG(1) << "Excluding Conv2D parents from " << starts.back()->name();
+    auto enter = [&](Node* node) {
+      if (node->IsOp() && node->type_string() != "Placeholder") {
+        no_fuse_ops->emplace(node->name());
+      }
+    };
+    ReverseDFSFrom(graph, starts, enter, /*leave=*/nullptr);
+  }
+  if (no_fuse_ops->size() > graph.num_op_nodes() / 2) {
+    // Don't exclude if need to exclude more than 50% of total ops
+    no_fuse_ops->clear();
+  }
+  return Status::OK();
+}
+
+static void ExcludeInt64Select(std::set<std::string>* no_fuse_ops,
+                               const Graph& graph) {
+  for (const Node* node : graph.nodes()) {
+    const auto& attr = node->def().attr();
+    if (node->type_string() == "Select" && attr.at("T").type() == DT_INT64) {
+      no_fuse_ops->emplace(node->name());
+    }
+  }
+}
+
 Status FuseSupportedOperators::Optimize(Cluster* cluster,
                                         const GrapplerItem& item,
                                         GraphDef* output) {
@@ -89,6 +199,22 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
   std::vector<std::string> input_op_names;
   for (const auto& feed : item.feed) {
     input_op_names.push_back(feed.first);
+  }
+  if (automatic_) {
+    no_fuse_ops_.clear();
+    force_fuse_ops_.clear();
+    FunctionLibraryDefinition flib(OpRegistry::Global(), item.graph.library());
+    Graph graph(flib);
+    TF_RETURN_IF_ERROR(
+        ConvertGraphDefToGraph(GraphConstructorOptions(), item.graph, &graph));
+
+    // Exclude Pad etc. that precede the first few-channel Conv2D
+    TF_RETURN_IF_ERROR(MaybeExcludeFirstConv2DParents(&no_fuse_ops_, graph));
+
+    // Exclude int64 Select ops
+    ExcludeInt64Select(&no_fuse_ops_, graph);
+
+    VLOG(2) << "auto no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
   }
   VLOG(2) << "input_op_names " << container_debug_string(input_op_names);
   VLOG(2) << "output_op_names " << container_debug_string(item.fetch);

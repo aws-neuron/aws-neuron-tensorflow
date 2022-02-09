@@ -190,16 +190,14 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
         logging.warning('{} does not seem to have any input; returning an uncompiled callable'.format(func))
         return original_func
-    original_graph_def = graph_def
 
     # encode known shapes
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
-    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
 
     # call main-graph grappler passes
-    graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function)
+    graph_def, original_graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function, dumper)
     graph_def = gdu.inline_shape_inputs_in_subgraphs(graph_def)
     dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_fused.pb')
     dumper.maybe_compute_io_tensors(graph_def, original_graph_def, func, feed_dict)
@@ -233,15 +231,18 @@ class OptionalDumper:
         self.dump_prefix = tfn_args.dump_prefix
         self.dump_tensor_map = None
 
+    def enabled(self):
+        return self.dump_prefix is not None
+
     def maybe_dump_graph_def_as(self, graph_def, filename):
-        if self.dump_prefix is None:
+        if not self.enabled():
             return
         os.makedirs(self.dump_prefix, exist_ok=True)
         with open(os.path.join(self.dump_prefix, filename), 'wb') as f:
             f.write(graph_def.SerializeToString())
 
     def maybe_compute_io_tensors(self, graph_def, original_graph_def, func, feed_dict):
-        if self.dump_prefix is None:
+        if not self.enabled():
             return
         input_names = _get_input_names(func)
         tensor_name_map = {}
@@ -268,7 +269,7 @@ class OptionalDumper:
             self.dump_tensor_map[op_name] = in_tensors, out_tensors
 
     def maybe_dump_hlo_snapshots_with_inputs_outputs(self, hlo_opt):
-        if self.dump_prefix is None:
+        if not self.enabled():
             return
         for op_name, (inputs, outputs) in self.dump_tensor_map.items():
             inputs = [tensor.numpy() for tensor in inputs]
@@ -342,8 +343,8 @@ def _get_feed_dict(func, inputs):
     return {name: ts for name, ts in zip(input_names, inputs_list)}
 
 
-def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function):
-    new_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function, dumper):
+    new_graph_def, original_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper)
     name_mapping = {}
     for node in gdu.get_neuron_nodes(new_graph_def):
         output_names = node.attr[gdu.knOutputNames].list.s
@@ -368,14 +369,15 @@ def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_fu
         shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
         shape_feed_dict.update((name, ts.shape) for name, ts in zip(need_shape_names, shaper_outputs))
         graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
-        graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+        graph_def, original_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper)
     else:
         graph_def = new_graph_def
-    return graph_def
+    return graph_def, original_graph_def
 
 
-def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
+def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper):
     # produce GraphDef by running grappler passes
+    original_graph_def = graph_def
     opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
     rewriter_config = opt_config.graph_options.rewrite_options
     optimizers = rewriter_config.optimizers
@@ -388,21 +390,28 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
     optimizers.append('aws_neuron_static_shape_inference')
     optimizers.append('aws_neuron_mark_ops_in_fixed_shape_context')
 
+    if dumper.enabled():
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            graph_def = original_graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+        dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
+        opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+        opt_config.graph_options.rewrite_options.CopyFrom(rewriter_config)
+        rewriter_config = opt_config.graph_options.rewrite_options
+        optimizers = rewriter_config.optimizers
+
     # configure operator fusion
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     fuser_param_map = fuser_config.parameter_map
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
-    if subgraph_builder_function is None:
+    fuser_automatic = fuser_param_map['automatic'].b = subgraph_builder_function is None
+    if fuser_automatic:
         fuser_param_map['fuse_foldable_nodes'].b = True
         fuser_param_map['prune_small_subgraphs_ratio'].f = 0.8
-        no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
-        no_fuse_ops.extend(_find_int64_select_ops(cfunc.graph))
     else:
         force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
         fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
         no_fuse_ops = [node.name for node in graph_def.node]
-    if no_fuse_ops:
         fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
 
     # call all grappler passes
@@ -414,7 +423,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
         optimizers.extend(pruning_passes)
         with utils.change_grappler_logging_level_according_to_cc_flags():
             graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
-    return graph_def
+    return graph_def, original_graph_def
 
 
 def _build_optimize_graph_args(graph_def, cfunc):
@@ -426,30 +435,6 @@ def _build_optimize_graph_args(graph_def, cfunc):
     rewriter_config.meta_optimizer_iterations = 1
     rewriter_config.min_graph_nodes = -1
     return opt_config, meta_graph_def
-
-
-def _find_pad_ops_preceding_conv2d(graph):
-    # exclude Pad that precedes Conv2D for HLO frontend
-    no_fuse_ops = []
-    supported_op_types = list_operators()
-    for op in graph.get_operations():
-        if op.type == 'Pad':
-            consumers = op.outputs[0].consumers()
-            if consumers and consumers[0].type == 'Conv2D':
-                curr_op = op
-                pad_input_ops = [curr_op]
-                while curr_op.inputs and curr_op.type in supported_op_types:
-                    curr_op = curr_op.inputs[0].op
-                    pad_input_ops.append(curr_op)
-                if len(pad_input_ops) <= 3:
-                    no_fuse_ops.append(op.inputs[1].op.name)
-                    no_fuse_ops.extend(piop.name for piop in pad_input_ops)
-    return no_fuse_ops
-
-
-def _find_int64_select_ops(graph):
-    predicate = lambda op: op.type == 'Select' and op.get_attr('T') == dtypes.int64
-    return [op.name for op in graph.get_operations() if predicate(op)]
 
 
 def _get_input_names(func):

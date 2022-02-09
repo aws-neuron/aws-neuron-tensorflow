@@ -192,6 +192,25 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
+    def test_func_conv_same(self):
+        kernel = tf.random.uniform([4, 4, 3, 64])
+        kernel = tf.cast(kernel, tf.float16)
+
+        def func(tensor):
+            return tf.nn.conv2d(tensor, kernel, padding='SAME', strides=[1, 2, 2, 1])
+
+        input_tensor = tf.random.uniform([1, 224, 224, 3])
+        input_tensor = tf.cast(input_tensor, tf.float16)
+        func_neuron = tfn.trace(func, input_tensor)
+        compiled_func = func_neuron.aws_neuron_function
+        _assert_compiler_success_func(compiled_func)
+        neuron_op = [op for op in compiled_func.graph.get_operations() if op.type == 'NeuronOp'][0]
+        neff_size = len(neuron_op.get_attr('executable'))
+        assert neff_size < 2e5, 'neff too large -- replication is probably not working'
+        result_func_ref = func(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
+
     def test_func_conv_relu_cpu_conv_relu(self):
         kernel0 = tf.random.uniform([1, 1, 64, 64])
         kernel1 = tf.random.uniform([1, 1, 64, 64])
