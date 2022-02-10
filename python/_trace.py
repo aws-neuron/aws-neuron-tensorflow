@@ -377,34 +377,36 @@ def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_fu
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper):
     # produce GraphDef by running grappler passes
+    fuser_automatic = subgraph_builder_function is None
     original_graph_def = graph_def
     opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
     rewriter_config = opt_config.graph_options.rewrite_options
     optimizers = rewriter_config.optimizers
     optimizers.append('debug_stripper')
     pruning_passes = ['pruning', 'dependency']
-    if subgraph_builder_function is None:
-        optimizers.extend(pruning_passes)
+    optimizers.extend(pruning_passes)
     optimizers.append('aws_neuron_static_shape_inference')
     optimizers.append('aws_neuron_split_conv2d_same_padding')
     optimizers.append('aws_neuron_static_shape_inference')
     optimizers.append('aws_neuron_mark_ops_in_fixed_shape_context')
 
-    if dumper.enabled():
+    if dumper.enabled() or not fuser_automatic:
+        # if dumper is enabled or subgraph_builder_function is given, then run pre-fusing passes
+        # and the fuser pass in separate sessions so that Python code can run in the middle
         with utils.change_grappler_logging_level_according_to_cc_flags():
             graph_def = original_graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
         dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
         opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
-        opt_config.graph_options.rewrite_options.CopyFrom(rewriter_config)
         rewriter_config = opt_config.graph_options.rewrite_options
         optimizers = rewriter_config.optimizers
+        optimizers.append('debug_stripper')
 
     # configure operator fusion
     fuser_config = rewriter_config.custom_optimizers.add()
     fuser_config.name = 'aws_neuron_fuse_supported_operators'
     fuser_param_map = fuser_config.parameter_map
     fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
-    fuser_automatic = fuser_param_map['automatic'].b = subgraph_builder_function is None
+    fuser_param_map['automatic'].b = fuser_automatic
     if fuser_automatic:
         fuser_param_map['fuse_foldable_nodes'].b = True
         fuser_param_map['prune_small_subgraphs_ratio'].f = 0.8
@@ -417,7 +419,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dum
     # call all grappler passes
     with utils.change_grappler_logging_level_according_to_cc_flags():
         graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
-    if subgraph_builder_function is not None:
+    if not fuser_automatic:
         opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
         optimizers = opt_config.graph_options.rewrite_options.optimizers
         optimizers.extend(pruning_passes)

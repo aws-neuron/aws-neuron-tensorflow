@@ -285,8 +285,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
             : inside_node->def();
     inside_node_def.set_input(inside_node_index, placeholder_name.c_str());
 
-    VLOG(2) << "Input node def:" << inside_node_def.DebugString();
-    VLOG(2) << " Place holder def :" << placeholder_def.DebugString();
+    VLOG(5) << "Input node def:" << inside_node_def.DebugString();
+    VLOG(5) << " Place holder def :" << placeholder_def.DebugString();
 
     // Storing/updating  values in  nodedef map
     subgraph_nodes[inside_node->name()] = inside_node_def;
@@ -295,7 +295,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   // Debug code
   VLOG(2) << " Incoming nodes in graphdef";
   for (auto it = subgraph_nodes.begin(); it != subgraph_nodes.end(); it++) {
-    VLOG(2) << "name:" << it->first << "\n Nodedef:\n"
+    VLOG(5) << "name:" << it->first << "\n Nodedef:\n"
             << it->second.DebugString();
   }
 
@@ -336,7 +336,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     (*subgraph_graph_def.add_node()) = it->second;
   }
 
-  VLOG(2) << "Neuron subgraph graphdef: " << subgraph_graph_def.DebugString();
+  VLOG(5) << "Neuron subgraph graphdef: " << subgraph_graph_def.DebugString();
 
   std::string in_graph_def_string = "";
   if (!subgraph_graph_def.SerializeToString(&in_graph_def_string)) {
@@ -411,7 +411,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   stream << std::hex << hasher(hash_string);
   std::string hex_string(stream.str());
 
-  VLOG(2) << "String to be hashed " << hash_string << "Hashed String "
+  VLOG(3) << "String to be hashed " << hash_string << "Hashed String "
           << hasher(hash_string) << "Hex Rep" << hex_string;
 
   neuron_op_name = "neuron_op_" + hex_string;
@@ -436,17 +436,17 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   // subgraph
   // start_index is the index of Neuron op output to which IdentityN node should
   // be connected to.
-  VLOG(1) << "start_index: " << start_index;
+  VLOG(3) << "start_index: " << start_index;
   std::vector<tensorflow::NodeBuilder::NodeOut> identity_inputs;
 
   // Iterate through the output node list found.
   for (auto name_index : main_graph_output_nodes) {
     identity_inputs.clear();
     auto name = name_index.first;
-    VLOG(1) << " indentity inputs: name:" << name;
-    VLOG(1) << " max index: " << map_out_names_to_index[name];
+    VLOG(3) << " indentity inputs: name:" << name;
+    VLOG(3) << " max index: " << map_out_names_to_index[name];
     for (size_t i = 0; i < main_graph_output_nodes[name].size(); ++i) {
-      VLOG(1) << "start_index: " << start_index;
+      VLOG(3) << "start_index: " << start_index;
       identity_inputs.push_back(
           NodeBuilder::NodeOut(neuron_node, start_index++));
     }
@@ -454,11 +454,11 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     TF_CHECK_OK(NodeBuilder(name, "IdentityN")
                     .Input(identity_inputs)
                     .Finalize(sg_params.graph, &node));
-    VLOG(1) << " New output IdentityN node: " << node->def().DebugString();
+    VLOG(3) << " New output IdentityN node: " << node->def().DebugString();
   }
 
-  VLOG(1) << "Created new node ..............";
-  VLOG(2) << " new node: " << neuron_node->def().DebugString();
+  VLOG(3) << "Created new node ..............";
+  VLOG(5) << " new node: " << neuron_node->def().DebugString();
 
   return tensorflow::Status::OK();
 }
@@ -691,7 +691,7 @@ Status PreProcessingGraphDef(GraphDef& in_graph_def) {
     }
   }
 
-  VLOG(2) << in_graph_def.DebugString();
+  VLOG(5) << in_graph_def.DebugString();
   return tensorflow::Status::OK();
 }
 
@@ -811,11 +811,14 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
     bool fuseable = supported_can_fuse || force_fuse || is_foldable;
     if (node->def().attr().count(kNeuronInFixedShapeContext)) {
       bool fixed_shape = node->def().attr().at(kNeuronInFixedShapeContext).b();
-      VLOG(1) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
+      VLOG(2) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
       fuseable &= fixed_shape;
     }
     if (!fuseable) {
+      VLOG(2) << "Node " << node->name() << " will not be fused";
       segment_options.exclude_node_list.insert(node->name());
+    } else {
+      VLOG(2) << "Will try fusing node " << node->name();
     }
   }
 
@@ -882,7 +885,7 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   }
 
   graph.ToGraphDef(new_graph_def);
-  VLOG(2) << "new_graph_def: " << new_graph_def->DebugString();
+  VLOG(5) << "new_graph_def: " << new_graph_def->DebugString();
   return tensorflow::Status::OK();
 }
 

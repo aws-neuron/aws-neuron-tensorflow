@@ -232,7 +232,7 @@ class TestTraceFunction(TestV2Only):
         func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
         wfunc = func_neuron.aws_neuron_function
         _assert_compiler_success_func(wfunc)
-        assert len([op for op in wfunc.graph.get_operations() if op.type == 'NeuronOp']) == 2
+        assert len([op for op in wfunc.graph.get_operations() if op.type == 'Sigmoid']) == 1
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
