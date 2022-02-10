@@ -108,7 +108,8 @@ class KerasLayerGenerator(RemoveTestSession):
                     print('output shapes:', [out.shape for out in output])
                 else:
                     print('output shape:', output.shape)
-                layer_neuron = tfn.trace(layer, example_inputs)
+                subgraph_builder_function = lambda node: True
+                layer_neuron = tfn.trace(layer, example_inputs, subgraph_builder_function)
                 # assert everything is on Neuron
                 graph = layer_neuron.aws_neuron_function.graph
                 op_type_set = {op.type for op in graph.get_operations()}
