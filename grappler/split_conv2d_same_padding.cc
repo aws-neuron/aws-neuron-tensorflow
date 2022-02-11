@@ -144,7 +144,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       if (node_def->attr().at("padding").s() == "SAME") {
         conv2d_node_def = node_def;
         found_conv2d = true;
-        (*node_def->mutable_attr())["padding"].set_s("VALID");
         // Grabs the first conv2d input which is the tensor being operated on
         // Also store data format for padding order
         data_format = node_def->attr().at("data_format").s();
@@ -167,6 +166,11 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
         (*node_def->mutable_attr())["value"].has_tensor()) {
       copy_node_idx = idx;
     }
+  }
+  if (copy_node_idx == -1) {
+    VLOG(1) << "This grappler pass may fail because a pre-allocated tensor "
+               "was not found";
+    return Status::OK();
   }
 
   if (found_conv2d) {
@@ -211,8 +215,6 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     std::string pad_op_name = graph.NewName(conv2d_name + "/SamePad");
     std::string pad_name = graph.NewName(pad_op_name + "/paddings");
     if (copy_node_idx == -1) {
-      VLOG(1) << "This grappler pass may fail because a pre-allocated tensor "
-                 "was not found";
       return Status::OK();
     } else {
       NodeDef x(output->node(copy_node_idx));
@@ -296,6 +298,9 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     (*y.mutable_attr())["T"] = TypeAttrValue(src_type);
     (*y.mutable_attr())["Tpaddings"] = TypeAttrValue(DT_INT32);
     (*output->add_node()) = y;
+
+    // Modify Conv2D's padding mode
+    conv2d_node_def->mutable_attr()->at("padding").set_s("VALID");
 
     // Rewire input of Conv 2D to be the pad
     conv2d_node_def->set_input(0, pad_op_name);
