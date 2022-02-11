@@ -159,9 +159,11 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
       }
     }
 
-    // Grab values from filter for padding calculation
-
-    if (node_def->op() == "Const" &&
+    // Grab a random large Const node as an "allocation template" for the new
+    // Const node that we'll create to hold padding values.
+    // TODO: remove this hack once we solve the protobuf linker issue
+    // (migrating to C-API integration is supposed to help)
+    if (node_def->op() == "Const" && node_def->ByteSize() > 1024 &&
         (*node_def->mutable_attr())["value"].has_tensor()) {
       copy_node_idx = idx;
     }
