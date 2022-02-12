@@ -41,7 +41,7 @@ NeuronHostBuffer::NeuronHostBuffer(size_t size) {
   }
   Status status = Nrt::AllocHostBuffer(&rt_buffer_, size);
   if (TF_PREDICT_FALSE(!status.ok())) {
-    LOG(ERROR) << status.error_message();
+    LOG(ERROR) << status;
     return;
   }
   size_ = size;
@@ -50,22 +50,30 @@ NeuronHostBuffer::NeuronHostBuffer(size_t size) {
 
 NeuronHostBuffer::NeuronHostBuffer(void* cpu_buffer, size_t size) {
   // Donate a CPU buffer
-  Status status = Nrt::AllocEmptyBuffer(&rt_buffer_);
-  if (TF_PREDICT_FALSE(!status.ok())) {
-    LOG(ERROR) << status.error_message();
+  if (TF_PREDICT_FALSE(0 == size)) {
     return;
   }
-  status = Nrt::AttachCpuToBuffer(&rt_buffer_, cpu_buffer, size);
+  Status status = Nrt::AllocEmptyBuffer(&rt_buffer_);
   if (TF_PREDICT_FALSE(!status.ok())) {
-    LOG(ERROR) << status.error_message();
+    LOG(ERROR) << status;
     return;
   }
   size_ = size;
+  status = Nrt::AttachCpuToBuffer(&rt_buffer_, cpu_buffer, size);
+  if (TF_PREDICT_FALSE(!status.ok())) {
+    LOG(ERROR) << status;
+    return;
+  }
 }
 
 NeuronHostBuffer::~NeuronHostBuffer() {
-  if (TF_PREDICT_FALSE(Owned())) {
-    Nrt::FreeBuffer(&rt_buffer_);
+  if (TF_PREDICT_FALSE(0 == size_)) {
+    return;
+  }
+  Status status = Nrt::FreeBuffer(&rt_buffer_);
+  if (TF_PREDICT_FALSE(!status.ok())) {
+    LOG(ERROR) << status;
+    return;
   }
 }
 

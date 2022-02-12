@@ -136,6 +136,7 @@ Status Nrt::AllocEmptyBuffer(NrtBuffer* buffer) {
   }
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
                       "AllocEmptyBuffer failed: nrt_tensor_allocate_empty");
+  VLOG(1) << "Nrt::AllocEmptyBuffer OK " << buffer->raw_;
   return Status::OK();
 #else
   return errors::Unimplemented(__func__);
