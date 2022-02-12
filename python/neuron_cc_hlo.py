@@ -186,6 +186,7 @@ def hlo_to_neff(hlo_module, args=None, dumper=None):
     hlo_opt.batchify_reshape_dot_reshape()
     hlo_opt.fold_no_op_instructions()
     hlo_opt.dead_code_elimination()
+    hlo_opt.rewrite_depthwise_convolution()
     hlo_opt.maybe_enable_rtr_shuffle()
     hlo_opt.maybe_enable_dynamic_batch_size()
     hlo_opt.maybe_rewrite_batch_size()
