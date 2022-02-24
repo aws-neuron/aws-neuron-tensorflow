@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 from distutils.version import LooseVersion
 from setuptools import setup, PEP420PackageFinder
 from setuptools.command.install import install as InstallCommandBase
@@ -47,7 +48,7 @@ class BDistWheelCommand(BDistWheelCommandBase):
 
 
 def get_version():
-    return '_VERSION'
+    return os.environ.get('TFN_VERSION', '2.3.0')
 
 
 def get_install_requires():

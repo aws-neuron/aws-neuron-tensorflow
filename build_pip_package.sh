@@ -73,7 +73,7 @@ function main() {
     mkdir -p "${TF_CORE_PATH}/neuron/"
     cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TF_CORE_PATH}/neuron/"
     mv "${TMPDIR}/tensorflow_neuron/tf2hlo/" "${TF_CORE_PATH}/neuron/"
-    sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
+    cp tensorflow/neuron/setup.py "${TMPDIR}/setup.py"
     echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/__init__.py"
 
     # Before we leave the top-level directory, make sure we know how to
@@ -84,7 +84,7 @@ function main() {
 
     echo $(date) : "=== Building wheel"
     cd "${TMPDIR}"
-    "${PYTHON_BIN_PATH:-python}" setup.py -q bdist_wheel ${PLATFORM}
+    env TFN_VERSION="${VERSION}" "${PYTHON_BIN_PATH:-python}" setup.py -q bdist_wheel ${PLATFORM}
     mkdir -p "${DSTDIR}"
     cp "${TMPDIR}"/dist/* "${DSTDIR}"
     echo $(date) : "=== Output wheel file is in: ${DSTDIR}"
