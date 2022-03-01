@@ -33,6 +33,9 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None):
     Returns:
         Dictionary with operator counts before/after optimization, etc.
     """
+    logging.warning('tfn.saved_model.compile is not recommended in tensorflow-neuron 2.x; please'
+                    ' use tfn.trace instead. Usage can be found by running help(tfn.trace) in'
+                    ' interactive Python')
     # load SavedModel
     model = saved_model.load(model_dir, tags=tags)
 
