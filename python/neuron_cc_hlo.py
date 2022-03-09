@@ -89,6 +89,7 @@ Select
 SelectV2
 Selu
 Sigmoid
+Slice
 Softmax
 Softplus
 Softsign
