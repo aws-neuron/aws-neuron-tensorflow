@@ -24,6 +24,8 @@ namespace tensorflow {
 namespace grappler {
 namespace neuron {
 
+namespace {
+
 constexpr char key_minimum_segment_size[] = "minimum_segment_size";
 constexpr char key_fuse_foldable_nodes[] = "fuse_foldable_nodes";
 constexpr char key_automatic[] = "automatic";
@@ -36,7 +38,7 @@ constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
 constexpr int kNeuronFewChannelThreshold = 32;
 
 template <class T>
-static std::string container_debug_string(const T& container) {
+std::string container_debug_string(const T& container) {
   std::string debug_string;
   for (const auto& item : container) {
     debug_string += ",";
@@ -45,50 +47,7 @@ static std::string container_debug_string(const T& container) {
   return debug_string.substr(0 < debug_string.size() ? 1 : 0);
 }
 
-Status FuseSupportedOperators::Init(
-    const tensorflow::RewriterConfig_CustomGraphOptimizer* config) {
-  const auto& parameter_map = config->parameter_map();
-  if (parameter_map.count(key_minimum_segment_size)) {
-    minimum_segment_size_ = parameter_map.at(key_minimum_segment_size).i();
-  }
-  if (parameter_map.count(key_fuse_foldable_nodes)) {
-    fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
-  }
-  if (parameter_map.count(key_automatic)) {
-    automatic_ = parameter_map.at(key_automatic).b();
-  }
-  if (parameter_map.count(key_prune_small_subgraphs_ratio)) {
-    prune_small_subgraphs_ratio_ =
-        parameter_map.at(key_prune_small_subgraphs_ratio).f();
-  }
-  if (!parameter_map.count(key_supported_op_types)) {
-    return errors::InvalidArgument(
-        name_optimizer,
-        " requires providing a list of supported operator names");
-  }
-  const auto& param_supported_op_types =
-      parameter_map.at(key_supported_op_types).list().s();
-  supported_op_types_ = {param_supported_op_types.begin(),
-                         param_supported_op_types.end()};
-  VLOG(2) << "supported_op_types_ "
-          << container_debug_string(supported_op_types_);
-  if (parameter_map.count(key_no_fuse_ops)) {
-    const auto& param_no_fuse_ops =
-        parameter_map.at(key_no_fuse_ops).list().s();
-    no_fuse_ops_ = {param_no_fuse_ops.begin(), param_no_fuse_ops.end()};
-  }
-  VLOG(2) << "no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
-  if (parameter_map.count(key_force_fuse_ops)) {
-    const auto& param_force_fuse_ops =
-        parameter_map.at(key_force_fuse_ops).list().s();
-    force_fuse_ops_ = {param_force_fuse_ops.begin(),
-                       param_force_fuse_ops.end()};
-  }
-  VLOG(2) << "force_fuse_ops_ " << container_debug_string(force_fuse_ops_);
-  return Status::OK();
-}
-
-static PartialTensorShape ReadInferredShape(const Edge* edge) {
+PartialTensorShape ReadInferredShape(const Edge* edge) {
   const Node* node = edge->src();
   const auto& attr = node->def().attr();
   if (!attr.count(kNeuronInferredShapes)) {
@@ -98,8 +57,8 @@ static PartialTensorShape ReadInferredShape(const Edge* edge) {
   return PartialTensorShape(inferred_shapes.shape(edge->src_output()));
 }
 
-static Status MaybeExcludeFirstConv2DParents(std::set<std::string>* no_fuse_ops,
-                                             const Graph& graph) {
+Status MaybeExcludeFirstConv2DParents(std::set<std::string>* no_fuse_ops,
+                                      const Graph& graph) {
   // Conditions for mapping Conv2D parents to CPU:
   //  1. There is no built-in padding
   //  2. Strides are all greater than 1
@@ -180,14 +139,59 @@ static Status MaybeExcludeFirstConv2DParents(std::set<std::string>* no_fuse_ops,
   return Status::OK();
 }
 
-static void ExcludeInt64Select(std::set<std::string>* no_fuse_ops,
-                               const Graph& graph) {
+void ExcludeInt64Select(std::set<std::string>* no_fuse_ops,
+                        const Graph& graph) {
   for (const Node* node : graph.nodes()) {
     const auto& attr = node->def().attr();
     if (node->type_string() == "Select" && attr.at("T").type() == DT_INT64) {
       no_fuse_ops->emplace(node->name());
     }
   }
+}
+
+}  // namespace
+
+Status FuseSupportedOperators::Init(
+    const tensorflow::RewriterConfig_CustomGraphOptimizer* config) {
+  const auto& parameter_map = config->parameter_map();
+  if (parameter_map.count(key_minimum_segment_size)) {
+    minimum_segment_size_ = parameter_map.at(key_minimum_segment_size).i();
+  }
+  if (parameter_map.count(key_fuse_foldable_nodes)) {
+    fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
+  }
+  if (parameter_map.count(key_automatic)) {
+    automatic_ = parameter_map.at(key_automatic).b();
+  }
+  if (parameter_map.count(key_prune_small_subgraphs_ratio)) {
+    prune_small_subgraphs_ratio_ =
+        parameter_map.at(key_prune_small_subgraphs_ratio).f();
+  }
+  if (!parameter_map.count(key_supported_op_types)) {
+    return errors::InvalidArgument(
+        name_optimizer,
+        " requires providing a list of supported operator names");
+  }
+  const auto& param_supported_op_types =
+      parameter_map.at(key_supported_op_types).list().s();
+  supported_op_types_ = {param_supported_op_types.begin(),
+                         param_supported_op_types.end()};
+  VLOG(2) << "supported_op_types_ "
+          << container_debug_string(supported_op_types_);
+  if (parameter_map.count(key_no_fuse_ops)) {
+    const auto& param_no_fuse_ops =
+        parameter_map.at(key_no_fuse_ops).list().s();
+    no_fuse_ops_ = {param_no_fuse_ops.begin(), param_no_fuse_ops.end()};
+  }
+  VLOG(2) << "no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
+  if (parameter_map.count(key_force_fuse_ops)) {
+    const auto& param_force_fuse_ops =
+        parameter_map.at(key_force_fuse_ops).list().s();
+    force_fuse_ops_ = {param_force_fuse_ops.begin(),
+                       param_force_fuse_ops.end()};
+  }
+  VLOG(2) << "force_fuse_ops_ " << container_debug_string(force_fuse_ops_);
+  return Status::OK();
 }
 
 Status FuseSupportedOperators::Optimize(Cluster* cluster,

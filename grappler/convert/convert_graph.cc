@@ -524,9 +524,9 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
     params->graph->RemoveEdge(edge);
   }
 
-  VLOG(2) << "new wiring edges: " << neuron_node->in_edges().size();
+  VLOG(3) << "new wiring edges: " << neuron_node->in_edges().size();
   for (const tensorflow::Edge* edge : neuron_node->in_edges()) {
-    VLOG(2) << edge->src()->name() << " port: " << edge->src_output();
+    VLOG(3) << edge->src()->name() << " port: " << edge->src_output();
   }
 
   // Re-map outgoing edges to use the new Neuron node instead of the orig
@@ -537,7 +537,7 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
     } else {
       std::string old_src_name =
           edge->src()->name() + ":" + std::to_string(edge->src_output());
-      VLOG(1) << "Old src: " << old_src_name;
+      VLOG(3) << "Old src: " << old_src_name;
       auto& output_names = neuron_node_def.attr().at("output_names").list().s();
       auto iter =
           std::find(output_names.begin(), output_names.end(), old_src_name);
@@ -549,7 +549,7 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
       } else {
         new_src_output = std::distance(output_names.begin(), iter);
       }
-      VLOG(1) << "Updating " << neuron_node->name() << ":" << new_src_output
+      VLOG(3) << "Updating " << neuron_node->name() << ":" << new_src_output
               << " --> " << edge->dst()->name();
       TF_RETURN_IF_ERROR(params->graph->UpdateEdge(
           neuron_node, new_src_output, edge->dst(), edge->dst_input()));
