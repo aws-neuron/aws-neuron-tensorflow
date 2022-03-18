@@ -173,6 +173,17 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
     return Status::OK();
   }
 
+  for (const NodeDef& node : output->node()) {
+    if (node.name() == conv2d_original_input) {
+      const auto& attr = node.attr();
+      if (!(attr.count("dtype") || attr.count("T"))) {
+        VLOG(1) << "Cannot read data type from node " << node.DebugString();
+        return Status::OK();
+      }
+      break;
+    }
+  }
+
   if (found_conv2d) {
     // Determine input tensor type
     DataType src_type = DT_INVALID;
@@ -194,7 +205,16 @@ Status SplitConv2DSamePadding::Optimize(Cluster* cluster,
 
       // Pull information from the conv2d op
       if (node_def->name() == conv2d_original_input) {
-        src_type = (*node_def->mutable_attr())["dtype"].type();
+        const auto& attr = node_def->attr();
+        if (attr.count("dtype")) {
+          src_type = attr.at("dtype").type();
+        } else if (attr.count("T")) {
+          src_type = attr.at("T").type();
+        } else {
+          return errors::InvalidArgument(
+              "Cannot read data type from node ", node_def->DebugString());
+        }
+        VLOG(5) << "conv2d_original_input: " << node_def->DebugString();
 
         // Find input values
         AttrValue_ListValue input_shapes =
