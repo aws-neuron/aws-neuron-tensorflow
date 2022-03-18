@@ -40,6 +40,7 @@ class EdgeValidator {
     DataType dtype = node->output_type(port);
     return !illegal_dtypes_.count(dtype);
   }
+
  private:
   const std::unordered_set<DataType> illegal_dtypes_ = {DT_INT64, DT_DOUBLE};
 };
@@ -53,7 +54,7 @@ class OutputEdgeValidator {
   bool operator()(const Edge* out_edge) const {
     if (out_edge->IsControlEdge()) return true;
     if (out_edge->src()->type_string() == "Const") {
-      VLOG(1) << "--> Need to remove output node " << out_edge->src()->name()
+      VLOG(3) << "--> Need to remove output node " << out_edge->src()->name()
               << " which is a Const.";
       return false;
     }
@@ -146,7 +147,7 @@ static bool IsPlaceholder(const NodeDef& node) {
 tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   string neuron_op_name =
       tensorflow::strings::StrCat("neuron_op_", sg_params.neuron_op_index);
-  VLOG(1) << "Start Node building ...." << neuron_op_name;
+  VLOG(3) << "Start Node building ...." << neuron_op_name;
 
   std::vector<string> input_names;
   std::vector<tensorflow::DataType> input_dtypes;
@@ -321,7 +322,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
         DataType tensor_dtype = node->output_type(port);
         main_graph_output_nodes[node->name()].push_back(
             std::make_pair(tensor_dtype, v_partial_shape[port]));
-        VLOG(1) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
+        VLOG(3) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
                 << node->name() << " , " << tensor_dtype << " )";
       }
     }
@@ -386,7 +387,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     for (auto dtype_shape : name_type.second) {
       auto dtype = dtype_shape.first;
       auto shape = dtype_shape.second;
-      VLOG(1) << "tensorname: " << name << " dtype: " << dtype;
+      VLOG(3) << "tensorname: " << name << " dtype: " << dtype;
       std::string tensor_name = name + ":" + std::to_string(counter++);
       neuron_node_output_names.push_back(tensor_name);
       neuron_node_output_dtypes.push_back(dtype);
@@ -394,7 +395,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     }
   }
 
-  VLOG(1) << "Finished op preparation";
+  VLOG(2) << "Finished op preparation";
 
   StringPieceHasher hasher;
   std::string hash_string = "";
@@ -415,7 +416,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
           << hasher(hash_string) << "Hex Rep" << hex_string;
 
   neuron_op_name = "neuron_op_" + hex_string;
-  VLOG(1) << "Hashed neuron_op_name: " << neuron_op_name;
+  VLOG(2) << "Hashed neuron_op_name: " << neuron_op_name;
 
   Node* neuron_node;
   TF_CHECK_OK(NodeBuilder(neuron_op_name, "NeuronOp")
@@ -601,8 +602,8 @@ static tensorflow::Status ProcessSegments(
       }
       subgraph_node_ids.insert(node_map.at(node->name())->id());
     }
-    VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
-    VLOG(2) << "Subgraph nodes" << oss.str();
+    VLOG(2) << "Subgraph num nodes" << subgraph_node_ids.size();
+    VLOG(3) << "Subgraph nodes" << oss.str();
 
     ConvertGraphParams params(graph, output_names, subgraph_node_ids,
                               neuron_op_index++);
@@ -646,7 +647,7 @@ void PreProcessSegmentsForResources(
 
     for (const tensorflow::Edge* edge : incoming_edges) {
       if (edge->dst()->input_type(edge->dst_input()) == DT_RESOURCE) {
-        VLOG(1) << "incoming edge src: " << edge->src()->name()
+        VLOG(3) << "incoming edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
         remove_segment_index.insert(idx);
         break;
@@ -655,7 +656,7 @@ void PreProcessSegmentsForResources(
 
     for (const tensorflow::Edge* edge : outgoing_edges) {
       if (edge->src()->output_type(edge->src_output()) == DT_RESOURCE) {
-        VLOG(1) << "outgoing edge src: " << edge->src()->name()
+        VLOG(3) << "outgoing edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
         remove_segment_index.insert(idx);
         break;
@@ -667,7 +668,7 @@ void PreProcessSegmentsForResources(
   uint remove_segment_count = 0;
   for (auto idx : remove_segment_index) {
     uint rel_idx = idx - remove_segment_count++;
-    VLOG(1) << " Removing segment :" << idx
+    VLOG(3) << " Removing segment :" << idx
             << " num of segment nodes : " << normal_segments[rel_idx].size();
     normal_segments.erase(normal_segments.begin() + rel_idx);
   }
@@ -701,13 +702,13 @@ static Status FindConstantFoldableNodes(
   // TODO: determine if we need grappler::TopologicalSort
   std::unordered_map<std::string, const NodeDef*> name_to_node;
   for (const auto& node : graph_def.node()) {
-    VLOG(1) << "adding node " << node.name();
+    VLOG(3) << "adding node " << node.name();
     name_to_node[node.name()] = &node;
   }
   for (const auto& node : graph_def.node()) {
     bool foldable = false;
     if (node.op() == "Shape" || node.op() == "Size") {
-      VLOG(1) << "looking at input " << node.input(0);
+      VLOG(3) << "looking at input " << node.input(0);
       auto in_name_port = ParseTensorName(node.input(0));
       std::string in_name = in_name_port.first;
       int in_port = in_name_port.second;
@@ -715,7 +716,7 @@ static Status FindConstantFoldableNodes(
       const auto& attr = in_node->attr();
       const auto& shape = attr.at(kNeuronInferredShapes).list().shape(in_port);
       foldable = PartialTensorShape(shape).IsFullyDefined();
-      VLOG(1) << "node " << node.name() << ", foldable " << foldable;
+      VLOG(3) << "node " << node.name() << ", foldable " << foldable;
     } else {
       const auto& inputs = node.input();
       auto predicate = [foldable_nodes,
@@ -729,7 +730,7 @@ static Status FindConstantFoldableNodes(
         if (index_start != std::string::npos) {
           node_name = node_name.substr(0, index_start);
         }
-        VLOG(1) << "determining status of node " << node_name;
+        VLOG(3) << "determining status of node " << node_name;
         return foldable_nodes->count(node_name) ||
                name_to_node.at(node_name)->op() == "Const";
       };
@@ -737,12 +738,46 @@ static Status FindConstantFoldableNodes(
                  std::all_of(inputs.begin(), inputs.end(), predicate);
     }
     if (foldable) {
-      VLOG(1) << "found constant-foldable node " << node.name();
+      VLOG(3) << "found constant-foldable node " << node.name();
       foldable_nodes->insert(node.name());
     }
   }
   return Status::OK();
 }
+
+namespace {
+
+void PruneCheapSegments(tensorrt::segment::SegmentNodesVector& segments,
+                        const std::set<std::string>& expensive_op_types) {
+  int total_expensive_op_count = 0;
+  for (std::set<const Node*>& nodes : segments) {
+    for (const Node* node : nodes) {
+      total_expensive_op_count += expensive_op_types.count(node->type_string());
+    }
+  }
+  if (0 == total_expensive_op_count) {
+    VLOG(1) << "No expensive operator found in the entire graph -- do nothing";
+    return;
+  }
+  for (std::set<const Node*>& nodes : segments) {
+    int expensive_op_count = 0;
+    for (const Node* node : nodes) {
+      expensive_op_count += expensive_op_types.count(node->type_string());
+    }
+    if (0 == expensive_op_count) {
+      nodes.clear();
+    }
+  }
+  tensorrt::segment::SegmentNodesVector new_segments;
+  for (std::set<const Node*>& nodes : segments) {
+    if (!nodes.empty()) {
+      new_segments.push_back(nodes);
+    }
+  }
+  segments = new_segments;
+}
+
+}  // namespace
 
 // This function is the base function which does:
 // Step 1: Find Neuron Segments.
@@ -755,7 +790,8 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
                             const double prune_small_subgraphs_ratio,
                             const std::set<std::string>& supported_op_types,
                             const std::set<std::string>& no_fuse_ops,
-                            const std::set<std::string>& force_fuse_ops) {
+                            const std::set<std::string>& force_fuse_ops,
+                            const std::set<std::string>& expensive_op_types) {
   // Segment the graph into subgraphs that can be converted to Neuron op
   tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
@@ -782,7 +818,7 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   for (const auto& op_name : output_op_names) {
     const Node* node = op_name_to_node[op_name];
     int64 num_outputs = node->num_outputs();
-    VLOG(1) << "Output " << op_name << " contains " << num_outputs
+    VLOG(3) << "Output " << op_name << " contains " << num_outputs
             << " outputs";
     for (int64 idx = 0; idx < num_outputs; ++idx) {
       outputs.push_back(op_name + ":" + std::to_string(idx));
@@ -848,8 +884,12 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
       &graph, [](const Node* node) { return Status::OK(); },
-      input_edge_validator, output_edge_validator,
-      segment_options, &segments));
+      input_edge_validator, output_edge_validator, segment_options, &segments));
+  if (segments.size() > 1 && !expensive_op_types.empty()) {
+    VLOG(1) << "MULTIPLE Neuron candidates -- pruning away those without"
+            << " any arithmetic-intensive operator";
+    PruneCheapSegments(segments, expensive_op_types);
+  }
   if (segments.size() > 1) {
     VLOG(1) << "MULTIPLE Neuron candidate conversion: " << segments.size();
     if (prune_small_subgraphs_ratio < 0.0 ||

@@ -78,7 +78,8 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
                             const double prune_small_subgraphs_ratio,
                             const std::set<std::string>& supported_op_types,
                             const std::set<std::string>& no_fuse_ops,
-                            const std::set<std::string>& force_fuse_ops);
+                            const std::set<std::string>& force_fuse_ops,
+                            const std::set<std::string>& expensive_op_types);
 
 }  // namespace convert
 }  // namespace neuron

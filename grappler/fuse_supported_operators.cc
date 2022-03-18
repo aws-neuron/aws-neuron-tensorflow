@@ -258,7 +258,7 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
   for (const auto& feed : item.feed) {
     input_op_names.push_back(feed.first);
   }
-  std::set<std::string> expensive_op_types = ExpensiveTypeStrings();
+  std::set<std::string> expensive_op_types;
   if (automatic_) {
     no_fuse_ops_.clear();
     force_fuse_ops_.clear();
@@ -274,6 +274,7 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
     ExcludeInt64Select(&no_fuse_ops_, graph);
 
     // Exclude arithmetic-unintensive consumers of Concat for object detectors
+    expensive_op_types = ExpensiveTypeStrings();
     ExcludeConcatCheapConsumers(&no_fuse_ops_, graph, expensive_op_types);
 
     VLOG(2) << "auto no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
@@ -283,7 +284,7 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
   TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
       output, item.graph, input_op_names, item.fetch, fuse_foldable_nodes_,
       minimum_segment_size_, prune_small_subgraphs_ratio_, supported_op_types_,
-      no_fuse_ops_, force_fuse_ops_));
+      no_fuse_ops_, force_fuse_ops_, expensive_op_types));
   return Status::OK();
 }
 
