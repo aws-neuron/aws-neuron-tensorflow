@@ -149,6 +149,60 @@ void ExcludeInt64Select(std::set<std::string>* no_fuse_ops,
   }
 }
 
+void ExcludeConcatCheapConsumers(
+    std::set<std::string>* no_fuse_ops, const Graph& graph,
+    const std::set<std::string>& expensive_op_types) {
+  std::vector<Node*> starts;
+  for (Node* node : graph.nodes()) {
+    if (node->type_string() == "ConcatV2") {
+      const auto& attr = node->def().attr();
+      DataType dtype(attr.at("T").type());
+      int in_degree = attr.at("N").i();
+      if (DataTypeIsFloating(dtype) && in_degree > 3) {
+        starts.push_back(node);
+      }
+    }
+  }
+  std::vector<Node*> consumers;
+  auto enter = [&](Node* node) {
+    if (node->IsOp()) {
+      consumers.push_back(node);
+    }
+  };
+  DFSFrom(graph, starts, enter, /*leave=*/nullptr);
+  bool found_expensive_ops = false;
+  for (const Node* node : consumers) {
+    if (expensive_op_types.count(node->type_string())) {
+      found_expensive_ops = true;
+      break;
+    }
+  }
+  if (!found_expensive_ops) {
+    for (const Node* node : consumers) {
+      no_fuse_ops->emplace(node->name());
+    }
+  }
+}
+
+std::set<std::string> ExpensiveTypeStrings() {
+  return {
+      "BatchMatMul",
+      "BatchMatMulV2",
+      "BatchMatMulV3",
+      "Conv2D",
+      "Conv2DBackpropFilter",
+      "Conv2DBackpropInput",
+      "Conv3D",
+      "Conv3DBackpropFilterV2",
+      "Conv3DBackpropInputV2",
+      "DepthwiseConv2dNative",
+      "DepthwiseConv2dNativeBackpropFilter",
+      "DepthwiseConv2dNativeBackpropInput",
+      "Einsum",
+      "MatMul",
+  };
+}
+
 }  // namespace
 
 Status FuseSupportedOperators::Init(
@@ -204,6 +258,7 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
   for (const auto& feed : item.feed) {
     input_op_names.push_back(feed.first);
   }
+  std::set<std::string> expensive_op_types = ExpensiveTypeStrings();
   if (automatic_) {
     no_fuse_ops_.clear();
     force_fuse_ops_.clear();
@@ -217,6 +272,9 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
 
     // Exclude int64 Select ops
     ExcludeInt64Select(&no_fuse_ops_, graph);
+
+    // Exclude arithmetic-unintensive consumers of Concat for object detectors
+    ExcludeConcatCheapConsumers(&no_fuse_ops_, graph, expensive_op_types);
 
     VLOG(2) << "auto no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
   }
