@@ -198,7 +198,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
     wrapped = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
-    import pdb;pdb.set_trace()
     print(func(*example_inputs))
     ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
     reordered_vars = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
@@ -225,7 +224,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.maybe_relax_placeholder_shapes(graph_def)
 
     # wrap GraphDef as a WrappedFunction
-    cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
+    #cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
+    cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
 
     # wrap ConcreteFunction as a keras model
     model = AwsNeuronModel(cfunc, func.structured_outputs)
