@@ -1,5 +1,8 @@
 import tensorflow as tf
 import tensorflow.neuron as tfn
+import os
+
+os.environ['NEURON_CC_FLAGS']="--reduce-neff-size"
 
 class RemoveConstantsWrapper(tf.keras.Model):
     def __init__(self, model):
@@ -37,5 +40,5 @@ model = tfn.trace(rn_50, inputs)
 #wrapped = RemoveConstantsWrapper(model)
 
 '''
-
-print(model_neuron(inputs,))
+import pdb;pdb.set_trace()
+print(model_neuron(inputs, *model_neuron.ordered_weights))

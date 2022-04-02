@@ -168,28 +168,29 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         func = func.get_concrete_function(*example_inputs)
     cfunc = func
     dumper = OptionalDumper()
+    tfn_args, _ = utils.parse_neuron_cc_flags()
 
-    '''
-    # convert all variables to constants
-    with utils.change_grappler_logging_level_according_to_cc_flags():
-        try:
-            if LooseVersion(__version__) < LooseVersion('2.2.0'):
-                cfunc = convert_variables_to_constants_v2(func)
-            else:
-                cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
-        except InvalidArgumentError as err:
-            if all(op.type != 'StatefulPartitionedCall' for op in func.graph.get_operations()):
-                raise err
-            error_msg = (
-                "convert_variables_to_constants_v2 failed to unpack a StatefulPartitionedCall"
-                " operator; this may be due to StatefulPartitionedCall wrapping custom"
-                " operators, which is caused by saving or serializing models containing"
-                " custom operators. If you are tracing a keras.Model, try to call tfn.trace"
-                " before saving and reloading the model, and please make sure that model"
-                " layers do not contain StatefulPartitionedCall wrapping custom operators."
-            )
-            raise InvalidArgumentError(err.node_def, err.op, error_msg)
-    '''
+    if not tfn_args.reduce_neff_size:
+        # convert all variables to constants
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            try:
+                if LooseVersion(__version__) < LooseVersion('2.2.0'):
+                    cfunc = convert_variables_to_constants_v2(func)
+                else:
+                    cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
+            except InvalidArgumentError as err:
+                if all(op.type != 'StatefulPartitionedCall' for op in func.graph.get_operations()):
+                    raise err
+                error_msg = (
+                    "convert_variables_to_constants_v2 failed to unpack a StatefulPartitionedCall"
+                    " operator; this may be due to StatefulPartitionedCall wrapping custom"
+                    " operators, which is caused by saving or serializing models containing"
+                    " custom operators. If you are tracing a keras.Model, try to call tfn.trace"
+                    " before saving and reloading the model, and please make sure that model"
+                    " layers do not contain StatefulPartitionedCall wrapping custom operators."
+                )
+                raise InvalidArgumentError(err.node_def, err.op, error_msg)
+
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
         logging.warning('{} does not seem to have any input; returning an uncompiled callable'.format(func))
@@ -198,11 +199,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     # encode known shapes
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
-    wrapped = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
-    print(func(*example_inputs))
-    ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
-    reordered_vars = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
-    print(wrapped(*example_inputs, *reordered_vars))
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
 
     # call main-graph grappler passes
@@ -224,13 +220,27 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.set_execution_plan(graph_def)
     graph_def = gdu.maybe_relax_placeholder_shapes(graph_def)
 
-    # wrap GraphDef as a WrappedFunction
-    #cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
-    cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
+    if tfn_args.reduce_neff_size:
+        # wrap GraphDef as a WrappedFunction
+        cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
 
-    # wrap ConcreteFunction as a keras model
-    model = AwsNeuronModel(cfunc, func.structured_outputs)
-    _make_keras_model_savable(model, example_inputs)
+        #figure out proper order of weights
+        ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
+        ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
+
+        # wrap ConcreteFunction as a keras model
+        model = AwsNeuronModel(cfunc, func.structured_outputs)
+        model.ordered_weights = ordered_weights
+        #cfunc(*example_inputs, *ordered_weights)
+        _make_keras_model_savable(model, example_inputs + tuple(ordered_weights))
+    else:
+        # wrap GraphDef as a WrappedFunction
+        cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
+
+        # wrap ConcreteFunction as a keras model
+        model = AwsNeuronModel(cfunc, func.structured_outputs)
+        _make_keras_model_savable(model, example_inputs)
+
     return model
 
 
@@ -334,6 +344,7 @@ class AwsNeuronModel(Model):
             self._aws_neuron_output_type = type(structured_outputs)
 
     def call(self, inputs, *args):
+        import pdb;pdb.set_trace()
         flat_inputs = nest.flatten((inputs, args))
         if isinstance(inputs, abc.Mapping) and not args:
             if set(inputs.keys()) == set(self.aws_neuron_function._arg_keywords):
