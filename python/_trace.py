@@ -151,7 +151,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         )
 
     """
-    #dummy commit not meant to be merged
     original_func = func
     if not supports_xla():
         raise RuntimeError(
@@ -166,10 +165,10 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         func = def_function.function(input_signature=input_signature)(func)
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
-    cfunc = func
     dumper = OptionalDumper()
     tfn_args, _ = utils.parse_neuron_cc_flags()
 
+    # Bake constants into graph if reduce-neff-size flag is not set (default)
     if not tfn_args.reduce_neff_size:
         # convert all variables to constants
         with utils.change_grappler_logging_level_according_to_cc_flags():
@@ -190,6 +189,9 @@ def trace(func, example_inputs, subgraph_builder_function=None):
                     " layers do not contain StatefulPartitionedCall wrapping custom operators."
                 )
                 raise InvalidArgumentError(err.node_def, err.op, error_msg)
+    else:
+        cfunc = func
+
 
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
@@ -229,18 +231,15 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
 
         # wrap ConcreteFunction as a keras model
-        model = AwsNeuronModel(cfunc, func.structured_outputs)
-        model.ordered_weights = ordered_weights
-        #cfunc(*example_inputs, *ordered_weights)
-        _make_keras_model_savable(model, example_inputs + tuple(ordered_weights))
+        model = AwsNeuronModel(cfunc, func.structured_outputs, ordered_weights=ordered_weights)
     else:
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
 
         # wrap ConcreteFunction as a keras model
         model = AwsNeuronModel(cfunc, func.structured_outputs)
-        _make_keras_model_savable(model, example_inputs)
 
+    _make_keras_model_savable(model, example_inputs)
     return model
 
 
@@ -336,20 +335,23 @@ def _shuffle(value, shuffle):
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, func, structured_outputs):
+    def __init__(self, func, structured_outputs, ordered_weights=None):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = func
         self._aws_neuron_output_type = None
+        self._ordered_weights = ordered_weights
         if isinstance(structured_outputs, abc.Mapping):
             self._aws_neuron_output_type = type(structured_outputs)
 
     def call(self, inputs, *args):
-        import pdb;pdb.set_trace()
         flat_inputs = nest.flatten((inputs, args))
         if isinstance(inputs, abc.Mapping) and not args:
             if set(inputs.keys()) == set(self.aws_neuron_function._arg_keywords):
                 flat_inputs = [inputs[kw] for kw in self.aws_neuron_function._arg_keywords]
-        outputs = self.aws_neuron_function(*flat_inputs)
+        if self._ordered_weights is None:
+            outputs = self.aws_neuron_function(*flat_inputs)
+        else:
+            outputs = self.aws_neuron_function(*flat_inputs, *self._ordered_weights)
         if self._aws_neuron_output_type is not None:
             outputs = self._aws_neuron_output_type(**outputs)
         return outputs

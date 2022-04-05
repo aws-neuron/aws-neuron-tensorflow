@@ -173,6 +173,7 @@ py_library(
         "tf2_keras_test.py",
         "keras_layer_test.py",
         "custom_ops_test.py",
+        "reduce_neff_size_test.py",
     ],
     deps = [
         ":graph_util_py",
