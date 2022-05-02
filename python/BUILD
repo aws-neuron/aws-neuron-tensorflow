@@ -101,6 +101,13 @@ py_library(
 )
 
 py_library(
+    name = "save_model_cli_py",
+    srcs = [
+        "save_model_cli.py",
+    ],
+)
+
+py_library(
     name = "neuron_cc_py",
     srcs = glob(["neuron_cc*.py"]),
     deps = [
