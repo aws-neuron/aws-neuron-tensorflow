@@ -124,6 +124,6 @@ setup(
     install_requires=get_install_requires(),
     extras_require={'cc': [get_extras_require_cc()]},
     entry_points = {
-        'console_scripts': ['tf-neuron-saved-model=tensorflow_neuron.cli.test:main'],
+        'console_scripts': ['tf-neuron-auto-multicore=tensorflow_neuron.python.auto_multicore_save_model:convert_model'],
     }
 )

@@ -101,9 +101,9 @@ py_library(
 )
 
 py_library(
-    name = "save_model_cli_py",
+    name = "auto_multicore_save_model_py",
     srcs = [
-        "save_model_cli.py",
+        "auto_multicore_save_model.py",
     ],
 )
 
