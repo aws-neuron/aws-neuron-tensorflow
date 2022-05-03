@@ -37,4 +37,3 @@ else:
 from tensorflow_neuron.python import predictor
 from tensorflow_neuron.python.fuse import fuse
 from tensorflow_neuron.python.performance import measure_performance
-#from tensorflow_neuron.python.save_model_cli import save_model
