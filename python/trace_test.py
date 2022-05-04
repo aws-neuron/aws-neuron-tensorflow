@@ -19,7 +19,7 @@ import tensorflow as tf
 from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
 from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
-
+from tensroflow.neuorn.python.utils import _assert_compiler_success_func
 
 class TestTraceKerasModel(TestV2Only):
 
@@ -464,5 +464,3 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_layer_neuron, result_layer, rtol=1e-2, atol=1e-2)
 
 
-def _assert_compiler_success_func(wfunc):
-    assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())

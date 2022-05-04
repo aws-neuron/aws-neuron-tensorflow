@@ -21,8 +21,9 @@ compiled with Inferentia.
 Currently testing on TF2.x
 TODO: TF1.x support
 '''
-
 import argparse
+from copy import deepcopy
+import sys
 from tensorflow.python import saved_model
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
@@ -30,18 +31,25 @@ from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
 from tensorflow_neuron.python.graph_util import _neuron_ops
 from tensorflow_neuron.python._trace import _wrap_variable_graph_def_as_concrete_function
-from copy import deepcopy
 
 tNeuronOp = 'NeuronOp'
 
 
-def convert_model():
+def add_attr_to_model(arguments):
+    '''
+    Adds an attribute _automatic_multicore to the model
+    '''
     parser = argparse.ArgumentParser(description='CLI for Inferentia Automatic Multicore Inference')
     parser.add_argument('model_dir', type=str,
                         help='Model Directory of Inferentia compiled model')
-    args = parser.parse_args()
+    parser.add_argument('--new_model_dir', default='new_model', type=str,
+                        help='New model directory to save modified graph')
+                        
+    args = parser.parse_args(arguments)
 
+    # Load model and process signature defs
     model_dir = args.model_dir
+    new_model_dir = args.new_model_dir
     
     model = saved_model.load(model_dir)
     func = model.aws_neuron_function
@@ -61,11 +69,10 @@ def convert_model():
 
     # Modify graph def to add a new attribute
     new_nodes = []
-
     for node in graph_def.node:
         if node.op == tNeuronOp:
             copyNode = deepcopy(node)
-            newAttrValue = attr_value_pb2.AttrValue(s=bytes("true", encoding='utf-8'))
+            newAttrValue = attr_value_pb2.AttrValue(b=True)
             copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
             new_nodes.append(copyNode)
         else:
@@ -77,14 +84,11 @@ def convert_model():
     cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
     signatures = {signature_def_key: cfunc}
 
-    new_model_dir = 'new_model'
     saved_model.save(model, new_model_dir, signatures)
 
-
+def convert_model():
     '''
-    neuron_ops = [op for op in _neuron_ops(cfunc.graph)]
-
-    for op in neuron_ops:
-        op._set_attr('auto_multicore', attr_value_pb2.AttrValue(s=bytes("true", encoding='utf-8')))
-        break
+    Reference that parses the args
     '''
+
+    add_attr_to_model(sys.argv[1:])

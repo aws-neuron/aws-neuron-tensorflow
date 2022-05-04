@@ -101,6 +101,8 @@ def parse_neuron_cc_flags(args=None, flag_set=None):
         tfn_args.log_level = getattr(logging, verbose_map.get(verbose.lower(), 'WARN'))
     return tfn_args, compiler_args
 
+def _assert_compiler_success_func(wfunc):
+    assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())
 
 @contextmanager
 def change_grappler_logging_level_according_to_cc_flags():
