@@ -24,26 +24,67 @@ TODO: TF1.x support
 
 import argparse
 from tensorflow.python import saved_model
+from tensorflow.python.saved_model.loader_impl import parse_saved_model
+from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.framework import attr_value_pb2
 from tensorflow.core.framework import graph_pb2
 from tensorflow_neuron.python.graph_util import _neuron_ops
+from tensorflow_neuron.python._trace import _wrap_variable_graph_def_as_concrete_function
+from copy import deepcopy
 
 tNeuronOp = 'NeuronOp'
 
-parser = argparse.ArgumentParser(description='Process some integers.')
-parser.add_argument('model_dir', type=str,
-                    help='Model Directory of Inferentia compiled model')
-args = parser.parse_args()
 
 def convert_model():
+    parser = argparse.ArgumentParser(description='CLI for Inferentia Automatic Multicore Inference')
+    parser.add_argument('model_dir', type=str,
+                        help='Model Directory of Inferentia compiled model')
+    args = parser.parse_args()
+
     model_dir = args.model_dir
     
     model = saved_model.load(model_dir)
-    cfunc = model.aws_neuron_function
-    graph_def = cfunc.graph.as_graph_def()
+    func = model.aws_neuron_function
+    graph_def = func.graph.as_graph_def()
 
+    saved_model_proto = parse_saved_model(model_dir)
+    signature_def = saved_model_proto.meta_graphs[0].signature_def
+    signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+    if len(signature_def) == 1:
+        signature_def_key = list(signature_def.keys())[0]
+    elif signature_def_key_default in signature_def:
+        signature_def_key = signature_def_key_default
+        logging.warning('Selecting default SignatureDef "{}" when loading SavedModel {}'.format(signature_def_key, model_dir))
+    else:
+        raise NotImplementedError('Not yet supporting SavedModel {} with multiple signatures')
+
+
+    # Modify graph def to add a new attribute
+    new_nodes = []
+
+    for node in graph_def.node:
+        if node.op == tNeuronOp:
+            copyNode = deepcopy(node)
+            newAttrValue = attr_value_pb2.AttrValue(s=bytes("true", encoding='utf-8'))
+            copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
+            new_nodes.append(copyNode)
+        else:
+            new_nodes.append(node)
+
+    mod_graph_def = graph_pb2.GraphDef()
+    mod_graph_def.node.extend(new_nodes)
+
+    cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
+    signatures = {signature_def_key: cfunc}
+
+    new_model_dir = 'new_model'
+    saved_model.save(model, new_model_dir, signatures)
+
+
+    '''
     neuron_ops = [op for op in _neuron_ops(cfunc.graph)]
 
     for op in neuron_ops:
         op._set_attr('auto_multicore', attr_value_pb2.AttrValue(s=bytes("true", encoding='utf-8')))
         break
+    '''
