@@ -84,6 +84,8 @@ def add_attr_to_model(arguments):
     cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
     signatures = {signature_def_key: cfunc}
 
+    model.aws_neuron_function = cfunc
+
     saved_model.save(model, new_model_dir, signatures)
 
 def convert_model():

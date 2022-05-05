@@ -181,6 +181,7 @@ py_library(
         "keras_layer_test.py",
         "custom_ops_test.py",
         "reduce_neff_size_test.py",
+        "auto_multicore_save_model_test.py",
     ],
     deps = [
         ":graph_util_py",
@@ -188,5 +189,6 @@ py_library(
         ":fuse_py",
         ":trace_py",
         ":saved_model_v2_py",
+        ":auto_multicore_save_model_py",
     ],
 )

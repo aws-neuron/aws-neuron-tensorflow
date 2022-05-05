@@ -27,6 +27,9 @@ from tensorflow.neuron.python.auto_multicore_save_model import add_attr_to_model
 class TestAutoMulticoreCLI(TestV2Only):
     
     def test_simple(self):
+        '''
+        Test to see if the neuron op has its attribute correctly modified
+        '''
         input0 = tf.keras.layers.Input(3)
         dense0 = tf.keras.layers.Dense(3)(input0)
         inputs = [input0]
@@ -45,8 +48,9 @@ class TestAutoMulticoreCLI(TestV2Only):
         graph_def = converted_model_neuron.aws_neuron_function.graph.as_graph_def()
         for node in graph_def.node:
             if node.op == "NeuronOp":
-                print(node)
-                print(node.attr['_automatic_multicore'])
+                auto_multicore_flag = node.attr['_automatic_multicore'].b
+                assert(auto_multicore_flag)
+                
 
 
 if __name__ == '__main__':
