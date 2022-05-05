@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 import os
+import types
 from collections import abc
 from distutils.version import LooseVersion
 from tensorflow.core.protobuf import config_pb2
@@ -226,9 +227,15 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
 
-        #figure out proper order of weights
-        ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
-        ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
+        # figure out proper order of weights
+        # python functions passed into trace have their
+        # "weights" stored in captured_inputs as they 
+        # don't really have a graph
+        if isinstance(original_func, types.FunctionType):
+            ordered_weights = func.captured_inputs
+        else:
+            ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
+            ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
 
         # wrap ConcreteFunction as a keras model
         model = AwsNeuronModel(cfunc, func.structured_outputs, ordered_weights=ordered_weights)

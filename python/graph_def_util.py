@@ -465,7 +465,8 @@ def set_execution_plan(compiled_graph_def):
             opt_num_cores, _ = num_cores_tuple
             num_cores_tuple_map[node.name] = num_cores_tuple
     max_num_duplicates = 64
-    if mis_config or not num_cores_tuple_map:
+    tfn_args, _ = utils.parse_neuron_cc_flags()
+    if mis_config or not num_cores_tuple_map or tfn_args.reduce_neff_size:
         global_opt_num_cores = -1
         max_num_duplicates = 1
     else:
