@@ -42,14 +42,15 @@ class TestAutoMulticoreCLI(TestV2Only):
         _assert_compiler_success_func(model_neuron.aws_neuron_function)
 
         new_model_dir = os.path.join(self.get_temp_dir(), 'new_model_dir')
-        func_args = [model_dir, '--new_model_dir', new_model_dir]
+        num_cores = 4
+        func_args = [model_dir, '--new_model_dir', new_model_dir, '--num_cores', str(num_cores)]
         add_attr_to_model(func_args)
         converted_model_neuron = saved_model.load(new_model_dir)
         graph_def = converted_model_neuron.aws_neuron_function.graph.as_graph_def()
         for node in graph_def.node:
             if node.op == "NeuronOp":
-                auto_multicore_flag = node.attr['_automatic_multicore'].b
-                assert(auto_multicore_flag)
+                auto_multicore_flag = node.attr['_automatic_multicore'].i
+                assert(auto_multicore_flag == num_cores)
                 
 
 

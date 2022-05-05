@@ -42,6 +42,8 @@ def add_attr_to_model(arguments):
     parser = argparse.ArgumentParser(description='CLI for Inferentia Automatic Multicore Inference')
     parser.add_argument('model_dir', type=str,
                         help='Model Directory of Inferentia compiled model')
+    parser.add_argument('--num_cores', default=1, type=int,
+                        help='Number of cores to be replicated with default as 1')
     parser.add_argument('--new_model_dir', default='new_model', type=str,
                         help='New model directory to save modified graph')
                         
@@ -49,6 +51,7 @@ def add_attr_to_model(arguments):
 
     # Load model and process signature defs
     model_dir = args.model_dir
+    num_cores = args.num_cores
     new_model_dir = args.new_model_dir
     
     model = saved_model.load(model_dir)
@@ -72,7 +75,7 @@ def add_attr_to_model(arguments):
     for node in graph_def.node:
         if node.op == tNeuronOp:
             copyNode = deepcopy(node)
-            newAttrValue = attr_value_pb2.AttrValue(b=True)
+            newAttrValue = attr_value_pb2.AttrValue(i=num_cores)
             copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
             new_nodes.append(copyNode)
         else:
