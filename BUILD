@@ -17,6 +17,7 @@ py_library(
         "//tensorflow/neuron/python:performance_py",
         "//tensorflow/neuron/python:unittest_py",
         "//tensorflow/neuron/python:auto_multicore_save_model_py",
+        "//tensorflow/neuron/python:multicore_py",
     ],
 )
 
