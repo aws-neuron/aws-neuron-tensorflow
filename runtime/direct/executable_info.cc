@@ -96,9 +96,6 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   if (attr.count(kAutoMulticore)) {
     requested_num_cores = attr.at(kAutoMulticore).i();
   }
-  else {
-    requested_num_cores = -1;
-  }
 #undef SIZE_CHECK
   return ParseModelConfig(node_def);
 }

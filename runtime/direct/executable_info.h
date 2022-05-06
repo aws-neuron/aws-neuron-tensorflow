@@ -46,7 +46,7 @@ class NeuronExecutableInfo {
 
   // Optional values
   const AttrValue_ListValue* input_shuffles = nullptr;
-  int32_t requested_num_cores;
+  int32_t requested_num_cores = -1;
 
  private:
   Status ParseModelConfig(const NodeDef& node_def);
