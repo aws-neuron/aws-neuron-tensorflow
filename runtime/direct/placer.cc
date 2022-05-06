@@ -148,7 +148,7 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
   
   if (automatic_multicore_enabled) {
     // Automatic Multicore
-    num_copies = info.requested.num_cores;
+    num_copies = info.requested_num_cores;
   } else if (specified_num_dup_.empty()) {
     num_copies = std::min(info.max_num_duplicates, num_available_cores_);
   } else {
@@ -157,7 +157,7 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
   }
   num_copies = std::min(num_copies, max_num_dup_);
   if (automatic_multicore_enabled) {
-    for (int32_t start_nc = 0, start_nc < num_copies; ++start_nc) {
+    for (int32_t start_nc = 0; start_nc < num_copies; ++start_nc) {
       core_ranges.emplace_back(start_nc, 1);
     }
   } else if (num_available_cores_ <= 4) {
