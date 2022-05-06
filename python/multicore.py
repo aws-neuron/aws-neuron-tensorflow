@@ -19,7 +19,13 @@ Defines a new API endpoint to allow for Automatic Multicore Inference
 
 import tensorflow.neuron as tfn
 import tensorflow as tf
-from tensorflow.neuron.python._trace import AwsNeuronModel, _make_keras_model_savable
+from tensorflow.core.framework import attr_value_pb2, graph_pb2
+from copy import deepcopy
+from tensorflow.neuron.python._trace import AwsNeuronModel, \
+                                            _make_keras_model_savable, \
+                                            _wrap_variable_graph_def_as_concrete_function
+
+tNeuronOp = 'NeuronOp'
 
 class AwsMulticoreNeuronModel(AwsNeuronModel):
     '''
@@ -54,9 +60,10 @@ def multicore(model, example_inputs, num_cores=1):
     if not isinstance(example_inputs, tuple):
         example_inputs = (example_inputs,)
 
-    # TODO: Will this error out if the user loads the model instead of tracing?
-    if not isinstance(model, AwsNeuronModel):
+    # This input validation currently does not work.
+    if not hasattr(model, 'aws_neuron_function'):
         raise ValueError("Invalid model is not AwsNeuronModel")
+
     func = model.aws_neuron_function
     graph_def = func.graph.as_graph_def()
 
@@ -77,7 +84,6 @@ def multicore(model, example_inputs, num_cores=1):
     cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
     model = AwsMulticoreNeuronModel(cfunc, func.structured_outputs)
 
-    # TODO: Do we need to refactor this function into utils as well
     _make_keras_model_savable(model, example_inputs)
 
     return model

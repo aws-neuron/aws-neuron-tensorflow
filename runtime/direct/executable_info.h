@@ -43,7 +43,10 @@ class NeuronExecutableInfo {
   AttrValue_ListValue output_dtypes;
   AttrValue_ListValue output_shapes;
   AttrValue_ListValue output_batch_axis;
+
+  // Optional values
   const AttrValue_ListValue* input_shuffles = nullptr;
+  int32_t requested_num_cores;
 
  private:
   Status ParseModelConfig(const NodeDef& node_def);

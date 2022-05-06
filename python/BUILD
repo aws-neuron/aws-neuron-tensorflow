@@ -101,6 +101,16 @@ py_library(
 )
 
 py_library(
+    name = "multicore_py",
+    srcs = [
+        "multicore.py",
+    ],
+    deps = [
+        ":trace_py",
+    ],
+)
+
+py_library(
     name = "auto_multicore_save_model_py",
     srcs = [
         "auto_multicore_save_model.py",

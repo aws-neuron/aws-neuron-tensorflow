@@ -27,13 +27,10 @@ import sys
 from tensorflow.python import saved_model
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.core.framework import attr_value_pb2
-from tensorflow.core.framework import graph_pb2
-from tensorflow_neuron.python.graph_util import _neuron_ops
+from tensorflow.core.framework import attr_value_pb2, graph_pb2
 from tensorflow_neuron.python._trace import _wrap_variable_graph_def_as_concrete_function
 
 tNeuronOp = 'NeuronOp'
-
 
 def add_attr_to_model(arguments):
     '''

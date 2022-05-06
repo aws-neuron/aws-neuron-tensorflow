@@ -40,6 +40,7 @@ constexpr char kOutputShapes[] = "output_shapes";
 constexpr char kOutputBatchAxis[] = "output_batch_axis";
 
 // Optional keys
+constexpr char kAutoMulticore[] = "_automatic_multicore";
 constexpr char kInputShuffles[] = "_input_shuffles";
 
 Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
@@ -91,6 +92,12 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   if (attr.count(kInputShuffles)) {
     input_shuffles = &attr.at(kInputShuffles).list();
     SIZE_CHECK(num_inputs == input_shuffles->tensor_size(), kInputShuffles);
+  }
+  if (attr.count(kAutoMulticore)) {
+    requested_num_cores = attr.at(kAutoMulticore).i();
+  }
+  else {
+    requested_num_cores = -1;
   }
 #undef SIZE_CHECK
   return ParseModelConfig(node_def);
