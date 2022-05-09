@@ -192,6 +192,7 @@ py_library(
         "custom_ops_test.py",
         "reduce_neff_size_test.py",
         "auto_multicore_save_model_test.py",
+        "multicore_test.py",
     ],
     deps = [
         ":graph_util_py",
@@ -200,5 +201,6 @@ py_library(
         ":trace_py",
         ":saved_model_v2_py",
         ":auto_multicore_save_model_py",
+        ":multicore_py",
     ],
 )

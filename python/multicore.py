@@ -60,7 +60,6 @@ def multicore(model, example_inputs, num_cores=1):
     if not isinstance(example_inputs, tuple):
         example_inputs = (example_inputs,)
 
-    # This input validation currently does not work.
     if not hasattr(model, 'aws_neuron_function'):
         raise ValueError("Invalid model is not AwsNeuronModel")
 
