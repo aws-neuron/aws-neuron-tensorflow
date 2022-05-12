@@ -166,6 +166,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         func = def_function.function(input_signature=input_signature)(func)
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
+
     dumper = OptionalDumper()
     tfn_args, _ = utils.parse_neuron_cc_flags()
 
@@ -227,15 +228,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
 
-        # figure out proper order of weights
-        # python functions passed into trace have their
-        # "weights" stored in captured_inputs as they 
-        # don't really have a graph
-        if isinstance(original_func, types.FunctionType):
-            ordered_weights = func.captured_inputs
-        else:
-            ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
-            ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
+        ordered_weights = _get_ordered_weights(func, original_func)
 
         # wrap ConcreteFunction as a keras model
         model = AwsNeuronModel(cfunc, func.structured_outputs, ordered_weights=ordered_weights)
@@ -491,6 +484,21 @@ def _get_output_names(func):
         return output.name
     else:
         return [ts.name for ts in outputs]
+
+def _get_ordered_weights(func, original_func):
+    # figure out proper order of weights
+    # python functions passed into trace have their
+    # "weights" stored in captured_inputs as they 
+    # don't really have a graph
+
+    #function only used when --reduce-neff-size flag is passed
+    if isinstance(original_func, types.FunctionType):
+        ordered_weights = func.captured_inputs
+    else:
+        ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
+        ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
+
+    return ordered_weights
 
 
 def _wrap_graph_def_as_concrete_function(graph_def, func_ref):
