@@ -368,20 +368,11 @@ def tag_multicore(graph_def, num_cores=1):
     Returns:
         A `GraphDef` proto with the new attribute added
     """
-    new_nodes = []
     for node in graph_def.node:
         if node.op == tNeuronOp:
-            copyNode = deepcopy(node)
-            newAttrValue = attr_value_pb2.AttrValue(i=num_cores)
-            copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
-            new_nodes.append(copyNode)
-        else:
-            new_nodes.append(node)
+            node.attr['_automatic_multicore'].i = num_cores
 
-    mod_graph_def = graph_pb2.GraphDef()
-    mod_graph_def.node.extend(new_nodes)
-
-    return mod_graph_def
+    return graph_def
 
 def amp_optimization(graph_def, signature_def):
     """Runs a AutoMixedPrecision pass to insert fp16/bf16 cast nodes at appropriate places.
