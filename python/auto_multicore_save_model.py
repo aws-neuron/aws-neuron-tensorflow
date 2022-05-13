@@ -29,8 +29,7 @@ from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.framework import attr_value_pb2, graph_pb2
 from tensorflow_neuron.python._trace import _wrap_variable_graph_def_as_concrete_function
-
-tNeuronOp = 'NeuronOp'
+from tensorflow.neuron.python.graph_util import tag_multicore
 
 def add_attr_to_model(arguments):
     '''
@@ -68,18 +67,7 @@ def add_attr_to_model(arguments):
 
 
     # Modify graph def to add a new attribute
-    new_nodes = []
-    for node in graph_def.node:
-        if node.op == tNeuronOp:
-            copyNode = deepcopy(node)
-            newAttrValue = attr_value_pb2.AttrValue(i=num_cores)
-            copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
-            new_nodes.append(copyNode)
-        else:
-            new_nodes.append(node)
-
-    mod_graph_def = graph_pb2.GraphDef()
-    mod_graph_def.node.extend(new_nodes)
+    mod_graph_def = tag_multicore(graph_def, num_cores)
 
     cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
     signatures = {signature_def_key: cfunc}

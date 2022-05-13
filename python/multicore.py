@@ -19,13 +19,11 @@ Defines a new API endpoint to allow for Automatic Multicore Inference
 
 import tensorflow.neuron as tfn
 import tensorflow as tf
-from tensorflow.core.framework import attr_value_pb2, graph_pb2
-from copy import deepcopy
 from tensorflow.neuron.python._trace import AwsNeuronModel, \
                                             _make_keras_model_savable, \
                                             _wrap_variable_graph_def_as_concrete_function
+from tensorflow.neuron.python.graph_util import tag_multicore
 
-tNeuronOp = 'NeuronOp'
 
 class AwsMulticoreNeuronModel(AwsNeuronModel):
     '''
@@ -67,18 +65,7 @@ def multicore(model, example_inputs, num_cores=1):
     graph_def = func.graph.as_graph_def()
 
     # Modify graph def to add a new attribute
-    new_nodes = []
-    for node in graph_def.node:
-        if node.op == tNeuronOp:
-            copyNode = deepcopy(node)
-            newAttrValue = attr_value_pb2.AttrValue(i=num_cores)
-            copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
-            new_nodes.append(copyNode)
-        else:
-            new_nodes.append(node)
-
-    mod_graph_def = graph_pb2.GraphDef()
-    mod_graph_def.node.extend(new_nodes)
+    mod_graph_def = tag_multicore(graph_def, num_cores)
 
     cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
     model = AwsMulticoreNeuronModel(cfunc, func.structured_outputs)

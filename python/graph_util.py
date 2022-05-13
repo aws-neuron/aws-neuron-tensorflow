@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import shlex
 import collections
+from copy import deepcopy
 import itertools
 from distutils import spawn
 from contextlib import contextmanager
@@ -37,7 +38,7 @@ from tensorflow.python.framework import graph_util_impl as tf_graph_util
 from tensorflow.python.framework.tensor_shape import TensorShape, dimension_value
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
-from tensorflow.core.framework import graph_pb2
+from tensorflow.core.framework import attr_value_pb2, graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
@@ -48,6 +49,7 @@ from tensorflow.neuron.python import meta_graph_util as mgu
 from tensorflow.neuron.python import neuron_cc as ncc
 from tensorflow.neuron.python import utils
 
+tNeuronOp = 'NeuronOp'
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 def inference_graph_from_session(
@@ -354,6 +356,32 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
     value.extend(getattr(ts, 'name', ts) for ts in output_tensors)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
     return graph_def
+
+def tag_multicore(graph_def, num_cores=1):
+    """Adds an attribute to graph def to tag for multicore utilization
+       API here is necessary for OpenPose tutorial
+
+    Args:
+        graph_def: input `GraphDef` proto.
+        num_multicores: number of multicores to tag this graph as
+
+    Returns:
+        A `GraphDef` proto with the new attribute added
+    """
+    new_nodes = []
+    for node in graph_def.node:
+        if node.op == tNeuronOp:
+            copyNode = deepcopy(node)
+            newAttrValue = attr_value_pb2.AttrValue(i=num_cores)
+            copyNode.attr['_automatic_multicore'].CopyFrom(newAttrValue)
+            new_nodes.append(copyNode)
+        else:
+            new_nodes.append(node)
+
+    mod_graph_def = graph_pb2.GraphDef()
+    mod_graph_def.node.extend(new_nodes)
+
+    return mod_graph_def
 
 def amp_optimization(graph_def, signature_def):
     """Runs a AutoMixedPrecision pass to insert fp16/bf16 cast nodes at appropriate places.
