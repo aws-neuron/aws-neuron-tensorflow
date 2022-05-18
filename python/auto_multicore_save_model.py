@@ -24,6 +24,7 @@ TODO: TF1.x support
 import argparse
 from copy import deepcopy
 import sys
+import tensorflow as tf
 from tensorflow.python import saved_model
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
@@ -51,8 +52,6 @@ def add_attr_to_model(arguments):
     new_model_dir = args.new_model_dir
     
     model = saved_model.load(model_dir)
-    func = model.aws_neuron_function
-    graph_def = func.graph.as_graph_def()
 
     saved_model_proto = parse_saved_model(model_dir)
     signature_def = saved_model_proto.meta_graphs[0].signature_def
@@ -66,13 +65,23 @@ def add_attr_to_model(arguments):
         raise NotImplementedError('Not yet supporting SavedModel {} with multiple signatures')
 
 
+    if not hasattr(model, 'aws_neuron_function'):
+        func = model.signatures[signature_def_key]
+        with tf.Session(graph=tf.Graph()) as sess:
+            tf.saved_model.loader.load(sess, ['serve'], model_dir)
+            graph_def = sess.graph.as_graph_def()
+    else:
+        func = model.aws_neuron_function
+        graph_def = func.graph.as_graph_def()
+
     # Modify graph def to add a new attribute
     mod_graph_def = tag_multicore(graph_def, num_cores)
 
     cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
     signatures = {signature_def_key: cfunc}
 
-    model.aws_neuron_function = cfunc
+    if not hasattr(model, 'aws_neuron_function'):
+        model.aws_neuron_function = cfunc
 
     saved_model.save(model, new_model_dir, signatures)
 
