@@ -42,7 +42,7 @@ class TestAutoMulticoreAPI(TestV2Only):
         _assert_compiler_success_func(model_neuron.aws_neuron_function)
 
         num_cores = 4
-        multicore_model = tfn.multicore(model_neuron, input0_tensor, num_cores=num_cores)
+        multicore_model = tfn.auto_multicore(model_neuron, input0_tensor, num_cores=num_cores)
 
         graph_def = multicore_model.aws_neuron_function.graph.as_graph_def()
         for node in graph_def.node:
@@ -70,7 +70,7 @@ class TestAutoMulticoreAPI(TestV2Only):
         model_neuron.save(model_dir)
 
         reload_model = saved_model.load(model_dir)
-        multicore_model = tfn.multicore(reload_model, input0_tensor, num_cores=num_cores)
+        multicore_model = tfn.auto_multicore(reload_model, input0_tensor, num_cores=num_cores)
         graph_def = multicore_model.aws_neuron_function.graph.as_graph_def()
         for node in graph_def.node:
             if node.op == "NeuronOp":

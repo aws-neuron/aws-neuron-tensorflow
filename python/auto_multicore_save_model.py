@@ -18,8 +18,7 @@ File provides necessary modifications to allow modifications to tf-serving for
 automatic multicore inference. We assume that the model being passed here has been
 compiled with Inferentia. 
 
-Currently testing on TF2.x
-TODO: TF1.x support
+Supports TF1.x and TF2.x saved models
 '''
 import argparse
 from copy import deepcopy
@@ -59,6 +58,8 @@ def add_attr_to_model(arguments):
     tags = _normalize_tags(None, model_dir)
 
     is_v2 = False
+
+    # Check to see if this is v2 or v1 model
     with tf_session.Session(graph=ops.Graph(), config=config_proto) as sess:
         meta_graph = saved_model.loader.load.__wrapped__(sess, tags, model_dir)
         for op in sess.graph.get_operations():
@@ -66,7 +67,7 @@ def add_attr_to_model(arguments):
                 is_v2 = True
 
     if not is_v2:
-
+        # Load in the Tensorflow v1 model and then modify the graph def
         with tf_session.Session(graph=ops.Graph()) as sess:
             saved_model.loader.load(sess, ['serve'], model_dir)
             graph_def = sess.graph.as_graph_def()
@@ -74,6 +75,7 @@ def add_attr_to_model(arguments):
             tag_multicore(graph_def, num_cores)
         mod_graph  = _graph_def_to_graph(graph_def) 
 
+        # Save the modified graph
         with tf_session.Session(graph=mod_graph, config=config_proto) as sess:
             builder = saved_model.builder.SavedModelBuilder(new_model_dir)
             signature_def_key, signature_def = _get_signature_def(meta_graph, None)
@@ -92,6 +94,7 @@ def add_attr_to_model(arguments):
                                                  main_op=main_op)
             builder.save()
     else:
+        # Load in the Tensorflow v2 model
         model = saved_model.load(model_dir)
         saved_model_proto = parse_saved_model(model_dir)
         signature_def = saved_model_proto.meta_graphs[0].signature_def

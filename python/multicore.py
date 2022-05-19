@@ -33,7 +33,7 @@ class AwsMulticoreNeuronModel(AwsNeuronModel):
     def __init__(self, func, structured_output):
         super().__init__(func, structured_output)
 
-def multicore(model, example_inputs, num_cores=1):
+def auto_multicore(model, example_inputs, num_cores=1):
     """
     Description
     ___________
