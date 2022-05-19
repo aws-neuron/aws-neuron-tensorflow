@@ -51,15 +51,14 @@ class TestAutoMulticoreV1(TestV1Only):
         func_args = [compiled_model_dir, '--new_model_dir', new_model_dir, '--num_cores', str(num_cores)]
         add_attr_to_model(func_args)
 
-        
-        with tf.Session(graph=tf.Graph()) as sess:
-            tf.saved_model.loader.load(sess, ['serve'], new_model_dir)
+        pred_neuron = tf.contrib.predictor.from_saved_model(new_model_dir)
+        op_list = [op for op in pred_neuron.graph.get_operations() if op.type == 'NeuronOp'] 
 
-            graph_def = sess.graph.as_graph_def()
-            for node in graph_def.node:
-                if node.op == "NeuronOp":
-                    auto_multicore_flag = node.attr['_automatic_multicore'].i
-                    assert(auto_multicore_flag == num_cores)
+        assert(len(op_list) >= 1)
+        for op in op_list:
+            if op.node_def.attr['_automatic_multicore'].i:
+                auto_multicore_flag = op.node_def.attr['_automatic_multicore'].i
+                assert(auto_multicore_flag == num_cores)
 
 class TestAutoMulticoreCLI(TestV2Only):
     
