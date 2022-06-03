@@ -40,6 +40,8 @@ knOutputShapes = 'output_shapes'
 knInputBatchAxis = 'input_batch_axis'
 knInputShuffles = '_input_shuffles'
 knInputCanUseShm = '_input_can_use_shm'
+knRealInputNames = '_real_input_names'
+knRealInputLocations = '_real_input_locations'
 vInvalidAxis = -1
 
 
@@ -112,6 +114,20 @@ def encode_inferred_shapes(graph_def, shape_feed_dict=None):
                 node.attr[kNeuronInferredShapes].CopyFrom(output_shapes)
     return graph_def
 
+
+def encode_real_input_names_and_locations(graph_def):
+    neuron_nodes = get_neuron_nodes(graph_def)
+    for node in neuron_nodes:
+        real_input_names_list = []
+        real_input_locations_list = []
+        for i in range(len(node.input)):
+            if 'ReadVariableOp' not in node.input[i]:
+                real_input_names_list.append(node.input[i].encode())
+                real_input_locations_list.append(i)
+        node.attr[knRealInputNames].list.s[:] = real_input_names_list
+        node.attr[knRealInputLocations].list.i[:] = real_input_locations_list
+    return graph_def
+  		  
 
 def shape_inference_with_inputs(graph_def, sess, feed_dict):
     """Infer tensor shapes by running inference.
@@ -466,7 +482,7 @@ def set_execution_plan(compiled_graph_def):
             num_cores_tuple_map[node.name] = num_cores_tuple
     max_num_duplicates = 64
     tfn_args, _ = utils.parse_neuron_cc_flags()
-    if mis_config or not num_cores_tuple_map or tfn_args.reduce_neff_size:
+    if mis_config or not num_cores_tuple_map or tfn_args.extract_weights:
         global_opt_num_cores = -1
         max_num_duplicates = 1
     else:

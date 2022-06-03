@@ -84,7 +84,7 @@ def parse_neuron_cc_flags(args=None, flag_set=None):
     maybe_add_argument('--dynamic-batch-size', action='store_true')
     maybe_add_argument('--fp32-cast', default='matmult-fp16')
     maybe_add_argument('--neuroncore-pipeline-cores', default=None)
-    maybe_add_argument('--reduce-neff-size', action='store_true')
+    maybe_add_argument('--extract-weights', action='store_true')
     tfn_args, compiler_args = parser.parse_known_args(args)
     verbose = getattr(tfn_args, 'verbose', None)
     if verbose is None:

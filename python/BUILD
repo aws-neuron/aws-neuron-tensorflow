@@ -190,7 +190,7 @@ py_library(
         "tf2_keras_test.py",
         "keras_layer_test.py",
         "custom_ops_test.py",
-        "reduce_neff_size_test.py",
+        "extract_weights_test.py",
         "auto_multicore_save_model_test.py",
         "multicore_test.py",
     ],

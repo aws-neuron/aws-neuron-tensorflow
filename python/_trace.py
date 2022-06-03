@@ -171,7 +171,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     tfn_args, _ = utils.parse_neuron_cc_flags()
 
     # Bake constants into graph if reduce-neff-size flag is not set (default)
-    if not tfn_args.reduce_neff_size:
+    if not tfn_args.extract_weights:
         # convert all variables to constants
         with utils.change_grappler_logging_level_according_to_cc_flags():
             try:
@@ -191,6 +191,13 @@ def trace(func, example_inputs, subgraph_builder_function=None):
                     " layers do not contain StatefulPartitionedCall wrapping custom operators."
                 )
                 raise InvalidArgumentError(err.node_def, err.op, error_msg)
+            except ValueError as err:
+                error_msg = ( 
+                    ", to reduce protobuf size you can extract the model's weights from the protobuf"
+                    " by passing the '--extract-weights' flag during compilation. "
+                    " Example : NEURON_CC_FLAGS='--extract-weights' python your_compile_script.py"
+                )   
+                raise ValueError(str(err) + error_msg)
     else:
         cfunc = func
 
@@ -224,18 +231,16 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.set_execution_plan(graph_def)
     graph_def = gdu.maybe_relax_placeholder_shapes(graph_def)
 
-    if tfn_args.reduce_neff_size:
+    if tfn_args.extract_weights:
+        graph_def = gdu.encode_real_input_names_and_locations(graph_def)
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
-
         ordered_weights = _get_ordered_weights(func, original_func)
-
         # wrap ConcreteFunction as a keras model
         model = AwsNeuronModel(cfunc, func.structured_outputs, ordered_weights=ordered_weights)
     else:
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
-
         # wrap ConcreteFunction as a keras model
         model = AwsNeuronModel(cfunc, func.structured_outputs)
 

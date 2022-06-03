@@ -37,8 +37,8 @@ class TestTraceKerasModel(TestV2Only):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
-                    and '--reduce-neff-size' in os.environ.get('NEURON_CC_FLAGS'),
-                    'Dynamic batching not supported with RNS')
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'Dynamic batching not supported with extract weights')
     def test_keras_model_3in_5out_dynamic_batch_size(self):
         model = self._model_3in_5out()
         input0_tensor = tf.random.uniform([3, 3])
@@ -127,8 +127,8 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
-                    and '--reduce-neff-size' in os.environ.get('NEURON_CC_FLAGS'),
-                    'input shuffling not supported with RNS')
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'input shuffling not supported with extract weights')
     def test_func_1conv_with_shuffle(self):
         kernel = tf.random.uniform([3, 3, 3, 6])
 
@@ -166,8 +166,8 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
-                    and '--reduce-neff-size' in os.environ.get('NEURON_CC_FLAGS'),
-                    'Dynamic batching not supported with RNS')
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'Dynamic batching not supported with extract weights')
     def test_func_pad_conv(self):
         kernel = tf.random.uniform([7, 7, 3, 64])
         kernel = tf.cast(kernel, tf.float16)
@@ -202,7 +202,7 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
     @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
-                    and '--reduce-neff-size' in os.environ.get('NEURON_CC_FLAGS'),
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
                     'fails due to replication assertion have strong assumption that graph is frozen')
     def test_func_conv_same(self):
         kernel = tf.random.uniform([4, 4, 3, 64])
@@ -251,8 +251,8 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
     @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
-                    and '--reduce-neff-size' in os.environ.get('NEURON_CC_FLAGS'),
-                        'input shuffling not supported with RNS')
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                        'extract weights not supported with RNS')
     def test_func_rtr_conv_multiple_consumers(self):
         kernel0 = tf.random.uniform([7, 7, 3, 64])
         kernel0 = tf.cast(kernel0, tf.float16)

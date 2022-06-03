@@ -111,7 +111,7 @@ class KerasLayerGenerator(RemoveTestSession):
                     print('output shape:', output.shape)
         
                 if (os.environ.get('NEURON_CC_FLAGS') is not None 
-                    and '--reduce-neff-size' in os.environ.get('NEURON_CC_FLAGS')):
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS')):
                     layer_neuron = tfn.trace(layer, example_inputs)
                     # assert at least some ops got compiled into a neuron op
                     assert any([op.type == 'NeuronOp' for op in layer_neuron.aws_neuron_function.graph.get_operations()])
