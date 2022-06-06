@@ -17,7 +17,6 @@
 Defines a new API endpoint to allow for Automatic Multicore Inference
 '''
 
-import tensorflow.neuron as tfn
 import tensorflow as tf
 from tensorflow.neuron.python._trace import AwsNeuronModel, \
                                             _make_keras_model_savable, \
