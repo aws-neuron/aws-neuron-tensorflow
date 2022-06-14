@@ -17,6 +17,7 @@ import os
 import json
 import subprocess
 import tempfile
+import logging
 from distutils import spawn
 from distutils.version import LooseVersion
 from tensorflow_neuron import __version__
