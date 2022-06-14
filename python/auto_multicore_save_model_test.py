@@ -60,7 +60,7 @@ class TestAutoMulticoreV1(TestV1Only):
                 auto_multicore_flag = op.node_def.attr['_automatic_multicore'].i
                 assert(auto_multicore_flag == num_cores)
 
-class TestAutoMulticoreCLI(TestV2Only):
+class TestAutoMulticoreV2(TestV2Only):
     
     def test_simple(self):
         '''
@@ -75,7 +75,6 @@ class TestAutoMulticoreCLI(TestV2Only):
         model_neuron = tfn.trace(model, input0_tensor)
         model_dir = os.path.join(self.get_temp_dir(), 'neuron_keras_model_1in_1out_save')
         model_neuron.save(model_dir)
-        _assert_compiler_success_func(model_neuron.aws_neuron_function)
 
         new_model_dir = os.path.join(self.get_temp_dir(), 'new_model_dir')
         num_cores = 4
@@ -87,6 +86,29 @@ class TestAutoMulticoreCLI(TestV2Only):
             if node.op == "NeuronOp":
                 auto_multicore_flag = node.attr['_automatic_multicore'].i
                 assert(auto_multicore_flag == num_cores)
+                
+
+    @unittest.expectedFailure            
+    def test_negative_cores(self):
+        '''
+        Test to see requested negative cores will fail properly in runtime
+        '''
+        input0 = tf.keras.layers.Input(3)
+        dense0 = tf.keras.layers.Dense(3)(input0)
+        inputs = [input0]
+        outputs = [dense0]
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        input0_tensor = tf.random.uniform([1, 3])
+        model_neuron = tfn.trace(model, input0_tensor)
+        model_dir = os.path.join(self.get_temp_dir(), 'neuron_keras_model_1in_1out_save')
+        model_neuron.save(model_dir)
+
+        new_model_dir = os.path.join(self.get_temp_dir(), 'new_model_dir')
+        num_cores = -1
+        func_args = [model_dir, '--new_model_dir', new_model_dir, '--num_cores', str(num_cores)]
+        add_attr_to_model(func_args)
+        converted_model_neuron = saved_model.load(new_model_dir)
+        converted_model_neuron(input0_tensor)
                 
 
 

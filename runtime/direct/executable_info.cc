@@ -94,6 +94,7 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
     SIZE_CHECK(num_inputs == input_shuffles->tensor_size(), kInputShuffles);
   }
   if (attr.count(kAutoMulticore)) {
+    auto_multicore_enabled = true;
     requested_num_cores = attr.at(kAutoMulticore).i();
   }
 #undef SIZE_CHECK

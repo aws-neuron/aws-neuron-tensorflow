@@ -133,6 +133,19 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
         "initialization");
     return std::make_pair(error, core_ranges);
   }
+
+  // Validation check to determine if auto multicore requested cores
+  // is a valid input if it is set
+  if (info.auto_multicore_enabled) {
+    if (info.requested_num_cores < 1) {
+      Status error = errors::InvalidArgument(
+          "Num of cores for auto multicore "
+          "replication, ",
+          info.requested_num_cores, ", is below 1");
+      return std::make_pair(error, core_ranges);
+    }
+  }
+
   int32_t nc_count = info.optimal_num_cores;
   if (TF_PREDICT_FALSE(nc_count > 1 || 1 == max_num_dup_)) {
     // Model parallel -- turn off data parallel
@@ -144,10 +157,8 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
   // Single-core executable -- place a copy on each core, up to max_num_dup_
   int32_t num_copies;
 
-  bool automatic_multicore_enabled = (info.requested_num_cores != -1) ? true : false;
-  
-  if (automatic_multicore_enabled) {
-    // Automatic Multicore
+  if (info.requested_num_cores > 1) {
+    // Automatic Multicore has been enabled
     num_copies = info.requested_num_cores;
   } else if (specified_num_dup_.empty()) {
     num_copies = std::min(info.max_num_duplicates, num_available_cores_);
@@ -156,7 +167,7 @@ NeuronCorePlacer::GetParallelCoreRanges(const NeuronExecutableInfo& info,
     num_copies = specified_num_dup_.at(0);
   }
   num_copies = std::min(num_copies, max_num_dup_);
-  if (automatic_multicore_enabled) {
+  if (info.auto_multicore_enabled) {
     for (int32_t start_nc = 0; start_nc < num_copies; ++start_nc) {
       core_ranges.emplace_back(start_nc, 1);
     }

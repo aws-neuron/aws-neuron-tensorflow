@@ -46,6 +46,7 @@ class NeuronExecutableInfo {
 
   // Optional values
   const AttrValue_ListValue* input_shuffles = nullptr;
+  bool auto_multicore_enabled = false;
   int32_t requested_num_cores = -1;
 
  private:
