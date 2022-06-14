@@ -92,7 +92,6 @@ class TestAutoMulticoreV2(TestV2Only):
         '''
         Test to see requested negative cores will fail properly in runtime
         '''
-        with self.assertRaises(InvalidArgumentError) as cm:
             input0 = tf.keras.layers.Input(3)
             dense0 = tf.keras.layers.Dense(3)(input0)
             inputs = [input0]
@@ -108,6 +107,8 @@ class TestAutoMulticoreV2(TestV2Only):
             func_args = [model_dir, '--new_model_dir', new_model_dir, '--num_cores', str(num_cores)]
             add_attr_to_model(func_args)
             converted_model_neuron = saved_model.load(new_model_dir)
+
+        with self.assertRaises(InvalidArgumentError) as cm:
             converted_model_neuron(input0_tensor)
                 
         assert cm.exception.args[0].startwith('Num of cores for auto multicore')
