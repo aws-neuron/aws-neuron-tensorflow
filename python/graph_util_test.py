@@ -999,7 +999,7 @@ class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
             with self.assertRaises(ValueError) as cm:
                 infer_graph0 = graph_util.inference_graph_from_session(
                     sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
-            assert cm.exception.args[0].startswith('The following subgraphs failed')
+            self.assertStartsWith(cm.exception.args[0], 'The following subgraphs failed')
 
 class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
     _neuron_cc_flags = '--workdir ./workdir_neuron_cc_flags_dump --fp32-cast matmult'
