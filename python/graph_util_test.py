@@ -24,7 +24,6 @@ import unittest
 import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
-from tensorflow.python.framework.test_util import assertStartsWith
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util

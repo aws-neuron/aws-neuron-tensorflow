@@ -19,13 +19,6 @@ import tensorflow as tf
 from tensorflow.python.eager import function
 
 
-class TestV1Only(tf.test.TestCase, metaclass=RemoveTestSession):
-
-    @classmethod
-    def setUpClass(cls):
-        if LooseVersion(tf.__version__) >= LooseVersion('2.0.0'):
-            raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
-
 
 class RemoveTestSession(type):
 
@@ -35,6 +28,13 @@ class RemoveTestSession(type):
         except AttributeError:
             pass
         return type.__new__(mcs, name, bases, dct)
+
+class TestV1Only(tf.test.TestCase, metaclass=RemoveTestSession):
+
+    @classmethod
+    def setUpClass(cls):
+        if LooseVersion(tf.__version__) >= LooseVersion('2.0.0'):
+            raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
 
 
 class TestV2Only(tf.test.TestCase, metaclass=RemoveTestSession):
