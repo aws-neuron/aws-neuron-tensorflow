@@ -108,7 +108,7 @@ class TestAutoMulticoreV2(TestV2Only):
         add_attr_to_model(func_args)
         converted_model_neuron = saved_model.load(new_model_dir)
 
-        with self.assertRaises(InvalidArgumentError) as cm:
+        with self.assertRaises(tf.errors.InvalidArgumentError) as cm:
             converted_model_neuron(input0_tensor)
                 
         self.assertStartsWith(cm.exception.args[0], 'Num of cores for auto multicore')
