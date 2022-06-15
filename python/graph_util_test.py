@@ -24,6 +24,7 @@ import unittest
 import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
+from tensorflow.python.framework.test_util import assertStartsWith
 from tensorflow.neuron.python import graph_def_util as gdu
 from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util
@@ -999,7 +1000,7 @@ class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
             with self.assertRaises(ValueError) as cm:
                 infer_graph0 = graph_util.inference_graph_from_session(
                     sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
-            self.assertStartsWith(cm.exception.args[0], 'The following subgraphs failed')
+            assertStartsWith(cm.exception.args[0], 'The following subgraphs failed')
 
 class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
     _neuron_cc_flags = '--workdir ./workdir_neuron_cc_flags_dump --fp32-cast matmult'
