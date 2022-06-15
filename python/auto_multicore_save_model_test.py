@@ -92,26 +92,26 @@ class TestAutoMulticoreV2(TestV2Only):
         '''
         Test to see requested negative cores will fail properly in runtime
         '''
-            input0 = tf.keras.layers.Input(3)
-            dense0 = tf.keras.layers.Dense(3)(input0)
-            inputs = [input0]
-            outputs = [dense0]
-            model = tf.keras.Model(inputs=inputs, outputs=outputs)
-            input0_tensor = tf.random.uniform([1, 3])
-            model_neuron = tfn.trace(model, input0_tensor)
-            model_dir = os.path.join(self.get_temp_dir(), 'neuron_keras_model_1in_1out_save')
-            model_neuron.save(model_dir)
+        input0 = tf.keras.layers.Input(3)
+        dense0 = tf.keras.layers.Dense(3)(input0)
+        inputs = [input0]
+        outputs = [dense0]
+        model = tf.keras.Model(inputs=inputs, outputs=outputs)
+        input0_tensor = tf.random.uniform([1, 3])
+        model_neuron = tfn.trace(model, input0_tensor)
+        model_dir = os.path.join(self.get_temp_dir(), 'neuron_keras_model_1in_1out_save')
+        model_neuron.save(model_dir)
 
-            new_model_dir = os.path.join(self.get_temp_dir(), 'new_model_dir')
-            num_cores = -1
-            func_args = [model_dir, '--new_model_dir', new_model_dir, '--num_cores', str(num_cores)]
-            add_attr_to_model(func_args)
-            converted_model_neuron = saved_model.load(new_model_dir)
+        new_model_dir = os.path.join(self.get_temp_dir(), 'new_model_dir')
+        num_cores = -1
+        func_args = [model_dir, '--new_model_dir', new_model_dir, '--num_cores', str(num_cores)]
+        add_attr_to_model(func_args)
+        converted_model_neuron = saved_model.load(new_model_dir)
 
         with self.assertRaises(InvalidArgumentError) as cm:
             converted_model_neuron(input0_tensor)
                 
-        assert cm.exception.args[0].startwith('Num of cores for auto multicore')
+        self.assertStartsWith(cm.exception.args[0], 'Num of cores for auto multicore')
 
 
 if __name__ == '__main__':
