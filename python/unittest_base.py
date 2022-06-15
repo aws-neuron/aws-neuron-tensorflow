@@ -19,7 +19,7 @@ import tensorflow as tf
 from tensorflow.python.eager import function
 
 
-class TestV1Only(unittest.TestCase):
+class TestV1Only(tf.test.TestCase, metaclass=RemoveTestSession):
 
     @classmethod
     def setUpClass(cls):

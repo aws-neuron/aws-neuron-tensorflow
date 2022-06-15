@@ -30,12 +30,13 @@ from tensorflow.neuron.python import graph_util
 from tensorflow.neuron.python import meta_graph_util
 from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
+from tensorflow.neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213
 
 
-class TestInferenceGraphFromSession(unittest.TestCase):
+class TestInferenceGraphFromSession(TestV1Only):
 
     def test_multiple_inputs_outputs(self):
         np.random.seed(_RANDOM_SEED)
@@ -472,7 +473,7 @@ class TestInferenceGraphFromSession(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
 
-class TestDynamicBatchSize(unittest.TestCase):
+class TestDynamicBatchSize(TestV1Only):
 
     def test_chain(self):
         np.random.seed(_RANDOM_SEED)
@@ -639,7 +640,7 @@ class TestDynamicBatchSize(unittest.TestCase):
             infer_graph.get_tensor_by_name(name)
 
 
-class TestSpecialOperator(unittest.TestCase):
+class TestSpecialOperator(TestV1Only):
 
     def test_conv2d_nchw(self):
         np.random.seed(_RANDOM_SEED)
@@ -757,7 +758,7 @@ class TestSpecialOperator(unittest.TestCase):
                 np.testing.assert_allclose(result_neuron, result_ref, rtol=1e-2, atol=1e-3)
 
 
-class TestSharedMemoryInfer(unittest.TestCase):
+class TestSharedMemoryInfer(TestV1Only):
 
     def test_shared_memory_infer(self):
         np.random.seed(_RANDOM_SEED)
@@ -812,7 +813,7 @@ class TestSharedMemoryInfer(unittest.TestCase):
             os.environ.pop('NEURON_RTD_SHM_MAP')
 
 
-class TestNeuronCoreGroupSizes(unittest.TestCase):
+class TestNeuronCoreGroupSizes(TestV1Only):
 
     def setUp(self):
         self.env_set = False
@@ -857,7 +858,7 @@ class TestNeuronCoreGroupSizesCase2(TestNeuronCoreGroupSizes):
     def test(self): self.body()
 
 
-class TestMiscUtils(unittest.TestCase):
+class TestMiscUtils(TestV1Only):
 
     def test_opt_num_cores(self):
         np.random.seed(_RANDOM_SEED)
@@ -949,7 +950,7 @@ class TestMiscUtils(unittest.TestCase):
                 np.testing.assert_allclose(result_neuron0, result_ref0, rtol=1e-2, atol=1e-3)
 
 
-class TestNeuronCCFlagsEnv(unittest.TestCase):
+class TestNeuronCCFlagsEnv(TestV1Only):
 
     def setUp(self):
         self.env_set = False
@@ -1000,7 +1001,7 @@ class TestNeuronCCFlagsEnvMustCompileFailure(TestNeuronCCFlagsEnv):
             with self.assertRaises(ValueError) as cm:
                 infer_graph0 = graph_util.inference_graph_from_session(
                     sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu'})
-            assertStartsWith(cm.exception.args[0], 'The following subgraphs failed')
+            self.assertStartsWith(cm.exception.args[0], 'The following subgraphs failed')
 
 class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
     _neuron_cc_flags = '--workdir ./workdir_neuron_cc_flags_dump --fp32-cast matmult'
@@ -1020,7 +1021,7 @@ class TestNeuronCCFlagsEnvDump(TestNeuronCCFlagsEnv):
             assert len(list(glob.glob(os.path.join(workdir, 'neuron_op_*', 'graph_def.neuron-cc.log')))) == 2
 
 
-class TestStress(unittest.TestCase):
+class TestStress(TestV1Only):
 
     def test_multithread_load_infer(self):
         np.random.seed(_RANDOM_SEED)
@@ -1125,7 +1126,7 @@ class TestStress(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
-class TestLargeIO(unittest.TestCase):
+class TestLargeIO(TestV1Only):
 
     def test_large_io_even(self):
         np.random.seed(_RANDOM_SEED)
@@ -1179,7 +1180,7 @@ class TestLargeIO(unittest.TestCase):
                 np.testing.assert_allclose(result_neuron, result_ref)
 
 
-class TestShapeInference(unittest.TestCase):
+class TestShapeInference(TestV1Only):
 
     def test_no_inputs_simple(self):
         np.random.seed(_RANDOM_SEED)
@@ -1326,7 +1327,7 @@ class TestShapeInference(unittest.TestCase):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-2)
 
 
-class TestHelperFunction(unittest.TestCase):
+class TestHelperFunction(TestV1Only):
 
     def test_sorted_inferrable_ops_branch_merge(self):
         np.random.seed(_RANDOM_SEED)
@@ -1494,7 +1495,7 @@ def _get_inferred_shapes_from_graph(graph_def):
     return inferred_shapes
 
 
-class TestWhitelistPartition(unittest.TestCase):
+class TestWhitelistPartition(TestV1Only):
 
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
@@ -1650,7 +1651,7 @@ class TestWhitelistPartition(unittest.TestCase):
                 for res_neuron, res_ref in zip(result_neuron, result_ref):
                     np.testing.assert_allclose(res_neuron, res_ref, rtol=1e-2, atol=1e-3)
 
-class TestAMPPass(unittest.TestCase):
+class TestAMPPass(TestV1Only):
 
     def test_simple(self):
         np.random.seed(_RANDOM_SEED)
