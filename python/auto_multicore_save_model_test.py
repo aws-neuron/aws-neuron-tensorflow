@@ -29,10 +29,6 @@ from tensorflow.neuron.python.multicore import auto_multicore
 from tensorflow.neuron.python.graph_util import tag_multicore
 from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
 
-
-from tensorflow.python.keras.protobuf import saved_metadata_pb2
-from tensorflow.python.saved_model import loader_impl
-
 class TestAutoMulticoreV1(TestV1Only):
     def test_simple_cli_v1(self):
         '''
