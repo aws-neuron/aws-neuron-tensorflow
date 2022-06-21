@@ -23,6 +23,7 @@ Supports TF1.x and TF2.x saved models
 import argparse
 from copy import deepcopy
 import sys
+import tensorflow as tf
 from tensorflow import Graph, import_graph_def
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
@@ -34,6 +35,7 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow_neuron.python._trace import _wrap_variable_graph_def_as_concrete_function
 from tensorflow.neuron.python.saved_model import _normalize_tags, _get_signature_def, simple_save
 from tensorflow.neuron.python.graph_util import tag_multicore, _graph_def_to_graph
+from tensorflow.neuron.python.multicore import AwsMulticoreNeuronModel
 
 def add_attr_to_model(arguments):
     '''
@@ -95,7 +97,8 @@ def add_attr_to_model(arguments):
             builder.save()
     else:
         # Load in the Tensorflow v2 model
-        model = saved_model.load(model_dir)
+        # Note that using the old saved_model.save will cause important metadata to be lost
+        model = tf.keras.models.load_model(model_dir)
         saved_model_proto = parse_saved_model(model_dir)
         signature_def = saved_model_proto.meta_graphs[0].signature_def
         signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
@@ -115,10 +118,25 @@ def add_attr_to_model(arguments):
         cfunc = _wrap_variable_graph_def_as_concrete_function(mod_graph_def, func)
         signatures = {signature_def_key: cfunc}
 
-        model.aws_neuron_function = cfunc
+        neuron_model = AwsMulticoreNeuronModel(cfunc, func.structured_outputs)
+        _make_keras_model_savable(neuron_model, model._get_save_spec())
 
-        saved_model.save(model, new_model_dir, signatures)
+        neuron_model.save(new_model_dir, signatures=signatures)
 
+def _make_keras_model_savable(model, tensor_spec):
+    """Modified call from original func to take in TensorSpec instead
+    """
+    # hack to propagate metadata for saving
+    if hasattr(model, '_set_save_spec'):
+        set_save_spec = model._set_save_spec
+    elif hasattr(model, '_set_input_attrs'):
+        set_save_spec = model._set_input_attrs
+    else:
+        set_save_spec = None
+        logging.warning('Not setting inputs for the traced model {}; you may need to run inference '
+                        'before trying to save it'.format(model))
+    if set_save_spec is not None:
+        set_save_spec(tensor_spec)
 
 
 def convert_model():
