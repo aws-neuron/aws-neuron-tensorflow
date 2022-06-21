@@ -23,11 +23,11 @@ Supports TF1.x and TF2.x saved models
 import argparse
 from copy import deepcopy
 import sys
-import tensorflow as tf
 from tensorflow import Graph, import_graph_def
 from tensorflow.python.client import session as tf_session
 from tensorflow.python.framework import ops
 from tensorflow.python import saved_model
+from tensorflow.python.keras import models
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.framework import attr_value_pb2, graph_pb2
@@ -98,7 +98,7 @@ def add_attr_to_model(arguments):
     else:
         # Load in the Tensorflow v2 model
         # Note that using the old saved_model.save will cause important metadata to be lost
-        model = tf.keras.models.load_model(model_dir)
+        model = models.load_model(model_dir)
         saved_model_proto = parse_saved_model(model_dir)
         signature_def = saved_model_proto.meta_graphs[0].signature_def
         signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
