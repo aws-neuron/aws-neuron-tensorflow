@@ -18,6 +18,7 @@ limitations under the License.
 
 #include <memory>
 #include <string>
+
 #include "../macros.h"
 #include "dynamic_batch.h"
 #include "executable.h"
@@ -45,9 +46,16 @@ class NeuronFunction {
   Status MaybeShuffle(OpKernelContext* ctx, std::vector<Tensor>* inputs);
   Status RunWithIO(OpKernelContext* ctx, std::vector<Tensor>* inputs,
                    std::vector<Tensor>* outputs);
+  Status RunWithIOCachedWeights(OpKernelContext* ctx,
+                                std::vector<Tensor>* inputs,
+                                std::vector<Tensor>* outputs);
+  void maybe_init_input_locations_and_names();
   tensorflow::mutex mu_;
   NeuronExecutableInfo info_;
   std::unique_ptr<NeuronDataParallelExecutable> exe_;
+  std::vector<std::shared_ptr<NeuronDeviceBuffer>> cache_;
+  std::vector<int> real_input_locations_;
+  bool cache_inited_ = false;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronFunction);
 };
 

@@ -45,13 +45,14 @@ class NrtBufferMap {
 class Nrt {
  public:
   static Status Init();
-  static Status GetCoreCount(int32_t *nc_count);
+  static Status GetCoreCount(int32_t* nc_count);
   static Status Close();
   static Status AllocEmptyBuffer(NrtBuffer* buffer);
   static Status AllocHostBuffer(NrtBuffer* buffer, size_t size);
+  static Status AllocDeviceBuffer(NrtBuffer* buffer, size_t size);
   static Status FreeBuffer(NrtBuffer* buffer);
-  static Status AttachCpuToBuffer(NrtBuffer* buffer,
-                                  void* cpu_buffer, size_t size);
+  static Status AttachCpuToBuffer(NrtBuffer* buffer, void* cpu_buffer,
+                                  size_t size);
   static Status CopyCpuToBuffer(NrtBuffer* buffer, size_t offset,
                                 const void* cpu_buffer, size_t size);
   static Status CopyBufferToCpu(void* cpu_buffer, size_t size,

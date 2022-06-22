@@ -38,10 +38,13 @@ class NeuronExecutable {
   ~NeuronExecutable();
   Status GetStatus() { return status_; }
   virtual Status RunOnHostMemory(NeuronHostMemory* memory);
+  virtual Status RunOnDeviceMemory(NeuronDeviceMemory* memory);
 
  protected:
   NrtModel rt_model_;
   Status status_;
+  int32_t start_nc_;
+  int32_t nc_count_;
 
  private:
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
@@ -69,6 +72,7 @@ class NeuronDataParallelExecutable {
                                 const NeuronCoreRange& nc_range,
                                 const std::string& profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
+  Status RunOnDeviceMemory(NeuronDeviceMemory* memory);
 
  private:
   size_t GetRoundRobinId();

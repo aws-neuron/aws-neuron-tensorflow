@@ -101,7 +101,7 @@ Status Nrt::Init() {
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::GetCoreCount(int32_t *nc_count) {
+Status Nrt::GetCoreCount(int32_t* nc_count) {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(nc_count);
   uint32_t rt_nc_count = 0;
@@ -143,8 +143,8 @@ Status Nrt::AllocEmptyBuffer(NrtBuffer* buffer) {
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::AttachCpuToBuffer(NrtBuffer* buffer,
-                              void* cpu_buffer, size_t size) {
+Status Nrt::AttachCpuToBuffer(NrtBuffer* buffer, void* cpu_buffer,
+                              size_t size) {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(buffer);
   TFN_RETURN_IF_NULLPTR(cpu_buffer);
@@ -172,6 +172,41 @@ Status Nrt::AllocHostBuffer(NrtBuffer* buffer, size_t size) {
       /*tensor_placement=*/NRT_TENSOR_PLACEMENT_VIRTUAL,
       /*logical_nc_id=*/NRT_HOST_NEURON_CORE_ID, /*size=*/size, /*name=*/NULL,
       /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
+
+  // Possible outcomes:
+  //  NRT_SUCCESS: ok
+  //  NRT_RESOURCE: out of host memory
+  //  NRT_FAIL_HOST_MEM_ALLOC: out of host memory
+  //  Others: treat as internal error
+  if (TF_PREDICT_FALSE(rt_status != NRT_SUCCESS)) {
+    buffer->raw_ = nullptr;
+  }
+#define NRT_ALLOC_RESOURCE(error_rt_status)                              \
+  NRT_RETURN_IF(rt_status, (error_rt_status), errors::ResourceExhausted, \
+                "Not enough host memory for allocating size=", size,     \
+                ": nrt_tensor_allocate")
+  NRT_ALLOC_RESOURCE(NRT_RESOURCE);
+  NRT_ALLOC_RESOURCE(NRT_FAIL_HOST_MEM_ALLOC);
+#undef NRT_ALLOC_RESOURCE
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "AllocHostBuffer failed: nrt_tensor_allocate");
+  VLOG(1) << "Nrt::AllocHostBuffer OK " << buffer->raw_;
+  return Status::OK();
+#else
+  return errors::Unimplemented(__func__);
+#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
+Status Nrt::AllocDeviceBuffer(NrtBuffer* buffer, size_t size) {
+#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+  TFN_RETURN_IF_NULLPTR(buffer);
+  TFN_RETURN_IF_ZERO_SIZE(size);
+  constexpr int NRT_HOST_NEURON_CORE_ID = -1;  // TODO: get from nrt.h
+  NRT_STATUS rt_status = nrt_tensor_allocate(
+      /*tensor_placement=*/NRT_TENSOR_PLACEMENT_DEVICE,
+      /*logical_nc_id=*/0, /*size=*/size, /*name=*/NULL,
+      /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
+
   // Possible outcomes:
   //  NRT_SUCCESS: ok
   //  NRT_RESOURCE: out of host memory

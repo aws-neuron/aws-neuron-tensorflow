@@ -37,6 +37,8 @@ NeuronExecutable::NeuronExecutable(StringPiece executable,
                                    const NeuronCoreRange& nc_range) {
   status_ =
       Nrt::Load(&rt_model_, executable, nc_range.start_nc_, nc_range.nc_count_);
+  start_nc_ = nc_range.start_nc_;
+  nc_count_ = nc_range.nc_count_;
 }
 
 NeuronExecutable::~NeuronExecutable() {
@@ -46,6 +48,12 @@ NeuronExecutable::~NeuronExecutable() {
 }
 
 Status NeuronExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
+  TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status_);
+  return Nrt::Execute(rt_model_, memory->input_buffer_map_.rt_buffer_map_,
+                      &memory->output_buffer_map_.rt_buffer_map_);
+}
+
+Status NeuronExecutable::RunOnDeviceMemory(NeuronDeviceMemory* memory) {
   TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status_);
   return Nrt::Execute(rt_model_, memory->input_buffer_map_.rt_buffer_map_,
                       &memory->output_buffer_map_.rt_buffer_map_);
@@ -103,13 +111,20 @@ Status NeuronDataParallelExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
   return executables_.at(GetRoundRobinId())->RunOnHostMemory(memory);
 }
 
+Status NeuronDataParallelExecutable::RunOnDeviceMemory(NeuronDeviceMemory* memory) {
+  if (TF_PREDICT_FALSE(executables_.empty())) {
+        return errors::FailedPrecondition(__func__, " called without executables");
+  }
+  return executables_.at(GetRoundRobinId())->RunOnDeviceMemory(memory);
+}
+
 size_t NeuronDataParallelExecutable::GetRoundRobinId() {
   tensorflow::mutex_lock lock(mu_);
   size_t exe_id = round_robin_exe_id_;
   ++round_robin_exe_id_;
   round_robin_exe_id_ %= executables_.size();
+  VLOG(1) << "made it here";
   return exe_id;
 }
-
 }  // namespace neuron
 }  // namespace tensorflow

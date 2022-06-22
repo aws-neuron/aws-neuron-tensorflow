@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstddef>
 #include <memory>
 #include <string>
+
 #include "../macros.h"
 #include "adaptor.h"
 #include "executable_info.h"
@@ -36,8 +37,9 @@ class NeuronHostBuffer {
   Status GetStatus();
   bool Owned() { return payload_ != 0; }
   size_t GetSize() { return size_; }
-  Status CopyCpuToBuffer(const void* cpu_buffer, size_t size, size_t offset=0);
-  Status CopyBufferToCpu(void* cpu_buffer, size_t size, size_t offset=0);
+  Status CopyCpuToBuffer(const void* cpu_buffer, size_t size,
+                         size_t offset = 0);
+  Status CopyBufferToCpu(void* cpu_buffer, size_t size, size_t offset = 0);
 
  private:
   friend class NeuronHostBufferMap;
@@ -68,6 +70,9 @@ class NeuronHostMemory {
   Status SetupBuffers(const NeuronExecutableInfo& info,
                       std::vector<Tensor>* input_tensors,
                       std::vector<Tensor>* output_tensors);
+  Status SetupBuffersCacheWeights(const NeuronExecutableInfo& info,
+                                  std::vector<Tensor>* input_tensors,
+                                  std::vector<Tensor>* output_tensors);
   Status CopyCPUToInputBuffers(const std::vector<Tensor>& input_tensors);
   Status CopyOutputBuffersToCPU(const std::vector<Tensor>& output_tensors);
 
@@ -79,6 +84,58 @@ class NeuronHostMemory {
   NeuronHostBufferMap input_buffer_map_;
   NeuronHostBufferMap output_buffer_map_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronHostMemory);
+};
+
+class NeuronDeviceBuffer {
+ public:
+  NeuronDeviceBuffer(size_t size);
+  ~NeuronDeviceBuffer();
+  Status GetStatus();
+  Status CopyCpuToBuffer(const void* cpu_buffer, size_t size,
+                         size_t offset = 0);
+  Status CopyBufferToCpu(void* cpu_buffer, size_t size, size_t offset = 0);
+  size_t GetSize() { return size_; }
+  bool Owned() { return payload_ != 0; }
+
+ private:
+  friend class NeuronDeviceBufferMap;
+  NrtBuffer rt_buffer_;
+  size_t size_ = 0;
+  size_t payload_ = 0;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceBuffer);
+};
+
+class NeuronDeviceBufferMap {
+ public:
+  NeuronDeviceBufferMap();
+  ~NeuronDeviceBufferMap();
+  Status GetStatus() { return status_; }
+  Status AddBuffer(const std::string& name, const NeuronDeviceBuffer& buffer);
+
+ private:
+  friend class NeuronExecutable;
+  NrtBufferMap rt_buffer_map_;
+  Status status_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceBufferMap);
+};
+
+class NeuronDeviceMemory {
+ public:
+  NeuronDeviceMemory() {}
+  Status SetupBuffers(const NeuronExecutableInfo& info,
+                      std::vector<Tensor>* all_tensors,
+                      std::vector<Tensor>* output_tensors,
+                      std::vector<std::shared_ptr<NeuronDeviceBuffer>>& cache,
+                      std::vector<int> ril);
+  Status CopyOutputBuffersToCPU(const std::vector<Tensor>& output_tensors);
+
+ private:
+  friend class NeuronExecutable;
+  std::vector<std::shared_ptr<NeuronDeviceBuffer>> input_buffers_;
+  std::vector<std::shared_ptr<NeuronDeviceBuffer>> output_buffers_;
+  NeuronDeviceBufferMap input_buffer_map_;
+  NeuronDeviceBufferMap output_buffer_map_;
+  TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceMemory);
 };
 
 }  // namespace neuron

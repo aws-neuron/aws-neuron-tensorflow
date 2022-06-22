@@ -20,7 +20,7 @@ import os
 from tensorflow_neuron.python.unittest_base import TestV2Only
 from contextlib import contextmanager
 
-class TestTraceReduceNeffSize(TestV2Only):
+class TestExtractWeights(TestV2Only):
     def setUp(self):
         # returns None if NEURON_CC_FLAGS is not set
         self.old_flags = os.environ.get('NEURON_CC_FLAGS')
@@ -34,7 +34,7 @@ class TestTraceReduceNeffSize(TestV2Only):
             # so it needs to be deleted
             del os.environ['NEURON_CC_FLAGS']
 
-    def test_reduce_neff_size_simple(self):
+    def test_extract_weights_simple(self):
 
         input0 = tf.keras.layers.Input(3)
         dense0 = tf.keras.layers.Dense(3)(input0)
@@ -52,7 +52,7 @@ class TestTraceReduceNeffSize(TestV2Only):
         assert model_neuron._ordered_weights is not None
         assert model_neuron_NO_REDUCED_NEFF_SIZE._ordered_weights is None
 
-        model_dir = os.path.join(self.get_temp_dir(), 'removed_constants_dense')
+        model_dir = os.path.join(self.get_temp_dir(), 'extracted_weights_dense')
 
         model_neuron.save(model_dir)
         model_neuron_reloaded = tf.keras.models.load_model(model_dir)
@@ -62,11 +62,12 @@ class TestTraceReduceNeffSize(TestV2Only):
         res_neuron = model_neuron(input0_tensor)
         res_neuron_reloaded = model_neuron_reloaded(input0_tensor)
 
-        #run it twice to test the cached weights
-        res_ref = model(input0_tensor)
-        res_neuron_ref = model_neuron_NO_REDUCED_NEFF_SIZE(input0_tensor) 
-        res_neuron = model_neuron(input0_tensor)
-        res_neuron_reloaded = model_neuron_reloaded(input0_tensor)
+        #run it twice with new inputs to test the cached weights
+        input1_tensor = tf.random.uniform([1, 3])
+        res_ref = model(input1_tensor)
+        res_neuron_ref = model_neuron_NO_REDUCED_NEFF_SIZE(input1_tensor) 
+        res_neuron = model_neuron(input1_tensor)
+        res_neuron_reloaded = model_neuron_reloaded(input1_tensor)
 
         #fails on 1e-4
         self.assertAllClose(res_ref, res_neuron_ref, rtol=1e-3, atol=1e-3)

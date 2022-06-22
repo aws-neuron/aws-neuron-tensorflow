@@ -58,6 +58,9 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   TF_RETURN_IF_ERROR(SetupOutputs(ctx, node_def, sharder, &outputs));
   if (sharder.CanSkip()) {
     // Fixed shape
+    if (real_input_locations_.size() > 0) {
+      return RunWithIOCachedWeights(ctx, &inputs, &outputs);
+    }
     return RunWithIO(ctx, &inputs, &outputs);
   }
 
@@ -94,6 +97,7 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   return Status::OK();
 }
 
+
 Status NeuronFunction::MaybeInit(const NodeDef& node_def,
                                  const std::string& session_handle) {
   tensorflow::mutex_lock lock(mu_);
@@ -105,6 +109,7 @@ Status NeuronFunction::MaybeInit(const NodeDef& node_def,
   TF_RETURN_IF_ERROR(placer.GetStatus());
   exe_ = absl::make_unique<NeuronDataParallelExecutable>();
   TF_RETURN_IF_ERROR(info_.ParseFromNodeDef(node_def));
+  maybe_init_input_locations_and_names();
   std::pair<Status, std::vector<NeuronCoreRange>> status_core_ranges =
       placer.GetParallelCoreRanges(info_, session_handle);
   TF_RETURN_IF_ERROR(status_core_ranges.first);
@@ -112,17 +117,32 @@ Status NeuronFunction::MaybeInit(const NodeDef& node_def,
   if (const char* profile_dir_raw = std::getenv("NEURON_PROFILE")) {
     std::string profile_dir(profile_dir_raw);
     for (const auto& nc_range : status_core_ranges.second) {
-      TF_RETURN_IF_ERROR(exe_->AddProfilingExecutable(info_, nc_range,
-                                                      profile_dir));
+      TF_RETURN_IF_ERROR(
+          exe_->AddProfilingExecutable(info_, nc_range, profile_dir));
       break;
     }
   } else {
     for (const auto& nc_range : status_core_ranges.second) {
+      VLOG(1) << "nc_range is " << nc_range.nc_count_;
       TF_RETURN_IF_ERROR(exe_->AddExecutable(info_.executable, nc_range));
     }
   }
   VLOG(1) << "NeuronFunction::MaybeInit done";
   return Status::OK();
+}
+
+void NeuronFunction::maybe_init_input_locations_and_names() {
+  auto locs = info_.real_input_locations;
+  auto real_names = info_.real_input_names;
+  if (!cache_inited_) {
+    if (real_names != nullptr && locs != nullptr) {
+      real_input_locations_.reserve(locs->i_size());
+      for (int idx = 0; idx < locs->i_size(); ++idx) {
+        real_input_locations_.push_back(locs->i(idx));
+      }
+      cache_inited_ = true;
+    }
+  }
 }
 
 Status NeuronFunction::SetupInputs(OpKernelContext* ctx,
@@ -151,6 +171,8 @@ Status NeuronFunction::SetupInputs(OpKernelContext* ctx,
   VLOG(1) << "NeuronFunction::SetupInputs done";
   return Status::OK();
 }
+
+
 
 Status NeuronFunction::SetupOutputs(OpKernelContext* ctx,
                                     const NodeDef& node_def,
@@ -215,6 +237,18 @@ Status NeuronFunction::RunWithIO(OpKernelContext* ctx,
   TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
   return Status::OK();
 }
+
+Status NeuronFunction::RunWithIOCachedWeights(OpKernelContext* ctx,
+                                 std::vector<Tensor>* inputs,
+                                 std::vector<Tensor>* outputs) {
+  TF_RETURN_IF_ERROR(MaybeShuffle(ctx, inputs));
+  NeuronDeviceMemory memory;
+  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs, cache_, real_input_locations_));
+  TF_RETURN_IF_ERROR(exe_->RunOnDeviceMemory(&memory));
+  TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
+  return Status::OK();
+}
+
 
 }  // namespace neuron
 }  // namespace tensorflow

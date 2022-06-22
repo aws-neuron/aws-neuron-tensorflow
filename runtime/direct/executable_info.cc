@@ -14,9 +14,12 @@ limitations under the License.
 ==============================================================================*/
 
 #include "executable_info.h"
+
 #include <google/protobuf/map.h>
+
 #include <cstdint>
 #include <string>
+
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
@@ -42,6 +45,8 @@ constexpr char kOutputBatchAxis[] = "output_batch_axis";
 // Optional keys
 constexpr char kAutoMulticore[] = "_automatic_multicore";
 constexpr char kInputShuffles[] = "_input_shuffles";
+constexpr char kRealInputNames[] = "_real_input_names";
+constexpr char kRealInputLocations[] = "_real_input_locations";
 
 Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   name = node_def.name();
@@ -96,6 +101,12 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   if (attr.count(kAutoMulticore)) {
     auto_multicore_enabled = true;
     requested_num_cores = attr.at(kAutoMulticore).i();
+  }
+  if (attr.count(kRealInputNames)) {
+    real_input_names = &attr.at(kRealInputNames).list();
+  }
+  if (attr.count(kRealInputLocations)) {
+    real_input_locations = &attr.at(kRealInputLocations).list();
   }
 #undef SIZE_CHECK
   return ParseModelConfig(node_def);
