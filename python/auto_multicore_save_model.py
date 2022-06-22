@@ -13,13 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 
-'''
+"""
 File provides necessary modifications to allow modifications to tf-serving for
 automatic multicore inference. We assume that the model being passed here has been
 compiled with Inferentia. 
 
 Supports TF1.x and TF2.x saved models
-'''
+"""
 import argparse
 from copy import deepcopy
 import sys
@@ -32,23 +32,41 @@ from tensorflow.python.saved_model.loader_impl import parse_saved_model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.core.framework import attr_value_pb2, graph_pb2
 from tensorflow.core.protobuf import config_pb2
-from tensorflow_neuron.python._trace import _wrap_variable_graph_def_as_concrete_function
-from tensorflow.neuron.python.saved_model import _normalize_tags, _get_signature_def, simple_save
+from tensorflow_neuron.python._trace import (
+    _wrap_variable_graph_def_as_concrete_function,
+)
+from tensorflow.neuron.python.saved_model import (
+    _normalize_tags,
+    _get_signature_def,
+    simple_save,
+)
 from tensorflow.neuron.python.graph_util import tag_multicore, _graph_def_to_graph
 from tensorflow.neuron.python.multicore import AwsMulticoreNeuronModel
 
+
 def add_attr_to_model(arguments):
-    '''
+    """
     Adds an attribute _automatic_multicore to the model
-    '''
-    parser = argparse.ArgumentParser(description='CLI for Inferentia Automatic Multicore Inference')
-    parser.add_argument('model_dir', type=str,
-                        help='Model Directory of Inferentia compiled model')
-    parser.add_argument('--num_cores', default=1, type=int,
-                        help='Number of cores to be replicated with default as 1')
-    parser.add_argument('--new_model_dir', default='new_model', type=str,
-                        help='New model directory to save modified graph')
-                        
+    """
+    parser = argparse.ArgumentParser(
+        description="CLI for Inferentia Automatic Multicore Inference"
+    )
+    parser.add_argument(
+        "model_dir", type=str, help="Model Directory of Inferentia compiled model"
+    )
+    parser.add_argument(
+        "--num_cores",
+        default=1,
+        type=int,
+        help="Number of cores to be replicated with default as 1",
+    )
+    parser.add_argument(
+        "--new_model_dir",
+        default="new_model",
+        type=str,
+        help="New model directory to save modified graph",
+    )
+
     args = parser.parse_args(arguments)
 
     # Load model and process signature defs
@@ -65,17 +83,17 @@ def add_attr_to_model(arguments):
     with tf_session.Session(graph=ops.Graph(), config=config_proto) as sess:
         meta_graph = saved_model.loader.load.__wrapped__(sess, tags, model_dir)
         for op in sess.graph.get_operations():
-            if op.type == 'StatefulPartitionedCall':
+            if op.type == "StatefulPartitionedCall":
                 is_v2 = True
 
     if not is_v2:
         # Load in the Tensorflow v1 model and then modify the graph def
         with tf_session.Session(graph=ops.Graph()) as sess:
-            saved_model.loader.load(sess, ['serve'], model_dir)
+            saved_model.loader.load(sess, ["serve"], model_dir)
             graph_def = sess.graph.as_graph_def()
             # Modify graph def to add a new attribute
             tag_multicore(graph_def, num_cores)
-        mod_graph  = _graph_def_to_graph(graph_def) 
+        mod_graph = _graph_def_to_graph(graph_def)
 
         # Save the modified graph
         with tf_session.Session(graph=mod_graph, config=config_proto) as sess:
@@ -88,12 +106,20 @@ def add_attr_to_model(arguments):
             for tensor in signature_def.outputs.values():
                 infer_tensor = mod_graph.get_tensor_by_name(tensor.name)
                 tensor.tensor_shape.CopyFrom(infer_tensor.shape.as_proto())
-            saved_model_main_op = meta_graph.collection_def['saved_model_main_op'].node_list.value
-            saved_model_main_op = [sess.graph.get_operation_by_name(name) for name in saved_model_main_op]
+            saved_model_main_op = meta_graph.collection_def[
+                "saved_model_main_op"
+            ].node_list.value
+            saved_model_main_op = [
+                sess.graph.get_operation_by_name(name) for name in saved_model_main_op
+            ]
             main_op = saved_model_main_op[0] if saved_model_main_op else None
-            builder.add_meta_graph_and_variables(sess, tags, signature_def_map=signature_def_map,
-                                                 strip_default_attrs=False,
-                                                 main_op=main_op)
+            builder.add_meta_graph_and_variables(
+                sess,
+                tags,
+                signature_def_map=signature_def_map,
+                strip_default_attrs=False,
+                main_op=main_op,
+            )
             builder.save()
     else:
         # Load in the Tensorflow v2 model
@@ -101,14 +127,22 @@ def add_attr_to_model(arguments):
         model = models.load_model(model_dir)
         saved_model_proto = parse_saved_model(model_dir)
         signature_def = saved_model_proto.meta_graphs[0].signature_def
-        signature_def_key_default = saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        signature_def_key_default = (
+            saved_model.signature_constants.DEFAULT_SERVING_SIGNATURE_DEF_KEY
+        )
         if len(signature_def) == 1:
             signature_def_key = list(signature_def.keys())[0]
         elif signature_def_key_default in signature_def:
             signature_def_key = signature_def_key_default
-            logging.warning('Selecting default SignatureDef "{}" when loading SavedModel {}'.format(signature_def_key, model_dir))
+            logging.warning(
+                'Selecting default SignatureDef "{}" when loading SavedModel {}'.format(
+                    signature_def_key, model_dir
+                )
+            )
         else:
-            raise NotImplementedError('Not yet supporting SavedModel {} with multiple signatures')
+            raise NotImplementedError(
+                "Not yet supporting SavedModel {} with multiple signatures"
+            )
         func = model.aws_neuron_function
         graph_def = func.graph.as_graph_def()
 
@@ -123,25 +157,27 @@ def add_attr_to_model(arguments):
 
         neuron_model.save(new_model_dir, signatures=signatures)
 
+
 def _make_keras_model_savable(model, tensor_spec):
-    """Modified call from original func to take in TensorSpec instead
-    """
+    """Modified call from original func to take in TensorSpec instead"""
     # hack to propagate metadata for saving
-    if hasattr(model, '_set_save_spec'):
+    if hasattr(model, "_set_save_spec"):
         set_save_spec = model._set_save_spec
-    elif hasattr(model, '_set_input_attrs'):
+    elif hasattr(model, "_set_input_attrs"):
         set_save_spec = model._set_input_attrs
     else:
         set_save_spec = None
-        logging.warning('Not setting inputs for the traced model {}; you may need to run inference '
-                        'before trying to save it'.format(model))
+        logging.warning(
+            "Not setting inputs for the traced model {}; you may need to run inference "
+            "before trying to save it".format(model)
+        )
     if set_save_spec is not None:
         set_save_spec(tensor_spec)
 
 
 def convert_model():
-    '''
+    """
     Reference that parses the args
-    '''
+    """
 
     add_attr_to_model(sys.argv[1:])
