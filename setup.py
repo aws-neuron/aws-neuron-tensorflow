@@ -55,7 +55,7 @@ def get_install_requires():
     major, minor, patch, *_ = LooseVersion(get_version()).version
     tf_compat_version = '{}.{}.{}'.format(major, minor, patch)
     install_requires = ['tensorflow == {}'.format(tf_compat_version)]
-    install_requires.append('tensorboard-plugin-neuron')
+    install_requires.append('tensorboard-plugin-neuronx')
     install_requires.append('protobuf<4')
     return install_requires
 
