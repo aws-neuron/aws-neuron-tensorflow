@@ -19,7 +19,7 @@ import itertools
 import unittest
 import tensorflow as tf
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV2Only, RemoveTestSession
+from tensorflow_neuron.python.unittest_base import TestV2Only, RemoveTestSession
 
 
 # Generators take mandatory arguments input_shapes and input_dtypes.

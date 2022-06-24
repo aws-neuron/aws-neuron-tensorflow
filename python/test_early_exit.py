@@ -5,7 +5,7 @@ import shutil
 import numpy as np
 import unittest
 
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 class TestEarlyExit(TestV1Only):
     def test_sequential(self):

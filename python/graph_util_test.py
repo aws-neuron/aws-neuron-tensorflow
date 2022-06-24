@@ -24,12 +24,12 @@ import unittest
 import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.python.framework.tensor_shape import TensorShape
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import graph_util
-from tensorflow.neuron.python import meta_graph_util
-from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import graph_util
+from tensorflow_neuron.python import meta_graph_util
+from tensorflow_neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213

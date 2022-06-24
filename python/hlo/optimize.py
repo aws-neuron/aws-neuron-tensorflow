@@ -18,8 +18,8 @@ import numpy as np
 from tensorflow.compiler.xla import xla_data_pb2
 from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.python.framework import dtypes
-from tensorflow.neuron.python.utils import decorate_methods_with
-from tensorflow.neuron.python.hlo.instruction import BatchHloInstructionPool
+from tensorflow_neuron.python.utils import decorate_methods_with
+from tensorflow_neuron.python.hlo.instruction import BatchHloInstructionPool
 
 
 logger = logging.getLogger('aws_neuron_hlo_optimizer')

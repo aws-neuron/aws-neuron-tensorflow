@@ -17,12 +17,12 @@
 Defines a new API endpoint to allow for Automatic Multicore Inference
 """
 
-from tensorflow.neuron.python._trace import (
+from tensorflow_neuron.python._trace import (
     AwsNeuronModel,
     _make_keras_model_savable,
     _wrap_variable_graph_def_as_concrete_function,
 )
-from tensorflow.neuron.python.graph_util import tag_multicore
+from tensorflow_neuron.python.graph_util import tag_multicore
 
 
 class AwsMulticoreNeuronModel(AwsNeuronModel):

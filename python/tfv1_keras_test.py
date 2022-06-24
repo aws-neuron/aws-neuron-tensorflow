@@ -22,7 +22,7 @@ import tensorflow.compat.v1 as v1
 import tensorflow.neuron as tfn
 import pdb
 import os
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
 #each number represents the number of random 

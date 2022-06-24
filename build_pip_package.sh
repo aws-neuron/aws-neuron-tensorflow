@@ -74,7 +74,7 @@ function main() {
     cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TF_CORE_PATH}/neuron/"
     mv "${TMPDIR}/tensorflow_neuron/tf2hlo/" "${TF_CORE_PATH}/neuron/"
     cp tensorflow/neuron/setup.py "${TMPDIR}/setup.py"
-    echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/__init__.py"
+    echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/python/_version.py"
 
     # Before we leave the top-level directory, make sure we know how to
     # call python.

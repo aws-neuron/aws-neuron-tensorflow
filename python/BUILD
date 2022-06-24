@@ -25,6 +25,13 @@ py_library(
 )
 
 py_library(
+    name = "version_py",
+    srcs = [
+        "_version.py",
+    ],
+)
+
+py_library(
     name = "neff_util_py",
     srcs = [
         "neff_util.py",

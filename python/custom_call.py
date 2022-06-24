@@ -17,7 +17,7 @@ from tensorflow.core.framework import graph_pb2
 from tensorflow.core.framework import node_def_pb2
 from tensorflow.python.framework import importer
 from tensorflow.python.framework import ops
-from tensorflow.neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import graph_def_util as gdu
 
 
 targetAwsNeuronErf = 'AwsNeuronErf'

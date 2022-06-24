@@ -35,13 +35,13 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow_neuron.python._trace import (
     _wrap_variable_graph_def_as_concrete_function,
 )
-from tensorflow.neuron.python.saved_model import (
+from tensorflow_neuron.python.saved_model import (
     _normalize_tags,
     _get_signature_def,
     simple_save,
 )
-from tensorflow.neuron.python.graph_util import tag_multicore, _graph_def_to_graph
-from tensorflow.neuron.python.multicore import AwsMulticoreNeuronModel
+from tensorflow_neuron.python.graph_util import tag_multicore, _graph_def_to_graph
+from tensorflow_neuron.python.multicore import AwsMulticoreNeuronModel
 
 
 def add_attr_to_model(arguments):

@@ -21,8 +21,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
 from tensorflow.python.saved_model.saved_model import signature_constants
-from tensorflow.neuron.python.unittest_base import TestV1Only
-from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
+from tensorflow_neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.graph_util_test import _assert_compiler_success
 
 
 _RANDOM_SEED = 15213

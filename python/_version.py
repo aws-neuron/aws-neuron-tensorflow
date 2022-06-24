@@ -13,6 +13,4 @@
 # limitations under the License.
 # ==============================================================================
 
-# Note: this file becomes tensorflow_neuron/__init__.py in the plugin package
-from tensorflow_neuron.python._version import __version__
-from tensorflow_neuron.python._trace import trace
+__version__ = '2.8.2.dev0'

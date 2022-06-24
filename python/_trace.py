@@ -32,13 +32,13 @@ from tensorflow.python.keras.engine.training import Model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import nest
 from tensorflow.compiler.xla.service import hlo_pb2
-from tensorflow.neuron.python import meta_graph_util as mgu
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import utils
-from tensorflow.neuron.python.neuron_cc import list_operators, supports_xla
-from tensorflow.neuron.python.hlo.optimize import HloOp
-from tensorflow.neuron.python.custom_call import CustomCallLowering
-from tensorflow_neuron import __version__
+from tensorflow_neuron.python import meta_graph_util as mgu
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import utils
+from tensorflow_neuron.python.neuron_cc import list_operators, supports_xla
+from tensorflow_neuron.python.hlo.optimize import HloOp
+from tensorflow_neuron.python.custom_call import CustomCallLowering
+from tensorflow_neuron.python._version import __version__
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):

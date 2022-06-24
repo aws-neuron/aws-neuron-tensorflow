@@ -17,7 +17,7 @@ import tensorflow as tf
 import tensorflow.neuron as tfn
 import unittest
 import os
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.unittest_base import TestV2Only
 from contextlib import contextmanager
 
 class TestTraceReduceNeffSize(TestV2Only):

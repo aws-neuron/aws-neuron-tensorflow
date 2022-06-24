@@ -20,8 +20,8 @@ import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
 from tensorflow.python import saved_model
-from tensorflow.neuron.python.unittest_base import TestV2Only
-from tensorflow.neuron.python.utils import _assert_compiler_success_func
+from tensorflow_neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.utils import _assert_compiler_success_func
 
 tNeuronOp = "NeuronOp"
 

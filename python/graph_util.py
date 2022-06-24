@@ -44,10 +44,10 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import meta_graph
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import meta_graph_util as mgu
-from tensorflow.neuron.python import neuron_cc as ncc
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import meta_graph_util as mgu
+from tensorflow_neuron.python import neuron_cc as ncc
+from tensorflow_neuron.python import utils
 
 tNeuronOp = 'NeuronOp'
 

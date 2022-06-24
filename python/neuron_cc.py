@@ -21,7 +21,7 @@ import logging
 from distutils import spawn
 from distutils.version import LooseVersion
 from tensorflow_neuron import __version__
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import utils
 
 
 def list_operators():
@@ -106,4 +106,4 @@ except ImportError:
     neuroncc = None
 else:
     if LooseVersion(__version__) >= LooseVersion('2.0.0') and supports_xla():
-        from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
+        from tensorflow_neuron.python.neuron_cc_hlo import list_operators, compile_savetemps

@@ -22,11 +22,11 @@ import tensorflow.compat.v1.keras as keras
 from tensorflow.compat.v1.test import get_temp_dir
 import tensorflow.neuron as tfn
 from tensorflow.python import saved_model
-from tensorflow.neuron.python.unittest_base import TestV1Only, TestV2Only
-from tensorflow.neuron.python.utils import _assert_compiler_success_func
-from tensorflow.neuron.python.auto_multicore_save_model import add_attr_to_model
-from tensorflow.neuron.python.graph_util import tag_multicore
-from tensorflow.neuron.python.graph_util_test import _assert_compiler_success
+from tensorflow_neuron.python.unittest_base import TestV1Only, TestV2Only
+from tensorflow_neuron.python.utils import _assert_compiler_success_func
+from tensorflow_neuron.python.auto_multicore_save_model import add_attr_to_model
+from tensorflow_neuron.python.graph_util import tag_multicore
+from tensorflow_neuron.python.graph_util_test import _assert_compiler_success
 
 
 class TestAutoMulticoreV1(TestV1Only):

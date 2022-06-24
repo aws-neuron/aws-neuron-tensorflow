@@ -25,12 +25,12 @@ import tensorflow as tf
 import tensorflow.neuron as tfn
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.framework.convert_to_constants import convert_variables_to_constants_v2
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import graph_util
-from tensorflow.neuron.python import meta_graph_util
-from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import graph_util
+from tensorflow_neuron.python import meta_graph_util
+from tensorflow_neuron.python.ops.gen_neuron_op import neuron_op
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.unittest_base import TestV2Only
 
 
 class TestConv2dSamePaddingPass(TestV2Only):

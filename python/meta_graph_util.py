@@ -16,8 +16,8 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import utils
 
 
 def build_signature_def(input_tensors, output_tensors):

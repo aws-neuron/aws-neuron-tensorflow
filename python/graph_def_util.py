@@ -20,9 +20,9 @@ from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.ops import convert_to_tensor
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python.neuron_cc import compile_savetemps
-from tensorflow.neuron.python import neff_util
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python.neuron_cc import compile_savetemps
+from tensorflow_neuron.python import neff_util
+from tensorflow_neuron.python import utils
 
 
 tNeuronOp = 'NeuronOp'

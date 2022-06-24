@@ -18,7 +18,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework import convert_to_constants
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.unittest_base import TestV2Only
 
 
 _RANDOM_SEED = 15213
