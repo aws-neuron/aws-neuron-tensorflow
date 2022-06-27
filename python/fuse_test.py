@@ -18,7 +18,7 @@ import subprocess
 import unittest
 import numpy as np
 import tensorflow as tf
-from tensorflow_neuron import fuse
+from tensorflow.neuron import fuse
 from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
