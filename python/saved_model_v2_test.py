@@ -154,7 +154,7 @@ class TestCompileV1SavedModel(TestV2Only):
         }
 
         def fake_list_operators():
-            return {'Conv2D', 'Const', 'AddV2', 'Relu'}
+            return {'Conv2D', 'Const', 'Add', 'AddV2', 'Relu'}
 
         with patch('tensorflow_neuron.python._trace.list_operators', fake_list_operators):
             result_compile = tfn.saved_model.compile(
