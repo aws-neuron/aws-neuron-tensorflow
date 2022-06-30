@@ -170,7 +170,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     dumper = OptionalDumper()
     tfn_args, _ = utils.parse_neuron_cc_flags()
 
-    # Bake constants into graph if reduce-neff-size flag is not set (default)
+    # Bake constants into graph if extract-weights flag is not set (default)
     if not tfn_args.extract_weights:
         # convert all variables to constants
         with utils.change_grappler_logging_level_according_to_cc_flags():
