@@ -16,3 +16,4 @@
 # Note: this file becomes tensorflow_neuron/__init__.py in the plugin package
 from tensorflow_neuron.python._version import __version__
 from tensorflow_neuron.python._trace import trace
+from tensorflow_neuron.python.neuron_cc import configure_compiler_cli

@@ -24,6 +24,14 @@ from tensorflow_neuron import __version__
 from tensorflow_neuron.python import utils
 
 
+_NEURON_CC_CLI = ['neuron-cc']
+
+
+def configure_compiler_cli(neuron_cc_cli):
+    _NEURON_CC_CLI.clear()
+    _NEURON_CC_CLI.extend(neuron_cc_cli)
+
+
 def list_operators():
     neuron_cc = find_neuron_cc()
     if neuron_cc is None:
@@ -87,7 +95,13 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
 
 def find_neuron_cc():
     path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
-    return spawn.find_executable('neuron-cc', path)
+    neuron_cc_cli_name, *_ = _NEURON_CC_CLI
+    return spawn.find_executable(neuron_cc_cli_name, path)
+
+
+def read_default_args():
+    _, *args = _NEURON_CC_CLI
+    return args
 
 
 def supports_xla():

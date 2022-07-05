@@ -28,7 +28,7 @@ from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow_neuron.python import utils
 from tensorflow_neuron.python.hlo.optimize import HloOptimizer
-from tensorflow_neuron.python.neuron_cc import find_neuron_cc
+from tensorflow_neuron.python.neuron_cc import find_neuron_cc, read_default_args
 
 
 _SUPPORTED_OPERATOR_TYPES = '''
@@ -247,9 +247,9 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     output_path = os.path.join(workdir, 'hlo_module.neff')
     with open(input_path, 'wb') as f:
         f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
-    command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
+    command = [find_neuron_cc(), 'compile', *read_default_args(), input_path,
+               '--framework', 'XLA', '--verbose={}'.format(parsed_args.verbose),
                '--pipeline', 'compile', 'SaveTemps', '--output', output_path,
-               '--verbose={}'.format(parsed_args.verbose),
                '--fast-math=none', '--fp32-cast={}'.format(parsed_args.fp32_cast)]
     if parsed_args.neuroncore_pipeline_cores is None:
         command.append('--enable-fast-context-switch')
