@@ -28,8 +28,10 @@ _NEURON_CC_CLI = ['neuron-cc']
 
 
 def configure_compiler_cli(neuron_cc_cli):
+    old_config = _NEURON_CC_CLI.copy()
     _NEURON_CC_CLI.clear()
     _NEURON_CC_CLI.extend(neuron_cc_cli)
+    return old_config
 
 
 def list_operators():
