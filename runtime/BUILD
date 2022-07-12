@@ -180,24 +180,41 @@ cc_library(
 
 cc_library(
     name = "utils",
-    srcs = [
-        "tensor_util.h",
-        "tensor_util.cc",
-        "semaphore.h",
-        "semaphore.cc",
-        "env.h",
-        "env.cc",
+    deps = [
+        ":env",
+        ":macros",
+        ":semaphore",
+        ":tensor_util",
+        ":version",
     ],
-    hdrs = [
-        "version.h",
-        "tensor_util.h",
-        "semaphore.h",
-        "env.h",
-    ],
+)
+cc_library(
+    name = "semaphore",
+    srcs = ["semaphore.cc"],
+    hdrs = ["semaphore.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
-        ":macros",
+    ],
+)
+
+cc_library(
+    name = "tensor_util",
+    srcs = ["tensor_util.cc"],
+    hdrs = ["tensor_util.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+    ],
+)
+
+cc_library(
+    name = "env",
+    srcs = ["env.cc"],
+    hdrs = ["env.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
     ],
 )
 
@@ -208,6 +225,11 @@ cc_library(
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
     ],
+)
+
+cc_library(
+    name = "version",
+    hdrs = ["version.h"],
 )
 
 cc_library(
