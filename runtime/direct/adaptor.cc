@@ -20,8 +20,8 @@ limitations under the License.
 #include <string>
 #include <unordered_map>
 
-#include "../macros.h"
-#include "../version.h"
+#include "macros.h"
+#include "version.h"
 #include "nrt/nrt.h"
 #include "nrt/nrt_experimental.h"
 #include "nrt/nrt_profile.h"

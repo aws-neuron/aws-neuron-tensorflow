@@ -182,10 +182,10 @@ cc_library(
     name = "utils",
     deps = [
         ":env",
-        ":macros",
         ":semaphore",
         ":tensor_util",
-        ":version",
+        ":direct/macros",
+        ":direct/version",
     ],
 )
 cc_library(
@@ -216,20 +216,6 @@ cc_library(
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
     ],
-)
-
-cc_library(
-    name = "macros",
-    srcs = ["macros.h"],
-    hdrs = ["macros.h"],
-    deps = [
-        "@org_tensorflow//tensorflow/core:framework",
-    ],
-)
-
-cc_library(
-    name = "version",
-    hdrs = ["version.h"],
 )
 
 cc_library(
@@ -293,8 +279,8 @@ cc_library(
         ":direct/executable_info",
         ":direct/dynamic_batch",
         ":direct/host_memory",
+        ":direct/macros",
         ":direct/placer",
-        ":macros",
     ],
 )
 
@@ -319,8 +305,8 @@ cc_library(
         ":direct/core_range",
         ":direct/executable_info",
         ":direct/host_memory",
+        ":direct/macros",
         ":direct/profiler_context",
-        ":macros",
     ],
 )
 
@@ -331,7 +317,7 @@ cc_library(
     deps = [
         ":direct/adaptor",
         ":direct/executable_info",
-        ":macros",
+        ":direct/macros",
     ],
 )
 
@@ -378,10 +364,25 @@ cc_library(
     srcs = ["direct/adaptor.cc"],
     deps = [
         ":libnrt",
-        ":utils",
+        ":direct/macros",
+        ":direct/version",
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
     ],
+)
+
+cc_library(
+    name = "direct/macros",
+    srcs = ["direct/macros.h"],
+    hdrs = ["direct/macros.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+    ],
+)
+
+cc_library(
+    name = "direct/version",
+    hdrs = ["direct/version.h"],
 )
 
 # nrt C library

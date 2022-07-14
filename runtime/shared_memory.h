@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
 #define TENSORFLOW_NEURON_RUNTIME_SHARED_MEMORY_H_
 
-#include "macros.h"
+#include "direct/macros.h"
 #include "runtime_grpc.h"
 #include "tensorflow/core/platform/mutex.h"
 

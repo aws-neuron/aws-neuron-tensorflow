@@ -17,12 +17,12 @@ limitations under the License.
 
 #include <cstddef>
 
-#include "../macros.h"
 #include "absl/memory/memory.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "executable_info.h"
 #include "host_memory.h"
+#include "macros.h"
 #include "profiler_context.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"

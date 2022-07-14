@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
 #define TENSORFLOW_NEURON_RUNTIME_DEVICE_H_
 
-#include "macros.h"
+#include "direct/macros.h"
 #include "shared_memory.h"
 #include "tensorflow/core/common_runtime/local_device.h"
 #include "tensorflow/core/framework/allocator.h"

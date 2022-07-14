@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_COMPILER_GRAPH_CONSTRUCTOR_H_
 #define TENSORFLOW_NEURON_COMPILER_GRAPH_CONSTRUCTOR_H_
 
-#include "tensorflow/neuron/runtime/macros.h"
+#include "tensorflow/neuron/runtime/direct/macros.h"
 
 #if TF_VERSION_LESS_THAN(2, 3)
 #include "tensorflow/core/graph/graph_constructor.h"

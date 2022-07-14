@@ -19,11 +19,11 @@ limitations under the License.
 #include <cstddef>
 #include <memory>
 
-#include "../macros.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "executable_info.h"
 #include "host_memory.h"
+#include "macros.h"
 #include "profiler_context.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/stringpiece.h"

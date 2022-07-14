@@ -20,9 +20,9 @@ limitations under the License.
 #include <memory>
 #include <string>
 
-#include "../macros.h"
 #include "adaptor.h"
 #include "executable_info.h"
+#include "macros.h"
 #include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/status.h"
 

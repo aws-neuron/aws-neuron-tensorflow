@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_PROFILER_H_
 #define TENSORFLOW_NEURON_RUNTIME_PROFILER_H_
 
-#include "macros.h"
+#include "direct/macros.h"
 
 namespace tensorflow {
 namespace neuron {

@@ -19,10 +19,10 @@ limitations under the License.
 #include <memory>
 #include <string>
 
-#include "../macros.h"
 #include "dynamic_batch.h"
 #include "executable.h"
 #include "executable_info.h"
+#include "macros.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/lib/core/status.h"

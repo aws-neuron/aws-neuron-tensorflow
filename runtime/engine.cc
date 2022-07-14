@@ -15,7 +15,7 @@ limitations under the License.
 
 #include "engine.h"
 #include "env.h"
-#include "macros.h"
+#include "direct/macros.h"
 #include "nrt/nrt.h"
 
 namespace tensorflow {

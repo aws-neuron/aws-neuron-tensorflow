@@ -21,9 +21,9 @@ limitations under the License.
 #include <unordered_map>
 #include <utility>
 #include <vector>
-#include "../macros.h"
 #include "core_range.h"
 #include "executable_info.h"
+#include "macros.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/threadpool.h"
 #include "tensorflow/core/lib/hash/hash.h"

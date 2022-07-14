@@ -19,7 +19,7 @@ limitations under the License.
 #include <unistd.h>
 #include <fstream>
 #include "env.h"
-#include "macros.h"
+#include "direct/macros.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"
 

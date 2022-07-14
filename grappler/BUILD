@@ -96,6 +96,6 @@ cc_library(
     hdrs = ["graph_constructor_wrapper.h"],
     deps = [
         "//tensorflow/core:core_cpu",
-        "//tensorflow/neuron/runtime:macros",
+        "//tensorflow/neuron/runtime:direct/macros",
     ],
 )

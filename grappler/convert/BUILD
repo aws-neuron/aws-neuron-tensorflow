@@ -8,7 +8,7 @@ cc_library(
     deps = [
         ":segment",
         "//tensorflow/neuron/grappler:graph_constructor_wrapper",
-        "//tensorflow/neuron/runtime:macros",
+        "//tensorflow/neuron/runtime:direct/macros",
     ],
 )
 
