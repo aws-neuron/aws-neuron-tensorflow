@@ -18,7 +18,7 @@ limitations under the License.
 #include <sys/wait.h>
 #include <unistd.h>
 #include <fstream>
-#include "env.h"
+#include "direct/env.h"
 #include "direct/macros.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/platform/env.h"

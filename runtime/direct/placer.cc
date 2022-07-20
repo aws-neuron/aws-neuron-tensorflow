@@ -18,9 +18,9 @@ limitations under the License.
 #include <cstdint>
 #include <utility>
 #include <vector>
-#include "../env.h"
 #include "adaptor.h"
 #include "core_range.h"
+#include "env.h"
 #include "executable_info.h"
 #include "absl/memory/memory.h"
 #include "tensorflow/core/lib/core/errors.h"

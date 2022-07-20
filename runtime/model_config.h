@@ -16,7 +16,7 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_KERNELS_MODEL_CONFIG_H_
 #define TENSORFLOW_NEURON_RUNTIME_KERNELS_MODEL_CONFIG_H_
 
-#include "env.h"
+#include "direct/env.h"
 #include "direct/macros.h"
 
 namespace tensorflow {

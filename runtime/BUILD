@@ -181,9 +181,9 @@ cc_library(
 cc_library(
     name = "utils",
     deps = [
-        ":env",
         ":semaphore",
         ":tensor_util",
+        ":direct/env",
         ":direct/macros",
         ":direct/version",
     ],
@@ -202,16 +202,6 @@ cc_library(
     name = "tensor_util",
     srcs = ["tensor_util.cc"],
     hdrs = ["tensor_util.h"],
-    deps = [
-        "@org_tensorflow//tensorflow/core:framework",
-        "@org_tensorflow//tensorflow/core:lib",
-    ],
-)
-
-cc_library(
-    name = "env",
-    srcs = ["env.cc"],
-    hdrs = ["env.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
@@ -281,6 +271,7 @@ cc_library(
         ":direct/host_memory",
         ":direct/macros",
         ":direct/placer",
+        ":tensor_util",
     ],
 )
 
@@ -291,8 +282,9 @@ cc_library(
     deps = [
         ":direct/adaptor",
         ":direct/core_range",
+        ":direct/env",
         ":direct/executable_info",
-        ":utils",
+        ":direct/macros",
     ],
 )
 
@@ -337,8 +329,9 @@ cc_library(
     srcs = ["direct/profiler_context.cc"],
     deps = [
         ":direct/adaptor",
+        ":direct/env",
         ":direct/executable_info",
-        ":utils",
+        ":direct/macros",
     ],
 )
 
@@ -346,6 +339,16 @@ cc_library(
     name = "direct/executable_info",
     hdrs = ["direct/executable_info.h"],
     srcs = ["direct/executable_info.cc"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+    ],
+)
+
+cc_library(
+    name = "direct/env",
+    srcs = ["direct/env.cc"],
+    hdrs = ["direct/env.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",

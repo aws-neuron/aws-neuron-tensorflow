@@ -14,7 +14,7 @@ limitations under the License.
 ==============================================================================*/
 
 #include "engine.h"
-#include "env.h"
+#include "direct/env.h"
 #include "direct/macros.h"
 #include "nrt/nrt.h"
 
