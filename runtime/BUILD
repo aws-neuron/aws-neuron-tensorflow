@@ -182,9 +182,9 @@ cc_library(
     name = "utils",
     deps = [
         ":semaphore",
-        ":tensor_util",
         ":direct/env",
         ":direct/macros",
+        ":direct/tensor_util",
         ":direct/version",
     ],
 )
@@ -192,16 +192,6 @@ cc_library(
     name = "semaphore",
     srcs = ["semaphore.cc"],
     hdrs = ["semaphore.h"],
-    deps = [
-        "@org_tensorflow//tensorflow/core:framework",
-        "@org_tensorflow//tensorflow/core:lib",
-    ],
-)
-
-cc_library(
-    name = "tensor_util",
-    srcs = ["tensor_util.cc"],
-    hdrs = ["tensor_util.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
@@ -271,7 +261,7 @@ cc_library(
         ":direct/host_memory",
         ":direct/macros",
         ":direct/placer",
-        ":tensor_util",
+        ":direct/tensor_util",
     ],
 )
 
@@ -339,6 +329,16 @@ cc_library(
     name = "direct/executable_info",
     hdrs = ["direct/executable_info.h"],
     srcs = ["direct/executable_info.cc"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:framework",
+        "@org_tensorflow//tensorflow/core:lib",
+    ],
+)
+
+cc_library(
+    name = "direct/tensor_util",
+    srcs = ["direct/tensor_util.cc"],
+    hdrs = ["direct/tensor_util.h"],
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",

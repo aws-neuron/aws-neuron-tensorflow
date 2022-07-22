@@ -20,7 +20,6 @@ limitations under the License.
 #include <utility>
 #include <vector>
 
-#include "../tensor_util.h"
 #include "absl/memory/memory.h"
 #include "adaptor.h"
 #include "core_range.h"
@@ -30,6 +29,7 @@ limitations under the License.
 #include "host_memory.h"
 #include "macros.h"
 #include "placer.h"
+#include "tensor_util.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"

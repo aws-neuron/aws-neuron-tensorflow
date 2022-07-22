@@ -20,7 +20,7 @@ limitations under the License.
 #include "nerr.pb.h"
 #include "nmgr_service.grpc.pb.h"
 #include "nmgr_session_service.grpc.pb.h"
-#include "tensor_util.h"
+#include "direct/tensor_util.h"
 
 namespace tensorflow {
 namespace neuron {
