@@ -117,7 +117,10 @@ def supports_xla():
 
 
 try:
-    import neuroncc
+    try:
+        import neuroncc
+    except ImportError:
+        import neuronxcc as neuroncc
 except ImportError:
     neuroncc = None
 else:
