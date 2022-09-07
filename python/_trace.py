@@ -277,7 +277,7 @@ class OptionalDumper:
         self.dump_tensor_map = {}
         dump_tensor_names = []
         for nop in gdu.get_neuron_nodes(graph_def):
-            in_names = [tensor_name_map.get(name, name) for name in nop.input]
+            in_names = [tensor_name_map.get(name, name) for name in nop.input if not name.startswith('^')]
             in_names = [name if ':' in name else '{}:0'.format(name) for name in in_names]
             out_names = [name.decode() for name in nop.attr[gdu.knOutputNames].list.s]
             dump_tensor_names.extend(in_names)
