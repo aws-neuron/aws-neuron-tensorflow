@@ -16,6 +16,7 @@ import math
 import reprlib
 from collections import namedtuple
 from tensorflow.core.framework import graph_pb2
+from tensorflow.core.framework import types_pb2
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.ops import convert_to_tensor
 from tensorflow.python.framework.tensor_shape import TensorShape
@@ -358,6 +359,8 @@ def run_compiler_on_subgraphs(graph_def, dumper):
             if do_input_shuffles:
                 for shuffle in input_shuffles:
                     idx_ts = node.attr['_input_shuffles'].list.tensor.add()
+                    idx_ts.dtype = types_pb2.DataType.DT_INT64
+                    idx_ts.tensor_shape.dim.add().size = len(shuffle)
                     idx_ts.int64_val.extend(shuffle)
             try:
                 input_batch_axis = [ts.batch_axis for ts in inputs]

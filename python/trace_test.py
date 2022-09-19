@@ -15,6 +15,7 @@
 import os
 import unittest
 from unittest.mock import patch
+from tensorflow.core.framework import types_pb2
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
@@ -156,7 +157,10 @@ class TestTraceFunction(TestV2Only):
                 indices = tf.reshape(indices, input_tensor.shape)
                 indices_t = tf.transpose(indices, [0, 3, 1, 2])
                 indices_t = tf.reshape(indices_t, [-1])
-                idx_ts.int64_val.extend(indices_t.numpy())
+                shuffle = indices_t.numpy()
+                idx_ts.dtype = types_pb2.DataType.DT_INT64
+                idx_ts.tensor_shape.dim.add().size = len(shuffle)
+                idx_ts.int64_val.extend(shuffle)
         input_names = [ts.name for ts in cfunc.inputs]
         output_names = cfunc.outputs[0].name
         cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)

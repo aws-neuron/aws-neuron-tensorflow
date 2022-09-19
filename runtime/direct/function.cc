@@ -210,11 +210,11 @@ Status NeuronFunction::SetupOutputs(OpKernelContext* ctx,
 
 Status NeuronFunction::MaybeShuffle(OpKernelContext* ctx,
                                     std::vector<Tensor>* inputs) {
-  if (nullptr == info_.input_shuffles) {
+  if (0 == info_.input_shuffles.tensor_size()) {
     return Status::OK();
   }
-  for (int idx = 0; idx < info_.input_shuffles->tensor_size(); ++idx) {
-    const TensorProto& shuffle = info_.input_shuffles->tensor(idx);
+  for (int idx = 0; idx < info_.input_shuffles.tensor_size(); ++idx) {
+    const TensorProto& shuffle = info_.input_shuffles.tensor(idx);
     if (TF_PREDICT_FALSE(!shuffle.int64_val_size())) {
       continue;
     }
