@@ -16,28 +16,24 @@ limitations under the License.
 #ifndef TENSORFLOW_NEURON_RUNTIME_DIRECT_FUNCTION_H_
 #define TENSORFLOW_NEURON_RUNTIME_DIRECT_FUNCTION_H_
 
-#include <memory>
-#include <string>
+#include <vector>
 
 #include "dynamic_batch.h"
-#include "executable.h"
-#include "executable_info.h"
 #include "macros.h"
+#include "routine.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/platform/mutex.h"
 
 namespace tensorflow {
 namespace neuron {
 
 class NeuronFunction {
  public:
-  NeuronFunction();
+  NeuronFunction() {}
   Status Run(OpKernelContext* ctx, const NodeDef& node_def);
 
  private:
-  Status MaybeInit(const NodeDef& node_def, const std::string& session_handle);
   Status SetupInputs(OpKernelContext* ctx, const NodeDef& node_def,
                      std::vector<Tensor>* inputs);
   Status SetupOutputs(OpKernelContext* ctx, const NodeDef& node_def,
@@ -46,21 +42,7 @@ class NeuronFunction {
   Status SetupShuffleBuffers(OpKernelContext* ctx,
                              const std::vector<Tensor>& inputs,
                              std::vector<Tensor>* buffers);
-  Status MaybeShuffle(std::vector<Tensor>* inputs,
-                      std::vector<Tensor>* shuffle_buffers);
-  Status RunWithIO(std::vector<Tensor>* inputs,
-                   std::vector<Tensor>* shuffle_buffers,
-                   std::vector<Tensor>* outputs);
-  Status RunWithIOCachedWeights(std::vector<Tensor>* inputs,
-                                std::vector<Tensor>* shuffle_buffers,
-                                std::vector<Tensor>* outputs);
-  void maybe_init_input_locations_and_names();
-  tensorflow::mutex mu_;
-  NeuronExecutableInfo info_;
-  std::unique_ptr<NeuronDataParallelExecutable> exe_;
-  std::vector<std::shared_ptr<NeuronDeviceBuffer>> cache_;
-  std::vector<int> real_input_locations_;
-  bool cache_inited_ = false;
+  NeuronRoutine routine_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronFunction);
 };
 

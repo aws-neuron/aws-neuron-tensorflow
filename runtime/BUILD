@@ -254,10 +254,20 @@ cc_library(
     hdrs = ["direct/function.h"],
     srcs = ["direct/function.cc"],
     deps = [
+        ":direct/macros",
+        ":direct/routine",
+    ],
+)
+
+cc_library(
+    name = "direct/routine",
+    hdrs = ["direct/routine.h"],
+    srcs = ["direct/routine.cc"],
+    deps = [
         ":direct/core_range",
+        ":direct/dynamic_batch",
         ":direct/executable",
         ":direct/executable_info",
-        ":direct/dynamic_batch",
         ":direct/host_memory",
         ":direct/macros",
         ":direct/placer",

@@ -16,145 +16,39 @@ limitations under the License.
 #include "function.h"
 
 #include <cstddef>
-#include <string>
-#include <utility>
 #include <vector>
 
-#include "absl/memory/memory.h"
-#include "adaptor.h"
-#include "core_range.h"
-#include "dynamic_batch.h"
-#include "executable.h"
-#include "executable_info.h"
-#include "host_memory.h"
 #include "macros.h"
-#include "placer.h"
-#include "tensor_util.h"
+#include "routine.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/framework/op_kernel.h"
 #include "tensorflow/core/framework/tensor.h"
-#include "tensorflow/core/framework/tensor.pb.h"
 #include "tensorflow/core/framework/tensor_shape.h"
 #include "tensorflow/core/framework/types.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
-#include "tensorflow/core/lib/core/threadpool.h"
-#include "tensorflow/core/platform/default/integral_types.h"
 #include "tensorflow/core/platform/default/logging.h"
-#include "tensorflow/core/platform/mutex.h"
 
 namespace tensorflow {
 namespace neuron {
 
-NeuronFunction::NeuronFunction() : exe_(nullptr) {}
-
 Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
-  TF_RETURN_IF_ERROR(MaybeInit(node_def, ctx->session_handle()));
+  TF_RETURN_IF_ERROR(routine_.MaybeInit(node_def, ctx->session_handle()));
   std::vector<Tensor> inputs;
   TF_RETURN_IF_ERROR(SetupInputs(ctx, node_def, &inputs));
   NeuronBatchSharder sharder;
-  TF_RETURN_IF_ERROR(sharder.Setup(info_, inputs));
+  TF_RETURN_IF_ERROR(sharder.Setup(routine_.Info(), inputs));
   std::vector<Tensor> outputs;
   TF_RETURN_IF_ERROR(SetupOutputs(ctx, node_def, sharder, &outputs));
   std::vector<Tensor> buffers;
   TF_RETURN_IF_ERROR(SetupShuffleBuffers(ctx, inputs, &buffers));
-  if (sharder.CanSkip()) {
-    // Fixed shape
-    if (real_input_locations_.size() > 0) {
-      return RunWithIOCachedWeights(&inputs, &buffers, &outputs);
-    }
-    return RunWithIO(&inputs, &buffers, &outputs);
-  }
-
-  // Dynamic batch size
-  std::vector<std::vector<Tensor>> sharded_inputs;
-  std::vector<std::vector<Tensor>> sharded_buffers;
-  std::vector<std::vector<Tensor>> sharded_outputs;
-  TF_RETURN_IF_ERROR(sharder.ShardInputs(&sharded_inputs, inputs));
-  TF_RETURN_IF_ERROR(sharder.ShardInputs(&sharded_buffers, buffers));
-  TF_RETURN_IF_ERROR(sharder.ShardOutputs(&sharded_outputs, outputs));
-  int64 num_shards = (int64)sharded_inputs.size();
-  std::vector<Status> sharded_status;
-  sharded_status.reserve(num_shards);
-  for (int64 idx = 0; idx < num_shards; ++idx) {
-    sharded_status.push_back(errors::Internal("Shard did not run"));
-  }
-
-  // Shard function
-  auto RunShard = [&](int64 start, int64 limit) {
-    for (int64 idx = start; idx < limit; ++idx) {
-      std::vector<Tensor>* shard_inputs = &sharded_inputs.at(idx);
-      std::vector<Tensor>* shard_buffers = &sharded_buffers.at(idx);
-      std::vector<Tensor>* shard_outputs = &sharded_outputs.at(idx);
-      sharded_status.at(idx) =
-          RunWithIO(shard_inputs, shard_buffers, shard_outputs);
-    }
-  };
-
-  // Run shards using CPU thread pool
-  thread::ThreadPool* thread_pool
-      = NeuronCorePlacer::Singleton().GetThreadPool();
-  TFN_RETURN_IF_NULLPTR(thread_pool);
-  int64 cost_per_unit = 1000000000;  // An arbitrary large number
-  thread_pool->ParallelFor(num_shards, cost_per_unit, std::move(RunShard));
-  for (const Status& status : sharded_status) {
-    TF_RETURN_IF_ERROR(status);
-  }
-  return Status::OK();
-}
-
-
-Status NeuronFunction::MaybeInit(const NodeDef& node_def,
-                                 const std::string& session_handle) {
-  tensorflow::mutex_lock lock(mu_);
-  if (TF_PREDICT_TRUE(exe_ != nullptr)) {
-    VLOG(1) << "NeuronFunction is already initialized";
-    return Status::OK();
-  }
-  NeuronCorePlacer& placer = NeuronCorePlacer::Singleton();
-  TF_RETURN_IF_ERROR(placer.GetStatus());
-  exe_ = absl::make_unique<NeuronDataParallelExecutable>();
-  TF_RETURN_IF_ERROR(info_.ParseFromNodeDef(node_def));
-  maybe_init_input_locations_and_names();
-  std::pair<Status, std::vector<NeuronCoreRange>> status_core_ranges =
-      placer.GetParallelCoreRanges(info_, session_handle);
-  TF_RETURN_IF_ERROR(status_core_ranges.first);
-  // check to see if profiling is on
-  if (const char* profile_dir_raw = std::getenv("NEURON_PROFILE")) {
-    std::string profile_dir(profile_dir_raw);
-    for (const auto& nc_range : status_core_ranges.second) {
-      TF_RETURN_IF_ERROR(
-          exe_->AddProfilingExecutable(info_, nc_range, profile_dir));
-      break;
-    }
-  } else {
-    for (const auto& nc_range : status_core_ranges.second) {
-      VLOG(1) << "nc_range is " << nc_range.nc_count_;
-      TF_RETURN_IF_ERROR(exe_->AddExecutable(info_.executable, nc_range));
-    }
-  }
-  VLOG(1) << "NeuronFunction::MaybeInit done";
-  return Status::OK();
-}
-
-void NeuronFunction::maybe_init_input_locations_and_names() {
-  auto locs = info_.real_input_locations;
-  auto real_names = info_.real_input_names;
-  if (!cache_inited_) {
-    if (real_names != nullptr && locs != nullptr) {
-      real_input_locations_.reserve(locs->i_size());
-      for (int idx = 0; idx < locs->i_size(); ++idx) {
-        real_input_locations_.push_back(locs->i(idx));
-      }
-      cache_inited_ = true;
-    }
-  }
+  return routine_.MaybeShardedRun(&sharder, &inputs, &buffers, &outputs);
 }
 
 Status NeuronFunction::SetupInputs(OpKernelContext* ctx,
                                    const NodeDef& node_def,
                                    std::vector<Tensor>* inputs) {
-  int expected_num_inputs = info_.input_dtypes.type_size();
+  int expected_num_inputs = routine_.Info().input_dtypes.type_size();
   int num_inputs = ctx->num_inputs();
   if (TF_PREDICT_FALSE(num_inputs != expected_num_inputs)) {
     return errors::InvalidArgument("Invalid number of inputs ", num_inputs,
@@ -182,7 +76,7 @@ Status NeuronFunction::SetupOutputs(OpKernelContext* ctx,
                                     const NodeDef& node_def,
                                     const NeuronBatchSharder& sharder,
                                     std::vector<Tensor>* outputs) {
-  int expected_num_outputs = info_.output_dtypes.type_size();
+  int expected_num_outputs = routine_.Info().output_dtypes.type_size();
   int num_outputs = ctx->num_outputs();
   if (TF_PREDICT_FALSE(num_outputs != expected_num_outputs)) {
     return errors::InvalidArgument("Invalid number of outputs ", num_outputs,
@@ -224,49 +118,6 @@ Status NeuronFunction::SetupShuffleBuffers(OpKernelContext* ctx,
   VLOG(1) << "NeuronFunction::SetupShuffleBuffers done";
   return Status::OK();
 }
-
-Status NeuronFunction::MaybeShuffle(std::vector<Tensor>* inputs,
-                                    std::vector<Tensor>* shuffle_buffers) {
-  if (0 == info_.input_shuffles.tensor_size()) {
-    return Status::OK();
-  }
-  for (int idx = 0; idx < info_.input_shuffles.tensor_size(); ++idx) {
-    const TensorProto& shuffle = info_.input_shuffles.tensor(idx);
-    if (TF_PREDICT_FALSE(!shuffle.int64_val_size())) {
-      continue;
-    }
-    Tensor src = inputs->at(idx);
-    Tensor* dst = &shuffle_buffers->at(idx);
-    TF_RETURN_IF_ERROR(tensor_shuffle(dst, src, shuffle));
-    inputs->at(idx) = *dst;
-  }
-  return Status::OK();
-}
-
-Status NeuronFunction::RunWithIO(std::vector<Tensor>* inputs,
-                                 std::vector<Tensor>* shuffle_buffers,
-                                 std::vector<Tensor>* outputs) {
-  TF_RETURN_IF_ERROR(MaybeShuffle(inputs, shuffle_buffers));
-  NeuronHostMemory memory;
-  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs));
-  TF_RETURN_IF_ERROR(memory.CopyCPUToInputBuffers(*inputs));
-  TF_RETURN_IF_ERROR(exe_->RunOnHostMemory(&memory));
-  TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
-  return Status::OK();
-}
-
-Status NeuronFunction::RunWithIOCachedWeights(
-    std::vector<Tensor>* inputs, std::vector<Tensor>* shuffle_buffers,
-    std::vector<Tensor>* outputs) {
-  TF_RETURN_IF_ERROR(MaybeShuffle(inputs, shuffle_buffers));
-  NeuronDeviceMemory memory;
-  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs, cache_,
-                                         real_input_locations_));
-  TF_RETURN_IF_ERROR(exe_->RunOnDeviceMemory(&memory));
-  TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
-  return Status::OK();
-}
-
 
 }  // namespace neuron
 }  // namespace tensorflow
