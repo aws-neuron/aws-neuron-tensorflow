@@ -43,11 +43,16 @@ class NeuronFunction {
   Status SetupOutputs(OpKernelContext* ctx, const NodeDef& node_def,
                       const NeuronBatchSharder& sharder,
                       std::vector<Tensor>* outputs);
-  Status MaybeShuffle(OpKernelContext* ctx, std::vector<Tensor>* inputs);
-  Status RunWithIO(OpKernelContext* ctx, std::vector<Tensor>* inputs,
+  Status SetupShuffleBuffers(OpKernelContext* ctx,
+                             const std::vector<Tensor>& inputs,
+                             std::vector<Tensor>* buffers);
+  Status MaybeShuffle(std::vector<Tensor>* inputs,
+                      std::vector<Tensor>* shuffle_buffers);
+  Status RunWithIO(std::vector<Tensor>* inputs,
+                   std::vector<Tensor>* shuffle_buffers,
                    std::vector<Tensor>* outputs);
-  Status RunWithIOCachedWeights(OpKernelContext* ctx,
-                                std::vector<Tensor>* inputs,
+  Status RunWithIOCachedWeights(std::vector<Tensor>* inputs,
+                                std::vector<Tensor>* shuffle_buffers,
                                 std::vector<Tensor>* outputs);
   void maybe_init_input_locations_and_names();
   tensorflow::mutex mu_;

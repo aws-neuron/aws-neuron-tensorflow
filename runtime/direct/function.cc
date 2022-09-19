@@ -56,18 +56,22 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   TF_RETURN_IF_ERROR(sharder.Setup(info_, inputs));
   std::vector<Tensor> outputs;
   TF_RETURN_IF_ERROR(SetupOutputs(ctx, node_def, sharder, &outputs));
+  std::vector<Tensor> buffers;
+  TF_RETURN_IF_ERROR(SetupShuffleBuffers(ctx, inputs, &buffers));
   if (sharder.CanSkip()) {
     // Fixed shape
     if (real_input_locations_.size() > 0) {
-      return RunWithIOCachedWeights(ctx, &inputs, &outputs);
+      return RunWithIOCachedWeights(&inputs, &buffers, &outputs);
     }
-    return RunWithIO(ctx, &inputs, &outputs);
+    return RunWithIO(&inputs, &buffers, &outputs);
   }
 
   // Dynamic batch size
   std::vector<std::vector<Tensor>> sharded_inputs;
+  std::vector<std::vector<Tensor>> sharded_buffers;
   std::vector<std::vector<Tensor>> sharded_outputs;
   TF_RETURN_IF_ERROR(sharder.ShardInputs(&sharded_inputs, inputs));
+  TF_RETURN_IF_ERROR(sharder.ShardInputs(&sharded_buffers, buffers));
   TF_RETURN_IF_ERROR(sharder.ShardOutputs(&sharded_outputs, outputs));
   int64 num_shards = (int64)sharded_inputs.size();
   std::vector<Status> sharded_status;
@@ -80,8 +84,10 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   auto RunShard = [&](int64 start, int64 limit) {
     for (int64 idx = start; idx < limit; ++idx) {
       std::vector<Tensor>* shard_inputs = &sharded_inputs.at(idx);
+      std::vector<Tensor>* shard_buffers = &sharded_buffers.at(idx);
       std::vector<Tensor>* shard_outputs = &sharded_outputs.at(idx);
-      sharded_status.at(idx) = RunWithIO(ctx, shard_inputs, shard_outputs);
+      sharded_status.at(idx) =
+          RunWithIO(shard_inputs, shard_buffers, shard_outputs);
     }
   };
 
@@ -172,8 +178,6 @@ Status NeuronFunction::SetupInputs(OpKernelContext* ctx,
   return Status::OK();
 }
 
-
-
 Status NeuronFunction::SetupOutputs(OpKernelContext* ctx,
                                     const NodeDef& node_def,
                                     const NeuronBatchSharder& sharder,
@@ -208,8 +212,21 @@ Status NeuronFunction::SetupOutputs(OpKernelContext* ctx,
   return Status::OK();
 }
 
-Status NeuronFunction::MaybeShuffle(OpKernelContext* ctx,
-                                    std::vector<Tensor>* inputs) {
+Status NeuronFunction::SetupShuffleBuffers(OpKernelContext* ctx,
+                                           const std::vector<Tensor>& inputs,
+                                           std::vector<Tensor>* buffers) {
+  buffers->resize(inputs.size());
+  for (size_t idx = 0; idx < inputs.size(); ++idx) {
+    const Tensor& src = inputs.at(idx);
+    Tensor* dst = &buffers->at(idx);
+    TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
+  }
+  VLOG(1) << "NeuronFunction::SetupShuffleBuffers done";
+  return Status::OK();
+}
+
+Status NeuronFunction::MaybeShuffle(std::vector<Tensor>* inputs,
+                                    std::vector<Tensor>* shuffle_buffers) {
   if (0 == info_.input_shuffles.tensor_size()) {
     return Status::OK();
   }
@@ -219,17 +236,17 @@ Status NeuronFunction::MaybeShuffle(OpKernelContext* ctx,
       continue;
     }
     Tensor src = inputs->at(idx);
-    Tensor* dst = &inputs->at(idx);
-    TF_RETURN_IF_ERROR(ctx->allocate_temp(src.dtype(), src.shape(), dst));
+    Tensor* dst = &shuffle_buffers->at(idx);
     TF_RETURN_IF_ERROR(tensor_shuffle(dst, src, shuffle));
+    inputs->at(idx) = *dst;
   }
   return Status::OK();
 }
 
-Status NeuronFunction::RunWithIO(OpKernelContext* ctx,
-                                 std::vector<Tensor>* inputs,
+Status NeuronFunction::RunWithIO(std::vector<Tensor>* inputs,
+                                 std::vector<Tensor>* shuffle_buffers,
                                  std::vector<Tensor>* outputs) {
-  TF_RETURN_IF_ERROR(MaybeShuffle(ctx, inputs));
+  TF_RETURN_IF_ERROR(MaybeShuffle(inputs, shuffle_buffers));
   NeuronHostMemory memory;
   TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs));
   TF_RETURN_IF_ERROR(memory.CopyCPUToInputBuffers(*inputs));
@@ -238,12 +255,13 @@ Status NeuronFunction::RunWithIO(OpKernelContext* ctx,
   return Status::OK();
 }
 
-Status NeuronFunction::RunWithIOCachedWeights(OpKernelContext* ctx,
-                                 std::vector<Tensor>* inputs,
-                                 std::vector<Tensor>* outputs) {
-  TF_RETURN_IF_ERROR(MaybeShuffle(ctx, inputs));
+Status NeuronFunction::RunWithIOCachedWeights(
+    std::vector<Tensor>* inputs, std::vector<Tensor>* shuffle_buffers,
+    std::vector<Tensor>* outputs) {
+  TF_RETURN_IF_ERROR(MaybeShuffle(inputs, shuffle_buffers));
   NeuronDeviceMemory memory;
-  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs, cache_, real_input_locations_));
+  TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs, cache_,
+                                         real_input_locations_));
   TF_RETURN_IF_ERROR(exe_->RunOnDeviceMemory(&memory));
   TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
   return Status::OK();
