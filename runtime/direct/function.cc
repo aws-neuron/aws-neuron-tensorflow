@@ -36,8 +36,13 @@ Status NeuronFunction::Run(OpKernelContext* ctx, const NodeDef& node_def) {
   TF_RETURN_IF_ERROR(routine_.MaybeInit(node_def, ctx->session_handle()));
   std::vector<Tensor> inputs;
   TF_RETURN_IF_ERROR(SetupInputs(ctx, node_def, &inputs));
+  std::vector<TensorShape> input_shapes;
+  input_shapes.reserve(inputs.size());
+  for (const Tensor& tensor : inputs) {
+    input_shapes.push_back(tensor.shape());
+  }
   NeuronBatchSharder sharder;
-  TF_RETURN_IF_ERROR(sharder.Setup(routine_.Info(), inputs));
+  TF_RETURN_IF_ERROR(sharder.Setup(routine_.Info(), input_shapes));
   std::vector<Tensor> outputs;
   TF_RETURN_IF_ERROR(SetupOutputs(ctx, node_def, sharder, &outputs));
   std::vector<Tensor> buffers;
