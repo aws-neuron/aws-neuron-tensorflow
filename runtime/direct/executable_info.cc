@@ -20,6 +20,7 @@ limitations under the License.
 #include <cstdint>
 #include <string>
 
+#include "node_def_keys.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/framework/tensor.h"
@@ -29,25 +30,6 @@ limitations under the License.
 
 namespace tensorflow {
 namespace neuron {
-
-// Required keys
-constexpr char kExecutable[] = "executable";
-constexpr char kGraphDef[] = "graph_def";
-constexpr char kModelConfig[] = "model_config";
-constexpr char kInputNames[] = "input_names";
-constexpr char kInputDtypes[] = "input_dtypes";
-constexpr char kInputShapes[] = "input_shapes";
-constexpr char kInputBatchAxis[] = "input_batch_axis";
-constexpr char kOutputNames[] = "output_names";
-constexpr char kOutputDtypes[] = "output_dtypes";
-constexpr char kOutputShapes[] = "output_shapes";
-constexpr char kOutputBatchAxis[] = "output_batch_axis";
-
-// Optional keys
-constexpr char kAutoMulticore[] = "_automatic_multicore";
-constexpr char kInputShuffles[] = "_input_shuffles";
-constexpr char kRealInputNames[] = "_real_input_names";
-constexpr char kRealInputLocations[] = "_real_input_locations";
 
 Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   name = node_def.name();

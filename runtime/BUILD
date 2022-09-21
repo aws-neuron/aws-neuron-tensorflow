@@ -340,6 +340,7 @@ cc_library(
     hdrs = ["direct/executable_info.h"],
     srcs = ["direct/executable_info.cc"],
     deps = [
+        ":direct/node_def_keys",
         "@org_tensorflow//tensorflow/core:framework",
         "@org_tensorflow//tensorflow/core:lib",
     ],
@@ -391,6 +392,11 @@ cc_library(
     deps = [
         "@org_tensorflow//tensorflow/core:framework",
     ],
+)
+
+cc_library(
+    name = "direct/node_def_keys",
+    hdrs = ["direct/node_def_keys.h"],
 )
 
 cc_library(
