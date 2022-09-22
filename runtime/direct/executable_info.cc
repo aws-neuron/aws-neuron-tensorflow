@@ -102,6 +102,7 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
       if (shuffle_proto.int64_val_size()) {
         shuffle_proto.set_dtype(DataType::DT_INT64);
         auto* shape = shuffle_proto.mutable_tensor_shape();
+        shape->clear_dim();
         shape->add_dim()->set_size(shuffle_proto.int64_val_size());
       }
       Tensor shuffle;
