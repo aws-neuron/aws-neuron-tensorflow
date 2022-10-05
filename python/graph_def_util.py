@@ -485,9 +485,12 @@ def set_execution_plan(compiled_graph_def):
             num_cores_tuple_map[node.name] = num_cores_tuple
     max_num_duplicates = 64
     tfn_args, _ = utils.parse_neuron_cc_flags()
-    if mis_config or not num_cores_tuple_map or tfn_args.extract_weights:
+    if mis_config or not num_cores_tuple_map:
         global_opt_num_cores = -1
         max_num_duplicates = 1
+    elif tfn_args.extract_weights:
+        max_num_duplicates = min(4, calculate_max_num_cores(compiled_graph_def))
+        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
     else:
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
     if len(neuron_nodes) > 1:
@@ -506,6 +509,28 @@ def set_execution_plan(compiled_graph_def):
         model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
         node.attr['model_config'].list.i[:] = model_config
     return compiled_graph_def
+
+
+def calculate_max_num_cores(compiled_graph_def):
+    # returns floor((Device Memory - NEFF Size) / Weights Size))
+    # NEFF gets loaded once and weights get loaded on each core hence the above formula
+    # Currently only supports inf1.2xlarge so device memory = 8gb.
+    # TODO: Support all inf1 instance types
+    neuron_nodes = get_neuron_nodes(compiled_graph_def)
+    neff_size = 0
+    weights_size = 0
+
+    for node in neuron_nodes:
+        neff_size += len(node.attr[knExecutable].s)
+        for shape, dtype in zip(node.attr['input_shapes'].list.shape, node.attr['input_dtypes'].list.type):
+            num_elements = 1 #accumulator var for calcuating number of elements in a given input tensor
+            for dim in shape.dim:
+                num_elements *= dim.size
+            #multiply num of elements * dtype size to get size of tensor
+            weights_size += num_elements * dtypes.as_dtype(dtype).size
+
+    return math.floor(8e9 / (neff_size + weights_size))  
+
 
 
 def get_neuron_nodes(graph_def):
