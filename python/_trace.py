@@ -408,6 +408,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dum
     fuser_automatic = subgraph_builder_function is None
     original_graph_def = graph_def
     opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+    signature_def = meta_graph_def.signature_def['serving_default']
     rewriter_config = opt_config.graph_options.rewrite_options
     optimizers = rewriter_config.optimizers
     optimizers.append('debug_stripper')
@@ -443,6 +444,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dum
         fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
         no_fuse_ops = [node.name for node in graph_def.node]
         fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
+    mgu.setup_opt_config_node(meta_graph_def.graph_def, signature_def, list_operators(), subgraph_builder_function)
 
     # call all grappler passes
     with utils.change_grappler_logging_level_according_to_cc_flags():

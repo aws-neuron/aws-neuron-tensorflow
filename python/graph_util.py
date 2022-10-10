@@ -493,6 +493,7 @@ def whitelist_partition(graph_def, signature_def,
     # create meta_graph_def and run grappler passes
     meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
     meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
+    mgu.setup_opt_config_node_v1(meta_graph_def, minimum_segment_size, supported_op_types, no_fuse_ops, force_fuse_ops)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # add subgraph's control input to `NeuronOp`'s control input
