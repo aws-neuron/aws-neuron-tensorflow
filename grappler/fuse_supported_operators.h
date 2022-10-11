@@ -23,28 +23,17 @@ namespace tensorflow {
 namespace grappler {
 namespace neuron {
 
-constexpr char name_optimizer[] = "aws_neuron_fuse_supported_operators";
-
 class FuseSupportedOperators : public CustomGraphOptimizer {
  public:
   Status Init(const tensorflow::RewriterConfig_CustomGraphOptimizer* config =
                   nullptr) override;
   ~FuseSupportedOperators() override {}
-  std::string name() const override { return name_optimizer; }
+  std::string name() const override;
   bool UsesFunctionLibrary() const { return true; }
   Status Optimize(Cluster* cluster, const GrapplerItem& item,
                   GraphDef* output) override;
   void Feedback(Cluster* cluster, const GrapplerItem& item,
                 const GraphDef& optimize_output, double result);
-
- private:
-  int minimum_segment_size_ = 1;
-  bool fuse_foldable_nodes_ = false;
-  bool automatic_ = false;
-  double prune_small_subgraphs_ratio_ = 0.0;
-  std::set<std::string> supported_op_types_;
-  std::set<std::string> no_fuse_ops_;
-  std::set<std::string> force_fuse_ops_;
 };
 
 }  // end namespace neuron

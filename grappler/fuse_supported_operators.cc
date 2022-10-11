@@ -36,6 +36,10 @@ constexpr char key_no_fuse_ops[] = "no_fuse_ops";
 constexpr char key_force_fuse_ops[] = "force_fuse_ops";
 constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
 constexpr int kNeuronFewChannelThreshold = 32;
+constexpr char kNeuronOptimizerConfig[] = "_aws_neuron_optimizer_config";
+constexpr char kInputOpNames[] = "input_op_names";
+constexpr char kOutputOpNames[] = "output_op_names";
+constexpr char name_optimizer[] = "aws_neuron_fuse_supported_operators";
 
 template <class T>
 std::string container_debug_string(const T& container) {
@@ -207,46 +211,10 @@ std::set<std::string> ExpensiveTypeStrings() {
 
 Status FuseSupportedOperators::Init(
     const tensorflow::RewriterConfig_CustomGraphOptimizer* config) {
-  const auto& parameter_map = config->parameter_map();
-  if (parameter_map.count(key_minimum_segment_size)) {
-    minimum_segment_size_ = parameter_map.at(key_minimum_segment_size).i();
-  }
-  if (parameter_map.count(key_fuse_foldable_nodes)) {
-    fuse_foldable_nodes_ = parameter_map.at(key_fuse_foldable_nodes).b();
-  }
-  if (parameter_map.count(key_automatic)) {
-    automatic_ = parameter_map.at(key_automatic).b();
-  }
-  if (parameter_map.count(key_prune_small_subgraphs_ratio)) {
-    prune_small_subgraphs_ratio_ =
-        parameter_map.at(key_prune_small_subgraphs_ratio).f();
-  }
-  if (!parameter_map.count(key_supported_op_types)) {
-    return errors::InvalidArgument(
-        name_optimizer,
-        " requires providing a list of supported operator names");
-  }
-  const auto& param_supported_op_types =
-      parameter_map.at(key_supported_op_types).list().s();
-  supported_op_types_ = {param_supported_op_types.begin(),
-                         param_supported_op_types.end()};
-  VLOG(2) << "supported_op_types_ "
-          << container_debug_string(supported_op_types_);
-  if (parameter_map.count(key_no_fuse_ops)) {
-    const auto& param_no_fuse_ops =
-        parameter_map.at(key_no_fuse_ops).list().s();
-    no_fuse_ops_ = {param_no_fuse_ops.begin(), param_no_fuse_ops.end()};
-  }
-  VLOG(2) << "no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
-  if (parameter_map.count(key_force_fuse_ops)) {
-    const auto& param_force_fuse_ops =
-        parameter_map.at(key_force_fuse_ops).list().s();
-    force_fuse_ops_ = {param_force_fuse_ops.begin(),
-                       param_force_fuse_ops.end()};
-  }
-  VLOG(2) << "force_fuse_ops_ " << container_debug_string(force_fuse_ops_);
   return Status::OK();
 }
+
+std::string FuseSupportedOperators::name() const { return name_optimizer; }
 
 Status FuseSupportedOperators::Optimize(Cluster* cluster,
                                         const GrapplerItem& item,
@@ -254,37 +222,100 @@ Status FuseSupportedOperators::Optimize(Cluster* cluster,
   if (cluster == nullptr) {
     return errors::InvalidArgument("cluster == nullptr");
   }
-  std::vector<std::string> input_op_names;
-  for (const auto& feed : item.feed) {
-    input_op_names.push_back(feed.first);
+  VLOG(5) << "item.graph=" << item.graph.DebugString();
+  const NodeDef* oc_node = nullptr;
+  for (const NodeDef& node : item.graph.node()) {
+    if (node.op() == "Placeholder" || node.op() == "PlaceholderWithDefault") {
+      if (node.attr().count(kNeuronOptimizerConfig)) {
+        oc_node = &node;
+        break;
+      }
+    }
   }
+  if (nullptr == oc_node) {
+    return errors::InvalidArgument("Did not find optimizer config node.");
+  }
+  const auto& attr = oc_node->attr().at(kNeuronOptimizerConfig).func().attr();
+  std::vector<std::string> input_op_names;
+  std::vector<std::string> output_op_names;
+  int minimum_segment_size = 1;
+  bool fuse_foldable_nodes = false;
+  bool automatic = false;
+  double prune_small_subgraphs_ratio = 0.0;
+  std::set<std::string> supported_op_types;
+  std::set<std::string> no_fuse_ops;
+  std::set<std::string> force_fuse_ops;
+  if (!attr.count(kInputOpNames)) {
+    return errors::InvalidArgument(name_optimizer, " requires input op names");
+  }
+  const auto& attr_input_op_names = attr.at(kInputOpNames).list().s();
+  input_op_names = {attr_input_op_names.begin(), attr_input_op_names.end()};
+  if (!attr.count(kOutputOpNames)) {
+    return errors::InvalidArgument(name_optimizer, " requires output op names");
+  }
+  const auto& attr_output_op_names = attr.at(kOutputOpNames).list().s();
+  output_op_names = {attr_output_op_names.begin(), attr_output_op_names.end()};
+  if (attr.count(key_minimum_segment_size)) {
+    minimum_segment_size = attr.at(key_minimum_segment_size).i();
+  }
+  if (attr.count(key_fuse_foldable_nodes)) {
+    fuse_foldable_nodes = attr.at(key_fuse_foldable_nodes).b();
+  }
+  if (attr.count(key_automatic)) {
+    automatic = attr.at(key_automatic).b();
+  }
+  if (attr.count(key_prune_small_subgraphs_ratio)) {
+    prune_small_subgraphs_ratio = attr.at(key_prune_small_subgraphs_ratio).f();
+  }
+  if (!attr.count(key_supported_op_types)) {
+    return errors::InvalidArgument(
+        name_optimizer,
+        " requires providing a list of supported operator names");
+  }
+  const auto& param_supported_op_types =
+      attr.at(key_supported_op_types).list().s();
+  supported_op_types = {param_supported_op_types.begin(),
+                        param_supported_op_types.end()};
+  VLOG(2) << "supported_op_types "
+          << container_debug_string(supported_op_types);
+  if (attr.count(key_no_fuse_ops)) {
+    const auto& param_no_fuse_ops = attr.at(key_no_fuse_ops).list().s();
+    no_fuse_ops = {param_no_fuse_ops.begin(), param_no_fuse_ops.end()};
+  }
+  VLOG(2) << "no_fuse_ops " << container_debug_string(no_fuse_ops);
+  if (attr.count(key_force_fuse_ops)) {
+    const auto& param_force_fuse_ops = attr.at(key_force_fuse_ops).list().s();
+    force_fuse_ops = {param_force_fuse_ops.begin(), param_force_fuse_ops.end()};
+  }
+  VLOG(2) << "force_fuse_ops " << container_debug_string(force_fuse_ops);
+
   std::set<std::string> expensive_op_types;
-  if (automatic_) {
-    no_fuse_ops_.clear();
-    force_fuse_ops_.clear();
+  if (automatic) {
+    no_fuse_ops.clear();
+    force_fuse_ops.clear();
     FunctionLibraryDefinition flib(OpRegistry::Global(), item.graph.library());
     Graph graph(flib);
     TF_RETURN_IF_ERROR(
         ConvertGraphDefToGraph(GraphConstructorOptions(), item.graph, &graph));
 
     // Exclude Pad etc. that precede the first few-channel Conv2D
-    TF_RETURN_IF_ERROR(MaybeExcludeFirstConv2DParents(&no_fuse_ops_, graph));
+    TF_RETURN_IF_ERROR(MaybeExcludeFirstConv2DParents(&no_fuse_ops, graph));
 
     // Exclude int64 Select ops
-    ExcludeInt64Select(&no_fuse_ops_, graph);
+    ExcludeInt64Select(&no_fuse_ops, graph);
 
     // Exclude arithmetic-unintensive consumers of Concat for object detectors
     expensive_op_types = ExpensiveTypeStrings();
-    ExcludeConcatCheapConsumers(&no_fuse_ops_, graph, expensive_op_types);
+    ExcludeConcatCheapConsumers(&no_fuse_ops, graph, expensive_op_types);
 
-    VLOG(2) << "auto no_fuse_ops_ " << container_debug_string(no_fuse_ops_);
+    VLOG(2) << "auto no_fuse_ops " << container_debug_string(no_fuse_ops);
   }
   VLOG(2) << "input_op_names " << container_debug_string(input_op_names);
-  VLOG(2) << "output_op_names " << container_debug_string(item.fetch);
+  VLOG(2) << "output_op_names " << container_debug_string(output_op_names);
   TF_RETURN_IF_ERROR(tensorflow::neuron::convert::CreateNeuronGraphDef(
-      output, item.graph, input_op_names, item.fetch, fuse_foldable_nodes_,
-      minimum_segment_size_, prune_small_subgraphs_ratio_, supported_op_types_,
-      no_fuse_ops_, force_fuse_ops_, expensive_op_types));
+      output, item.graph, input_op_names, output_op_names, fuse_foldable_nodes,
+      minimum_segment_size, prune_small_subgraphs_ratio, supported_op_types,
+      no_fuse_ops, force_fuse_ops, expensive_op_types));
   return Status::OK();
 }
 
