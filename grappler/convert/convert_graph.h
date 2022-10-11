@@ -70,16 +70,7 @@ struct ConvertGraphParams {
   int neuron_op_count;
 };
 
-Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
-                            const std::vector<std::string>& input_op_names,
-                            const std::vector<std::string>& output_op_names,
-                            const bool fuse_foldable_nodes,
-                            const int minimum_segment_size,
-                            const double prune_small_subgraphs_ratio,
-                            const std::set<std::string>& supported_op_types,
-                            const std::set<std::string>& no_fuse_ops,
-                            const std::set<std::string>& force_fuse_ops,
-                            const std::set<std::string>& expensive_op_types);
+Status ConvertToNeuron(GraphDef* new_graph_def, const GraphDef& graph_def);
 
 }  // namespace convert
 }  // namespace neuron
