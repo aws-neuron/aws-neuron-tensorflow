@@ -44,10 +44,8 @@ def setup_opt_config_node_v1(meta_graph_def, supported_op_types, minimum_segment
     attr['supported_op_types'].list.s.extend(compat.as_bytes(item) for item in supported_op_types)
     attr['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
     attr['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
-    input_op_names = [_tensor_name_to_op_name(name) for name in signature_def.inputs]
-    input_op_names = _unique_string_list(input_op_names)
-    output_op_names = [_tensor_name_to_op_name(name) for name in signature_def.outputs]
-    output_op_names = _unique_string_list(output_op_names)
+    input_op_names = _read_op_names(signature_def.inputs)
+    output_op_names = _read_op_names(signature_def.outputs)
     attr['input_op_names'].list.s.extend(name.encode() for name in input_op_names)
     attr['output_op_names'].list.s.extend(name.encode() for name in output_op_names)
 
@@ -69,12 +67,15 @@ def setup_opt_config_node(graph_def, signature_def, supported_op_types, subgraph
         attr['force_fuse_ops'].list.s.extend(force_fuse_ops)
         no_fuse_ops = [node.name.encode() for node in graph_def.node]
         attr['no_fuse_ops'].list.s.extend(no_fuse_ops)
-    input_op_names = [_tensor_name_to_op_name(name) for name in signature_def.inputs]
-    input_op_names = _unique_string_list(input_op_names)
-    output_op_names = [_tensor_name_to_op_name(name) for name in signature_def.outputs]
-    output_op_names = _unique_string_list(output_op_names)
+    input_op_names = _read_op_names(signature_def.inputs)
+    output_op_names = _read_op_names(signature_def.outputs)
     attr['input_op_names'].list.s.extend(name.encode() for name in input_op_names)
     attr['output_op_names'].list.s.extend(name.encode() for name in output_op_names)
+
+
+def _read_op_names(sig_def_tensors):
+    op_names = [_tensor_name_to_op_name(value.name) for value in sig_def_tensors.values()]
+    return _unique_string_list(op_names)
 
 
 def _tensor_name_to_op_name(name):

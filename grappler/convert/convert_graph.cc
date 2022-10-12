@@ -1143,6 +1143,20 @@ Status ConvertToNeuron(GraphDef* new_graph_def, const GraphDef& graph_def) {
   if (!attr.count(kOutputOpNames)) {
     return errors::InvalidArgument("Missing output op names");
   }
+  std::unordered_set<std::string> all_node_names;
+  for (const NodeDef& node : graph_def.node()) {
+    all_node_names.insert(node.name());
+  }
+  for (const std::string& op_name : input_op_names) {
+    if (!all_node_names.count(op_name)) {
+      return errors::InvalidArgument("Invalid input op name ", op_name);
+    }
+  }
+  for (const std::string& op_name : output_op_names) {
+    if (!all_node_names.count(op_name)) {
+      return errors::InvalidArgument("Invalid output op name ", op_name);
+    }
+  }
   const auto& attr_output_op_names = attr.at(kOutputOpNames).list().s();
   output_op_names = {attr_output_op_names.begin(), attr_output_op_names.end()};
   if (attr.count(key_minimum_segment_size)) {
