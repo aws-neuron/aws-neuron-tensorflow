@@ -27,7 +27,7 @@ limitations under the License.
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/grappler/grappler_item.h"
 #include "tensorflow/lite/toco/toco_port.h"
-#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
+#include "tensorflow/neuron/grappler/convert/graph_constructor_wrapper.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 
 namespace tensorflow {

@@ -17,7 +17,7 @@ limitations under the License.
 #include "tensorflow/compiler/jit/shape_inference.h"
 #include "tensorflow/core/grappler/grappler_item.h"
 #include "tensorflow/core/grappler/op_types.h"
-#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
+#include "tensorflow/neuron/grappler/convert/graph_constructor_wrapper.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 
 namespace tensorflow {

@@ -52,7 +52,7 @@ cc_library(
         "//tensorflow/core/grappler:grappler_item",
         "//tensorflow/compiler/jit:xla_jit_headers_lib",
         "//tensorflow/compiler/xla:statusor",
-        ":graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:graph_constructor_wrapper",
         ":graph_optimizer_registry",
     ],
 )
@@ -63,7 +63,7 @@ cc_library(
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/neuron/grappler:graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:graph_constructor_wrapper",
         ":graph_optimizer_registry",
     ],
     alwayslink = 1,
@@ -75,7 +75,7 @@ cc_library(
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/neuron/grappler:graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:graph_constructor_wrapper",
         "//tensorflow/lite/toco:toco_port",
         ":graph_optimizer_registry",
     ],
@@ -88,14 +88,5 @@ cc_library(
     hdrs = ["graph_optimizer_registry.h"],
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer_registry",
-    ],
-)
-
-cc_library(
-    name = "graph_constructor_wrapper",
-    hdrs = ["graph_constructor_wrapper.h"],
-    deps = [
-        "//tensorflow/core:core_cpu",
-        "//tensorflow/neuron/runtime:direct/macros",
     ],
 )

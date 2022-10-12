@@ -1,14 +1,12 @@
 package(default_visibility = ["//visibility:public"])
 
-
 cc_library(
     name = "convert_graph",
     srcs = ["convert_graph.cc"],
     hdrs = ["convert_graph.h"],
     deps = [
         ":segment",
-        "//tensorflow/neuron/grappler:graph_constructor_wrapper",
-        "//tensorflow/neuron/runtime:direct/macros",
+        ":graph_constructor_wrapper",
     ],
 )
 
@@ -22,6 +20,14 @@ cc_library(
         "segment.h",
     ],
     deps = [
-        "//tensorflow/core:core_cpu",
+        "@org_tensorflow//tensorflow/core:core_cpu",
+    ],
+)
+
+cc_library(
+    name = "graph_constructor_wrapper",
+    hdrs = ["graph_constructor_wrapper.h"],
+    deps = [
+        "@org_tensorflow//tensorflow/core:core_cpu",
     ],
 )

@@ -12,15 +12,13 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-
-#include "tensorflow/neuron/grappler/convert/convert_graph.h"
+#include "graph_constructor_wrapper.h"
+#include "segment.h"
 #include "tensorflow/core/framework/graph_def_util.h"
 #include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/hash/hash.h"
-#include "tensorflow/neuron/grappler/convert/segment.h"
-#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -139,7 +137,7 @@ Status MaybeExcludeFirstConv2DParents(std::set<std::string>* no_fuse_ops,
     };
     ReverseDFSFrom(graph, starts, enter, /*leave=*/nullptr);
   }
-  if (no_fuse_ops->size() > graph.num_op_nodes() / 2) {
+  if (no_fuse_ops->size() > (size_t)(graph.num_op_nodes() / 2)) {
     // Don't exclude if need to exclude more than 50% of total ops
     no_fuse_ops->clear();
   }
@@ -849,7 +847,7 @@ static tensorflow::Status ProcessSegments(
   return status;
 }
 
-void PreProcessSegmentsForResources(
+Status PreProcessSegmentsForResources(
     tensorflow::Graph& graph,
     tensorflow::tensorrt::segment::SegmentNodesVector& normal_segments) {
   /*
@@ -861,7 +859,7 @@ void PreProcessSegmentsForResources(
     3. Remove all segments in remove list from segment list.
   */
   std::unordered_map<string, tensorflow::Node*> node_map;
-  TF_LOG_IF_ERROR(BuildNodeMap(graph, &node_map));
+  TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
   std::set<int> remove_segment_index;
   for (auto idx = 0; idx < (int)normal_segments.size(); idx++) {
     std::set<const Node*>& nodes_in_segment = normal_segments[idx];
@@ -902,6 +900,7 @@ void PreProcessSegmentsForResources(
             << " num of segment nodes : " << normal_segments[rel_idx].size();
     normal_segments.erase(normal_segments.begin() + rel_idx);
   }
+  return Status::OK();
 }
 
 // Performing :
@@ -1147,7 +1146,7 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   }
 
   if (segments.size()) {
-    PreProcessSegmentsForResources(graph, segments);
+    TF_RETURN_IF_ERROR(PreProcessSegmentsForResources(graph, segments));
     TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map, segments));
   }
 
