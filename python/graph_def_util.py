@@ -512,9 +512,9 @@ def set_execution_plan(compiled_graph_def):
 
 
 def calculate_max_num_cores(compiled_graph_def):
-    # returns floor((Device Memory - NEFF Size) / Weights Size))
-    # NEFF gets loaded once and weights get loaded on each core hence the above formula
-    # Currently only supports inf1.2xlarge so device memory = 8gb.
+    # returns the amount number of models that can fit on one channel of memory
+    # NEFF and Weights get loaded into device memory and
+    # One channel of memory is 4gb and there are two channels on an inf1.2xlarge
     # TODO: Support all inf1 instance types
     neuron_nodes = get_neuron_nodes(compiled_graph_def)
     neff_size = 0
@@ -529,7 +529,7 @@ def calculate_max_num_cores(compiled_graph_def):
             #multiply num of elements * dtype size to get size of tensor
             weights_size += num_elements * dtypes.as_dtype(dtype).size
 
-    return math.floor(8e9 / (neff_size + weights_size))  
+    return math.floor(4e9 / (neff_size + weights_size)) * 2
 
 
 

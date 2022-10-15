@@ -43,18 +43,19 @@ class NeuronRoutine {
                          std::vector<Tensor>* outputs);
 
  private:
-  void maybe_init_input_locations_and_names();
   Status MaybeShuffle(std::vector<Tensor>* inputs,
                       std::vector<Tensor>* shuffle_buffers);
   Status RunWithIO(std::vector<Tensor>* inputs,
                    std::vector<Tensor>* shuffle_buffers,
                    std::vector<Tensor>* outputs);
+  void MaybeInitInputLocations();
+  void MaybeInitCache();
+  int32_t CoreIDToMemoryID(int32_t core_id);
   tensorflow::mutex mu_;
   NeuronExecutableInfo info_;
   std::unique_ptr<NeuronDataParallelExecutable> exe_;
-  std::vector<std::shared_ptr<NeuronDeviceBuffer>> cache_;
   std::vector<int> real_input_locations_;
-  bool cache_inited_ = false;
+  std::vector<std::vector<std::shared_ptr<NeuronDeviceBuffer>>> cache_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronRoutine);
 };
 

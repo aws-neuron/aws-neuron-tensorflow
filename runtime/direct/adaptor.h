@@ -49,7 +49,8 @@ class Nrt {
   static Status Close();
   static Status AllocEmptyBuffer(NrtBuffer* buffer);
   static Status AllocHostBuffer(NrtBuffer* buffer, size_t size);
-  static Status AllocDeviceBuffer(NrtBuffer* buffer, size_t size);
+  static Status AllocDeviceBuffer(NrtBuffer* buffer, size_t size,
+                                  int logical_id);
   static Status FreeBuffer(NrtBuffer* buffer);
   static Status AttachCpuToBuffer(NrtBuffer* buffer, void* cpu_buffer,
                                   size_t size);

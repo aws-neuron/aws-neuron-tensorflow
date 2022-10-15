@@ -305,19 +305,21 @@ Status NeuronHostMemory::CopyOutputBuffersToCPU(
 
 // NEURON DEVICE BUFFER
 
-NeuronDeviceBuffer::NeuronDeviceBuffer(size_t size) {
-  // Allocate a new host buffer
+NeuronDeviceBuffer::NeuronDeviceBuffer(size_t size, int32_t memory_id) {
+  // Allocate a new device buffer
   if (TF_PREDICT_FALSE(0 == size)) {
     return;
   }
-  Status status = Nrt::AllocDeviceBuffer(&rt_buffer_, size);
+  Status status = Nrt::AllocDeviceBuffer(&rt_buffer_, size, memory_id);
   if (TF_PREDICT_FALSE(!status.ok())) {
-    VLOG(1) << "There was in error in NDB constructor";
+    VLOG(1) << "There was in error in NDB constructor called with size " << size
+            << " and memory_id " << memory_id;
     LOG(ERROR) << status;
     return;
   }
   size_ = size;
   payload_ = size;
+  memory_id_ = memory_id;
 }
 
 NeuronDeviceBuffer::~NeuronDeviceBuffer() {
@@ -387,10 +389,9 @@ Status NeuronDeviceMemory::SetupBuffers(
         TensorSize(info.input_dtypes.type(idx), info.input_shapes.shape(idx));
     const Tensor& tensor = input_tensors->at(idx);
     if (!cache_setup) {
-      buffer = std::make_shared<NeuronDeviceBuffer>(size);
+      buffer = std::make_shared<NeuronDeviceBuffer>(size, memory_id_);
       TF_RETURN_IF_ERROR(buffer->CopyCpuToBuffer(GetData(tensor), size));
       input_buffers_.push_back(buffer);
-      // can't make the pointer here because it will die
       std::shared_ptr<NeuronDeviceBuffer> cached_buffer = buffer;
       // add buffer to cache
       cache.push_back(cached_buffer);
@@ -399,14 +400,14 @@ Status NeuronDeviceMemory::SetupBuffers(
       // if the cache is setup then see if this is a real input.
       if (std::find(real_input_locations.begin(), real_input_locations.end(),
                     idx) != real_input_locations.end()) {
-        VLOG(1) << "I think this is a real input";
-        buffer = std::make_shared<NeuronDeviceBuffer>(size);
+        VLOG(1) << "Using Real Input at index: " << idx;
+        buffer = std::make_shared<NeuronDeviceBuffer>(size, memory_id_);
         TF_RETURN_IF_ERROR(buffer->CopyCpuToBuffer(GetData(tensor), size));
         input_buffers_.push_back(buffer);
       }
       // if it isn't use the cached one
       else {
-        VLOG(1) << "holy crap I used a cached buffer";
+        VLOG(1) << "Using Cached Buffer at index: " << idx;
         input_buffers_.push_back(cache.at(idx));
       }
       TF_RETURN_IF_ERROR(input_buffers_.back()->GetStatus());
@@ -424,7 +425,7 @@ Status NeuronDeviceMemory::SetupBuffers(
         TensorSize(info.output_dtypes.type(idx), info.output_shapes.shape(idx));
     std::shared_ptr<NeuronDeviceBuffer> buffer;
     const Tensor& tensor = output_tensors->at(idx);
-    buffer = std::make_shared<NeuronDeviceBuffer>(size);
+    buffer = std::make_shared<NeuronDeviceBuffer>(size, memory_id_);
     output_buffers_.push_back(buffer);
     TF_RETURN_IF_ERROR(output_buffers_.back()->GetStatus());
   }

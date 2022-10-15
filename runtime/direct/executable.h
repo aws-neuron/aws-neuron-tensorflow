@@ -72,10 +72,11 @@ class NeuronDataParallelExecutable {
                                 const NeuronCoreRange& nc_range,
                                 const std::string& profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
-  Status RunOnDeviceMemory(NeuronDeviceMemory* memory);
+  Status RunOnDeviceMemory(NeuronDeviceMemory* memory, int32_t core_id);
+  size_t GetRoundRobinId();
+  size_t GetNumLoadedModels() { return executables_.size(); }
 
  private:
-  size_t GetRoundRobinId();
   tensorflow::mutex mu_;
   std::vector<std::shared_ptr<NeuronExecutable>> executables_;
   size_t round_robin_exe_id_ = 0;

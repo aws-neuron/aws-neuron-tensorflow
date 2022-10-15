@@ -111,11 +111,12 @@ Status NeuronDataParallelExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
   return executables_.at(GetRoundRobinId())->RunOnHostMemory(memory);
 }
 
-Status NeuronDataParallelExecutable::RunOnDeviceMemory(NeuronDeviceMemory* memory) {
+Status NeuronDataParallelExecutable::RunOnDeviceMemory(
+    NeuronDeviceMemory* memory, int32_t core_id) {
   if (TF_PREDICT_FALSE(executables_.empty())) {
-        return errors::FailedPrecondition(__func__, " called without executables");
+    return errors::FailedPrecondition(__func__, " called without executables");
   }
-  return executables_.at(GetRoundRobinId())->RunOnDeviceMemory(memory);
+  return executables_.at(core_id)->RunOnDeviceMemory(memory);
 }
 
 size_t NeuronDataParallelExecutable::GetRoundRobinId() {
@@ -123,7 +124,6 @@ size_t NeuronDataParallelExecutable::GetRoundRobinId() {
   size_t exe_id = round_robin_exe_id_;
   ++round_robin_exe_id_;
   round_robin_exe_id_ %= executables_.size();
-  VLOG(1) << "made it here";
   return exe_id;
 }
 }  // namespace neuron

@@ -21,7 +21,6 @@ limitations under the License.
 #include <unordered_map>
 
 #include "macros.h"
-#include "version.h"
 #include "nrt/nrt.h"
 #include "nrt/nrt_experimental.h"
 #include "nrt/nrt_profile.h"
@@ -30,6 +29,7 @@ limitations under the License.
 #include "tensorflow/core/platform/default/logging.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/public/version.h"
+#include "version.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -197,14 +197,14 @@ Status Nrt::AllocHostBuffer(NrtBuffer* buffer, size_t size) {
 #endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::AllocDeviceBuffer(NrtBuffer* buffer, size_t size) {
+Status Nrt::AllocDeviceBuffer(NrtBuffer* buffer, size_t size, int logical_id) {
 #ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
   constexpr int NRT_HOST_NEURON_CORE_ID = -1;  // TODO: get from nrt.h
   NRT_STATUS rt_status = nrt_tensor_allocate(
       /*tensor_placement=*/NRT_TENSOR_PLACEMENT_DEVICE,
-      /*logical_nc_id=*/0, /*size=*/size, /*name=*/NULL,
+      /*logical_nc_id=*/logical_id, /*size=*/size, /*name=*/NULL,
       /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
 
   // Possible outcomes:

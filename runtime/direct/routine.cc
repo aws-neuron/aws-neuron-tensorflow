@@ -58,7 +58,7 @@ Status NeuronRoutine::MaybeInit(const NodeDef& node_def,
   TF_RETURN_IF_ERROR(placer.GetStatus());
   exe_ = absl::make_unique<NeuronDataParallelExecutable>();
   TF_RETURN_IF_ERROR(info_.ParseFromNodeDef(node_def));
-  maybe_init_input_locations_and_names();
+  MaybeInitInputLocations();
   std::pair<Status, std::vector<NeuronCoreRange>> status_core_ranges =
       placer.GetParallelCoreRanges(info_, session_handle);
   TF_RETURN_IF_ERROR(status_core_ranges.first);
@@ -72,7 +72,7 @@ Status NeuronRoutine::MaybeInit(const NodeDef& node_def,
     }
   } else {
     for (const auto& nc_range : status_core_ranges.second) {
-      VLOG(1) << "nc_range is " << nc_range.nc_count_;
+      VLOG(1) << "nc_start is " << nc_range.start_nc_;
       TF_RETURN_IF_ERROR(exe_->AddExecutable(info_.executable, nc_range));
     }
   }
@@ -115,8 +115,8 @@ Status NeuronRoutine::MaybeShardedRun(NeuronBatchSharder* sharder,
   };
 
   // Run shards using CPU thread pool
-  thread::ThreadPool* thread_pool
-      = NeuronCorePlacer::Singleton().GetThreadPool();
+  thread::ThreadPool* thread_pool =
+      NeuronCorePlacer::Singleton().GetThreadPool();
   TFN_RETURN_IF_NULLPTR(thread_pool);
   int64 cost_per_unit = 1000000000;  // An arbitrary large number
   thread_pool->ParallelFor(num_shards, cost_per_unit, std::move(RunShard));
@@ -126,18 +126,36 @@ Status NeuronRoutine::MaybeShardedRun(NeuronBatchSharder* sharder,
   return Status::OK();
 }
 
-void NeuronRoutine::maybe_init_input_locations_and_names() {
+void NeuronRoutine::MaybeInitInputLocations() {
   auto locs = info_.real_input_locations;
   auto real_names = info_.real_input_names;
-  if (!cache_inited_) {
+  if (real_input_locations_.size() == 0) {
     if (real_names != nullptr && locs != nullptr) {
       real_input_locations_.reserve(locs->i_size());
+      VLOG(1) << "Initialzing Real Input Locations, found " << locs->i_size()
+              << " real inputs.";
       for (int idx = 0; idx < locs->i_size(); ++idx) {
         real_input_locations_.push_back(locs->i(idx));
       }
-      cache_inited_ = true;
     }
   }
+}
+
+void NeuronRoutine::MaybeInitCache() {
+  if (cache_.size() == 0) {
+    // do this 16 times since max number of cores on inf1 is 16
+    for (int i = 0; i < 16; ++i) {
+      cache_.push_back(std::vector<std::shared_ptr<NeuronDeviceBuffer>>());
+    }
+  }
+}
+
+int32_t NeuronRoutine::CoreIDToMemoryID(int32_t core_id) {
+  // a function for the --extract-weights feature
+  // hard coded 4 for inf1.2xlarge, todo: support all 1.6xlarge as well
+  // the size for exe_ should only be 1, 2, or 4.
+  int32_t multiplier = 4 / exe_->GetNumLoadedModels();
+  return core_id * multiplier;
 }
 
 Status NeuronRoutine::MaybeShuffle(std::vector<Tensor>* inputs,
@@ -163,10 +181,17 @@ Status NeuronRoutine::RunWithIO(std::vector<Tensor>* inputs,
                                 std::vector<Tensor>* outputs) {
   TF_RETURN_IF_ERROR(MaybeShuffle(inputs, shuffle_buffers));
   if (real_input_locations_.size() > 0) {
-    NeuronDeviceMemory memory;
-    TF_RETURN_IF_ERROR(memory.SetupBuffers(info_, inputs, outputs, cache_,
-                                           real_input_locations_));
-    TF_RETURN_IF_ERROR(exe_->RunOnDeviceMemory(&memory));
+    int32_t core_id = exe_->GetRoundRobinId();
+    int32_t memory_id = CoreIDToMemoryID(core_id);
+    VLOG(1) << "Trying to create NeuronDeviceMemory on core " << memory_id
+            << " for model on core " << core_id;
+    NeuronDeviceMemory memory(memory_id);
+    VLOG(1) << "Successfully created NeuronDeviceMemory on core " << memory_id
+            << " for model on core " << core_id;
+    MaybeInitCache();
+    TF_RETURN_IF_ERROR(memory.SetupBuffers(
+        info_, inputs, outputs, cache_.at(core_id), real_input_locations_));
+    TF_RETURN_IF_ERROR(exe_->RunOnDeviceMemory(&memory, core_id));
     TF_RETURN_IF_ERROR(memory.CopyOutputBuffersToCPU(*outputs));
     return Status::OK();
   }

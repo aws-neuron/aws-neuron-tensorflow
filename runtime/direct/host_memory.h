@@ -88,7 +88,7 @@ class NeuronHostMemory {
 
 class NeuronDeviceBuffer {
  public:
-  NeuronDeviceBuffer(size_t size);
+  NeuronDeviceBuffer(size_t size, int32_t memory_id);
   ~NeuronDeviceBuffer();
   Status GetStatus();
   Status CopyCpuToBuffer(const void* cpu_buffer, size_t size,
@@ -102,6 +102,7 @@ class NeuronDeviceBuffer {
   NrtBuffer rt_buffer_;
   size_t size_ = 0;
   size_t payload_ = 0;
+  int32_t memory_id_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceBuffer);
 };
 
@@ -121,7 +122,7 @@ class NeuronDeviceBufferMap {
 
 class NeuronDeviceMemory {
  public:
-  NeuronDeviceMemory() {}
+  NeuronDeviceMemory(int32_t memory_id) { memory_id_ = memory_id; }
   Status SetupBuffers(const NeuronExecutableInfo& info,
                       std::vector<Tensor>* all_tensors,
                       std::vector<Tensor>* output_tensors,
@@ -135,6 +136,7 @@ class NeuronDeviceMemory {
   std::vector<std::shared_ptr<NeuronDeviceBuffer>> output_buffers_;
   NeuronDeviceBufferMap input_buffer_map_;
   NeuronDeviceBufferMap output_buffer_map_;
+  int32_t memory_id_;
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronDeviceMemory);
 };
 

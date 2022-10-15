@@ -62,12 +62,14 @@ class TestExtractWeights(TestV2Only):
         res_neuron = model_neuron(input0_tensor)
         res_neuron_reloaded = model_neuron_reloaded(input0_tensor)
 
-        #run it twice with new inputs to test the cached weights
         input1_tensor = tf.random.uniform([1, 3])
         res_ref = model(input1_tensor)
         res_neuron_ref = model_neuron_NO_REDUCED_NEFF_SIZE(input1_tensor) 
-        res_neuron = model_neuron(input1_tensor)
         res_neuron_reloaded = model_neuron_reloaded(input1_tensor)
+        #run it at least 32 times to cache all the weights on each core
+        #and test the cache (just in case this is ran on a 1.6xl)
+        for i in range(32):
+            res_neuron = model_neuron(input1_tensor)
 
         #fails on 1e-4
         self.assertAllClose(res_ref, res_neuron_ref, rtol=1e-3, atol=1e-3)
