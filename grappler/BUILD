@@ -41,18 +41,12 @@ cc_library(
 
 cc_library(
     name = "static_shape_inference",
-    srcs = [
-        "static_shape_inference.cc",
-        "shape_inference.cc",
-        "shape_inference_helpers.cc",
-    ],
+    srcs = ["static_shape_inference.cc"],
     hdrs = ["static_shape_inference.h"],
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/compiler/jit:xla_jit_headers_lib",
-        "//tensorflow/compiler/xla:statusor",
-        "//tensorflow/neuron/grappler/convert:graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:shape_inference",
         ":graph_optimizer_registry",
     ],
 )

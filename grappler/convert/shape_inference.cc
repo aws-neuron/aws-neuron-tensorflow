@@ -1,4 +1,4 @@
-/* Copyright 2018 The TensorFlow Authors. All Rights Reserved.
+/* Copyright Amazon Web Services and its Affiliates. Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,9 +12,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-
+#include "graph_constructor_wrapper.h"
 #include "tensorflow/compiler/jit/shape_inference.h"
-
 #include "tensorflow/compiler/jit/shape_inference_helpers.h"
 #include "tensorflow/core/common_runtime/shape_refiner.h"
 #include "tensorflow/core/framework/node_def_util.h"
@@ -25,6 +24,46 @@ limitations under the License.
 #include "tensorflow/core/util/dump_graph.h"
 
 namespace tensorflow {
+
+Status BackEdgeHelper::Remove(Graph* graph) {
+  if (graph_ != nullptr) {
+    return errors::Internal("BackEdgeHelper duplicate call to Remove.");
+  }
+  graph_ = graph;
+  for (Node* n : graph_->nodes()) {
+    if (n->IsMerge()) {
+      for (const Edge* e : n->in_edges()) {
+        if (e->src()->IsNextIteration()) {
+          back_edges_.push_back(
+              BackEdge{e, e->src(), e->src_output(), e->dst(), e->dst_input()});
+        }
+      }
+    }
+  }
+  for (const BackEdge& be : back_edges_) {
+    graph_->RemoveEdge(be.edge);
+  }
+  return Status::OK();
+}
+
+const std::vector<BackEdgeHelper::BackEdge>& BackEdgeHelper::RemovedEdges()
+    const {
+  return back_edges_;
+}
+
+Status BackEdgeHelper::Replace() {
+  if (graph_ == nullptr) {
+    return errors::Internal("BackEdgeHelper Replace called before Remove.");
+  }
+  if (replaced_) {
+    return errors::Internal("BackEdgeHelper Replace called more than once.");
+  }
+  replaced_ = true;
+  for (const BackEdge& be : back_edges_) {
+    graph_->AddEdge(be.src, be.src_output, be.dst, be.dst_input);
+  }
+  return Status::OK();
+}
 
 namespace {
 
@@ -414,4 +453,48 @@ xla::StatusOr<InferredShape> MergeInferredShapes(const InferredShape& a,
   return result;
 }
 
-}  // namespace tensorflow
+namespace neuron {
+namespace convert {
+
+namespace {
+
+Status PerformStaticShapeInferenceBeforeEncapsulation(Graph* graph) {
+  // Perform shape inference.
+  std::map<int, InferredShape> arg_shapes;
+  GraphShapeInfo shape_info;
+  TF_RETURN_IF_ERROR(
+      InferShapes(graph, arg_shapes, /*fnlib_def=*/nullptr, &shape_info));
+
+  // Add attribute for output shapes.
+  auto node_name_index = graph->BuildNodeNameIndex();
+  for (auto iter : shape_info) {
+    std::vector<PartialTensorShape> output_shapes;
+    std::transform(iter.second.begin(), iter.second.end(),
+                   std::back_inserter(output_shapes),
+                   [](const InferredShape& inferred_shape) {
+                     return inferred_shape.shape;
+                   });
+    Node* node = node_name_index[iter.first];
+    node->ClearAttr(kNeuronInferredShapes);
+    node->AddAttr(kNeuronInferredShapes, output_shapes);
+  }
+  return Status::OK();
+}
+
+}  // end namespace
+
+Status ShapeInference(GraphDef* new_graph_def, const GraphDef& graph_def) {
+  std::unique_ptr<Graph> graph =
+      std::unique_ptr<Graph>(new Graph(OpRegistry::Global()));
+  GraphConstructorOptions opts;
+  opts.allow_internal_ops = true;
+  TF_RETURN_IF_ERROR(ConvertGraphDefToGraph(opts, graph_def, graph.get()));
+  TF_RETURN_IF_ERROR(
+      PerformStaticShapeInferenceBeforeEncapsulation(graph.get()));
+  graph->ToGraphDef(new_graph_def);
+  return Status::OK();
+}
+
+}  // end namespace convert
+}  // end namespace neuron
+}  // end namespace tensorflow
