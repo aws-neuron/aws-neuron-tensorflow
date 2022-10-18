@@ -25,6 +25,15 @@ cc_library(
 )
 
 cc_library(
+    name = "mark_shape_context",
+    srcs = ["mark_shape_context.cc"],
+    hdrs = ["mark_shape_context.h"],
+    deps = [
+        ":graph_constructor_wrapper",
+    ],
+)
+
+cc_library(
     name = "shape_inference",
     srcs = ["shape_inference.cc"],
     hdrs = ["shape_inference.h"],

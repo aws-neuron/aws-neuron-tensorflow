@@ -57,7 +57,7 @@ cc_library(
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/neuron/grappler/convert:graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:mark_shape_context",
         ":graph_optimizer_registry",
     ],
     alwayslink = 1,
