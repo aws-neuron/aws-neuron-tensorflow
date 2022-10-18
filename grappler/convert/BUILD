@@ -45,6 +45,15 @@ cc_library(
 )
 
 cc_library(
+    name = "split_conv2d",
+    srcs = ["split_conv2d.cc"],
+    hdrs = ["split_conv2d.h"],
+    deps = [
+        ":graph_constructor_wrapper",
+    ],
+)
+
+cc_library(
     name = "graph_constructor_wrapper",
     hdrs = ["graph_constructor_wrapper.h"],
     deps = [

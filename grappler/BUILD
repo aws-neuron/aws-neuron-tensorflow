@@ -69,8 +69,7 @@ cc_library(
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/neuron/grappler/convert:graph_constructor_wrapper",
-        "//tensorflow/lite/toco:toco_port",
+        "//tensorflow/neuron/grappler/convert:split_conv2d",
         ":graph_optimizer_registry",
     ],
     alwayslink = 1,
