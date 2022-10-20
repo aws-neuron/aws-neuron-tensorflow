@@ -67,6 +67,8 @@ def get_package_data():
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
             'tf2hlo/aws_neuron_tf2hlo',
+            '*.so.*',
+            '*.so',
             'runtime/direct/lib/nrt/*.so.*',
             'neuroncc/*/*',
             'neuroncc/*/*/*',

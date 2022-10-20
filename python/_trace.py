@@ -38,6 +38,7 @@ from tensorflow_neuron.python import utils
 from tensorflow_neuron.python.neuron_cc import list_operators, supports_xla
 from tensorflow_neuron.python.hlo.optimize import HloOp
 from tensorflow_neuron.python.custom_call import CustomCallLowering
+from tensorflow_neuron.python.libtfneuron import libtfneuron
 from tensorflow_neuron.python._version import __version__
 
 
@@ -404,6 +405,48 @@ def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_fu
 
 
 def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper):
+    if not libtfneuron.available:
+        return _run_grappler_on_main_graph_legacy(graph_def, cfunc, subgraph_builder_function, dumper)
+    opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+    signature_def = meta_graph_def.signature_def['serving_default']
+    rewriter_config = opt_config.graph_options.rewrite_options
+    optimizers = rewriter_config.optimizers
+    optimizers.append('debug_stripper')
+    pruning_passes = ['pruning', 'dependency']
+    optimizers.extend(pruning_passes)
+
+    with utils.change_grappler_logging_level_according_to_cc_flags():
+        graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    graph_def = original_graph_def = _neuron_optimize_graph_def(graph_def)
+    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
+
+    # configure and run operator fusion
+    mgu.setup_opt_config_node(graph_def, signature_def, list_operators(), subgraph_builder_function)
+    graph_def = _neuron_convert_graph_def(graph_def)
+    if subgraph_builder_function is not None:
+        opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+        optimizers = opt_config.graph_options.rewrite_options.optimizers
+        optimizers.extend(pruning_passes)
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def, original_graph_def
+
+
+def _neuron_optimize_graph_def(graph_def):
+    s_graph_def = libtfneuron.NeuronOptimize(graph_def.SerializeToString())
+    graph_def.Clear()
+    graph_def.ParseFromString(s_graph_def)
+    return graph_def
+
+
+def _neuron_convert_graph_def(graph_def):
+    s_graph_def = libtfneuron.NeuronConvert(graph_def.SerializeToString())
+    graph_def.Clear()
+    graph_def.ParseFromString(s_graph_def)
+    return graph_def
+
+
+def _run_grappler_on_main_graph_legacy(graph_def, cfunc, subgraph_builder_function, dumper):
     # produce GraphDef by running grappler passes
     fuser_automatic = subgraph_builder_function is None
     original_graph_def = graph_def

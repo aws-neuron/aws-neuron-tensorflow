@@ -83,6 +83,7 @@ py_library(
         ":meta_graph_util_py",
         ":neuron_cc_py",
         ":custom_call_py",
+        ":libtfneuron_py",
         "//tensorflow/neuron/python/hlo:hlo_py",
     ],
 )
@@ -94,6 +95,13 @@ py_library(
     ],
     deps = [
         ":graph_def_util_py",
+    ],
+)
+
+py_library(
+    name = "libtfneuron_py",
+    srcs = [
+        "libtfneuron.py",
     ],
 )
 
