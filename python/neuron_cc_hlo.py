@@ -162,10 +162,9 @@ def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
 
 
 def get_aws_neuron_tf2hlo_path():
-    temp_path = hlo_pb2.__file__
-    for _ in range(4):
-        temp_path = os.path.dirname(temp_path)
-    return os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
+    temp_path = os.path.dirname(__file__)
+    temp_path = os.path.dirname(temp_path)
+    return os.path.join(temp_path, 'tf2hlo', 'aws_neuron_tf2hlo')
 
 
 @contextmanager

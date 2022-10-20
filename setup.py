@@ -66,6 +66,7 @@ def get_package_data():
         'tensorflow_neuron': [
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
+            'tf2hlo/aws_neuron_tf2hlo',
             'runtime/direct/lib/nrt/*.so.*',
             'neuroncc/*/*',
             'neuroncc/*/*/*',
@@ -74,11 +75,6 @@ def get_package_data():
             'neuroncc/*/*/*/*/*/*',
         ],
     }
-    if LooseVersion(get_version()) < LooseVersion('2.2'):
-        package_key = 'tensorflow_core'
-    else:
-        package_key = 'tensorflow'
-    package_data[package_key] = ['neuron/tf2hlo/aws_neuron_tf2hlo']
     return package_data
 
 

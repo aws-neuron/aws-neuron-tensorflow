@@ -8,6 +8,7 @@ tf_cc_binary(
         ":aws_neuron_tf2hlo_main",
         ":aws_neuron_custom_op",
     ],
+    linkopts = ["-Wl,-rpath,$$ORIGIN/../../tensorflow"],
     visibility = ["//visibility:public"],
 )
 
