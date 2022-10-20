@@ -431,19 +431,7 @@ def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dum
         optimizers.append('debug_stripper')
 
     # configure operator fusion
-    fuser_config = rewriter_config.custom_optimizers.add()
-    fuser_config.name = 'aws_neuron_fuse_supported_operators'
-    fuser_param_map = fuser_config.parameter_map
-    fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
-    fuser_param_map['automatic'].b = fuser_automatic
-    if fuser_automatic:
-        fuser_param_map['fuse_foldable_nodes'].b = True
-        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.8
-    else:
-        force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
-        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
-        no_fuse_ops = [node.name for node in graph_def.node]
-        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
+    optimizers.append('aws_neuron_fuse_supported_operators')
     mgu.setup_opt_config_node(meta_graph_def.graph_def, signature_def, list_operators(), subgraph_builder_function)
 
     # call all grappler passes
