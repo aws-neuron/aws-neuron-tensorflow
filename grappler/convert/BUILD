@@ -7,6 +7,7 @@ cc_library(
         ":mark_shape_context",
         ":shape_inference",
         ":split_conv2d",
+        ":tf2xla",
     ],
 )
 
@@ -60,6 +61,17 @@ cc_library(
     hdrs = ["split_conv2d.h"],
     deps = [
         ":graph_constructor_wrapper",
+    ],
+)
+
+cc_library(
+    name = "tf2xla",
+    srcs = ["tf2xla.cc"],
+    hdrs = ["tf2xla.h"],
+    deps = [
+        ":graph_constructor_wrapper",
+        "@org_tensorflow//tensorflow/compiler/jit:xla_cpu_jit",
+        "@org_tensorflow//tensorflow/compiler/tf2xla",
     ],
 )
 
