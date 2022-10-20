@@ -1,6 +1,16 @@
 package(default_visibility = ["//visibility:public"])
 
 cc_library(
+    name = "passes",
+    deps = [
+        ":convert_graph",
+        ":mark_shape_context",
+        ":shape_inference",
+        ":split_conv2d",
+    ],
+)
+
+cc_library(
     name = "convert_graph",
     srcs = ["convert_graph.cc"],
     hdrs = ["convert_graph.h"],
