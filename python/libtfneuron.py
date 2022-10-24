@@ -37,21 +37,30 @@ class LibTfNeuron:
     def NeuronConvert(self, s_graph_def):
         return self.run(self.lib.NeuronConvertGraphDef, s_graph_def)
 
-    def run(self, func, s_graph_def):
+    def NeuronTf2Xla(self, s_graph_def, s_config):
+        return self.run(self.lib.NeuronTf2Xla, s_graph_def, s_config)
+
+    def NeuronVerifyHlo(self, s_hlo_module):
+        return self.run(self.lib.NeuronVerifyHlo, s_hlo_module)
+
+    def run(self, func, *s_inputs):
         lib = self.lib
         with self.serialized() as serialized:
-            c_s_graph_def = c_char_p(s_graph_def)
-            func(serialized, c_s_graph_def, len(s_graph_def))
+            c_s_inputs = []
+            for s_in in s_inputs:
+                c_s_inputs.append(c_char_p(s_in))
+                c_s_inputs.append(len(s_in))
+            func(serialized, *c_s_inputs)
             code = lib.NeuronSerializedStatusCode(serialized)
             if code != errors.OK:
                 message = lib.NeuronSerializedStatusMessage(serialized)
                 message = string_at(message)
                 exception_type = errors.exception_type_from_error_code(code)
                 raise exception_type(None, None, message.decode())
-            s_graph_def = lib.NeuronSerializedData(serialized)
-            s_graph_def_size = lib.NeuronSerializedSize(serialized)
-            s_graph_def = string_at(s_graph_def, s_graph_def_size)
-        return s_graph_def
+            s_output = lib.NeuronSerializedData(serialized)
+            s_output_size = lib.NeuronSerializedSize(serialized)
+            s_output = string_at(s_output, s_output_size)
+        return s_output
 
     @contextmanager
     def serialized(self):

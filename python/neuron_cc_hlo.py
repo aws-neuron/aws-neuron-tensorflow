@@ -29,6 +29,7 @@ from tensorflow.python.platform import tf_logging as logging
 from tensorflow_neuron.python import utils
 from tensorflow_neuron.python.hlo.optimize import HloOptimizer
 from tensorflow_neuron.python.neuron_cc import find_neuron_cc, read_default_args
+from tensorflow_neuron.python.libtfneuron import libtfneuron
 
 
 _SUPPORTED_OPERATOR_TYPES = '''
@@ -142,6 +143,20 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
 
 
 def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
+    if not libtfneuron.available:
+        return graph_def_to_hlo_legacy(graph_def, tf2xla_config, workdir)
+    return _neuron_tf2xla(graph_def, tf2xla_config)
+
+
+def _neuron_tf2xla(graph_def, tf2xla_config):
+    s_config = tf2xla_config.SerializeToString()
+    s_hlo_snapshot = libtfneuron.NeuronTf2Xla(graph_def.SerializeToString(), s_config)
+    hlo_snapshot = hlo_pb2.HloSnapshot()
+    hlo_snapshot.ParseFromString(s_hlo_snapshot)
+    return hlo_snapshot.hlo.hlo_module
+
+
+def graph_def_to_hlo_legacy(graph_def, tf2xla_config, workdir=None):
     # call aws_neuron_tf2hlo
     with workdir_context(workdir) as workdir:
         graph_def_path = os.path.join(workdir, 'graph_def.pb')
@@ -203,6 +218,12 @@ def hlo_to_neff(hlo_module, args=None, dumper=None):
 
 
 def verify_hlo_opt(hlo_opt):
+    if not libtfneuron.available:
+        return verify_hlo_opt_legacy(hlo_opt)
+    libtfneuron.NeuronVerifyHlo(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
+
+
+def verify_hlo_opt_legacy(hlo_opt):
     with tempfile.TemporaryDirectory() as workdir:
         hlo_ss_opt_path = os.path.join(workdir, 'hlo_snapshot_opt.pb')
         with open(hlo_ss_opt_path, 'wb') as f:
