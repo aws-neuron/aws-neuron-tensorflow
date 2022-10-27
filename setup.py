@@ -70,11 +70,6 @@ def get_package_data():
             '*.so.*',
             '*.so',
             'runtime/direct/nrt/*.so.*',
-            'neuroncc/*/*',
-            'neuroncc/*/*/*',
-            'neuroncc/*/*/*/*',
-            'neuroncc/*/*/*/*/*',
-            'neuroncc/*/*/*/*/*/*',
         ],
     }
     return package_data
