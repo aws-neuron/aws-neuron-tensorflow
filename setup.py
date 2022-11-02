@@ -69,7 +69,7 @@ def get_package_data():
             'tf2hlo/aws_neuron_tf2hlo',
             '*.so.*',
             '*.so',
-            'runtime/direct/lib/nrt/*.so.*',
+            'runtime/direct/nrt/*.so.*',
             'neuroncc/*/*',
             'neuroncc/*/*/*',
             'neuroncc/*/*/*/*',

@@ -375,7 +375,7 @@ cc_library(
 cc_library(
     name = "direct/adaptor",
     hdrs = ["direct/adaptor.h"],
-    srcs = ["direct/adaptor.cc"],
+    srcs = ["direct/adaptor.cc", ":libnrt_headers"],
     deps = [
         ":libnrt",
         ":direct/macros",
@@ -407,13 +407,39 @@ cc_library(
 # nrt C library
 cc_library(
     name = "libnrt",
-    hdrs = glob(["direct/include/nrt/*.h"]),
-    srcs = [":libnrt_shared_library"],
-    linkopts = ["-Wl,-rpath,$$ORIGIN/../tensorflow_neuron/runtime/direct/lib/nrt:$$ORIGIN/nrt"],
-    strip_include_prefix = "direct/include",
+    hdrs = [":libnrt_headers"],
+    srcs = [":libnrt.so.1"],
+    linkopts = ["-Wl,-rpath,/opt/aws/neuron/lib:$$ORIGIN/../tensorflow_neuron/runtime/direct/nrt:$$ORIGIN/nrt"],
+    strip_include_prefix = "direct",
 )
 
 filegroup(
     name = "libnrt_shared_library",
-    srcs = glob(["direct/lib/nrt/*.so.*", "direct/lib/nrt/fake_nrt.cc"]),
+    srcs = glob(["direct/nrt/*.so.*"]),
+)
+
+# Generate a "fake" libnrt.so.1 solely for linking purpose.
+cc_binary(
+    name = "libnrt.so.1",
+    linkshared = True,
+    srcs = [":fake_libnrt_cc", ":libnrt_headers"],
+    includes = ["direct"],
+    linkopts = ["-Wl,-soname,libnrt.so.1"],
+)
+
+genrule(
+    name = "fake_libnrt_cc",
+    srcs = [":libnrt_headers", ":direct/gen_mock_nrt_cc_py"],
+    outs = ["fake_libnrt.cc"],
+    cmd = "python3 $(locations :direct/gen_mock_nrt_cc_py) $(locations :libnrt_headers) > $@",
+)
+
+filegroup(
+    name = "libnrt_headers",
+    srcs = glob(["direct/nrt/nrt*.h"]),
+)
+
+filegroup(
+    name = "direct/gen_mock_nrt_cc_py",
+    srcs = ["direct/gen_mock_nrt_cc.py"],
 )

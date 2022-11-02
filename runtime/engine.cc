@@ -16,7 +16,6 @@ limitations under the License.
 #include "engine.h"
 #include "direct/env.h"
 #include "direct/macros.h"
-#include "nrt/nrt.h"
 
 namespace tensorflow {
 namespace neuron {
@@ -33,7 +32,6 @@ NeuronEngineManager::NeuronEngineManager() {
   // neuron-rtd address
   nrtd_address_ = env_get("NEURON_RTD_ADDRESS", "unix:/run/neuron.sock");
 
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   // only enable grpc runtime under NEURON_INTERNAL_USE_GRPC_RUNTIME=yes
   if (env_get("NEURON_INTERNAL_USE_GRPC_RUNTIME", "") != "yes") {
     // check whether grpc runtime is already occupied or not
@@ -53,7 +51,6 @@ NeuronEngineManager::NeuronEngineManager() {
     }
     return;
   }
-#endif
 
   // runtime session
   session_ = std::make_shared<RuntimeSession>();
