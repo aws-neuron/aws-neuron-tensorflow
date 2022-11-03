@@ -130,7 +130,6 @@ cc_library(
         ":utils",
         ":shared_memory",
         ":runtime_grpc",
-        ":libnrt",
     ],
 )
 
@@ -464,11 +463,30 @@ genrule(
 )
 
 filegroup(
-    name = "libnrt_headers",
-    srcs = glob(["direct/nrt/nrt*.h"]),
-)
-
-filegroup(
     name = "direct/gen_mock_nrt_cc_py",
     srcs = ["direct/gen_mock_nrt_cc.py"],
+)
+
+genrule(
+    name = "libnrt_headers",
+    srcs = [":build_file"],
+    outs = [
+        "direct/nrt/nrt.h",
+        "direct/nrt/nrt_status.h",
+        "direct/nrt/nrt_profile.h",
+        "direct/nrt/nrt_experimental.h",
+    ],
+    cmd = """
+        TARGET=$(@D)/direct/nrt
+        rm -rf $$TARGET
+        CURRENT_DIR=$$(dirname $(location build_file))
+        LOCAL_NRT_HEADERS=$$CURRENT_DIR/direct/nrt_headers
+        if [ -d $$LOCAL_NRT_HEADERS ]; then
+            cp -r $$LOCAL_NRT_HEADERS $$TARGET
+        else
+            git clone https://github.com/aws-neuron/aws-neuron-sdk $$CURRENT_DIR/aws-neuron-sdk
+            ( cd $$CURRENT_DIR/aws-neuron-sdk && git checkout ceb5ba97b09d35d8abc178e4e5bef2b0467f21dd )
+            cp -r $$CURRENT_DIR/aws-neuron-sdk/src/libnrt/include/nrt $$TARGET
+        fi
+    """,
 )
