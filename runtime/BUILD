@@ -221,17 +221,46 @@ cc_library(
 cc_proto_library(
     name = "nmgr_service.grpc.o",
     srcs = [
-        "proto/nmgr_service.proto",
-        "proto/nmgr_session_service.proto",
-        "proto/nmgr.proto",
-        "proto/nmetric.proto",
-        "proto/common.proto",
-        "proto/nerr.proto",
+        "nrt_proto/nmgr_service.proto",
+        "nrt_proto/nmgr_session_service.proto",
+        "nrt_proto/nmgr.proto",
+        "nrt_proto/nmetric.proto",
+        "nrt_proto/common.proto",
+        "nrt_proto/nerr.proto",
     ],
     protoc = "@com_google_protobuf//:protoc",
-    include = "proto/",
+    include = "nrt_proto/",
     use_grpc_plugin = True,
     default_runtime = "@com_google_protobuf//:protobuf",
+)
+
+filegroup(
+    name = "build_file",
+    srcs = ["BUILD"],
+)
+
+genrule(
+    name = "nrt_proto",
+    srcs = [":build_file"],
+    outs = [
+        "nrt_proto/nmgr_service.proto",
+        "nrt_proto/nmgr_session_service.proto",
+        "nrt_proto/nmgr.proto",
+        "nrt_proto/nmetric.proto",
+        "nrt_proto/common.proto",
+        "nrt_proto/nerr.proto",
+    ],
+    cmd = """
+        TARGET=$(@D)/nrt_proto
+        rm -rf $$TARGET
+        LOCAL_PROTO=$$(dirname $(location build_file))/proto
+        if [ -d $$LOCAL_PROTO ]; then
+            cp -r $$LOCAL_PROTO $$TARGET
+        else
+            git clone https://github.com/aws/aws-neuron-runtime-proto $$TARGET
+            ( cd $$TARGET && git checkout ed0897dd3599ab3e8b63c156c88261651e3e46cf )
+        fi
+    """,
 )
 
 # direct-link mode runtime
