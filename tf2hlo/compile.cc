@@ -14,36 +14,23 @@ limitations under the License.
 ==============================================================================*/
 
 #include "tensorflow/neuron/tf2hlo/compile.h"
-#include "tensorflow/compiler/tf2xla/tf2xla.h"
 #include "tensorflow/compiler/tf2xla/tf2xla_util.h"
-#include "tensorflow/compiler/xla/client/client_library.h"
-#include "tensorflow/compiler/xla/client/compile_only_client.h"
-#include "tensorflow/compiler/xla/client/xla_computation.h"
 #include "tensorflow/core/framework/graph.pb.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/strings/proto_serialization.h"
 #include "tensorflow/core/platform/env.h"
 #include "tensorflow/core/platform/regexp.h"
+#include "tensorflow/neuron/grappler/convert/tf2xla.h"
 
 namespace tensorflow {
 namespace neuron {
 
 Status CompileGraph(GraphDef graph_def, const tf2xla::Config& config,
                     const tensorflow::tfcompile::MainFlags& flags) {
-  // Converts the graph into an XLA computation.
-  // TODO(toddw): Should we let the user pick the XLA cpu vs. gpu client?
-  se::Platform* cpu_platform =
-      se::MultiPlatformManager::PlatformWithName("Host").ValueOrDie();
-  xla::CompileOnlyClient* client =
-      xla::ClientLibrary::GetOrCreateCompileOnlyClient(cpu_platform)
-          .ValueOrDie();
-  xla::XlaComputation computation;
-  TF_RETURN_IF_ERROR(
-      ConvertGraphDefToXla(std::move(graph_def), config, client, &computation));
+  TF_ASSIGN_OR_RETURN(std::unique_ptr<xla::HloSnapshot> module,
+                      convert::GraphDefConfigToHloSnapshot(graph_def, config));
 
   if (!flags.out_session_module.empty()) {
-    TF_ASSIGN_OR_RETURN(std::unique_ptr<xla::HloSnapshot> module,
-                        computation.Snapshot());
     // Serialize the HloSnapshot deterministically so that all the outputs of a
     // tf_library genrule are deterministic.
     const size_t size = module->ByteSizeLong();

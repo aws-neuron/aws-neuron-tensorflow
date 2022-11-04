@@ -15,9 +15,9 @@
 from tensorflow.python import saved_model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.saved_model.loader_impl import parse_saved_model
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import utils
-from tensorflow.neuron.python._trace import trace
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import utils
+from tensorflow_neuron.python._trace import trace
 
 
 def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None):
@@ -33,6 +33,9 @@ def compile(model_dir, new_model_dir, tags=None, model_feed_dict=None):
     Returns:
         Dictionary with operator counts before/after optimization, etc.
     """
+    logging.warning('tfn.saved_model.compile is not recommended in tensorflow-neuron 2.x; please'
+                    ' use tfn.trace instead. Usage can be found by running help(tfn.trace) in'
+                    ' interactive Python')
     # load SavedModel
     model = saved_model.load(model_dir, tags=tags)
 

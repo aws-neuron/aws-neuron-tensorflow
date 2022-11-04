@@ -19,7 +19,7 @@ import unittest
 import numpy as np
 import tensorflow as tf
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
 class TestOpRegister(TestV1Only):

@@ -40,9 +40,9 @@ from tensorflow.python.ops.init_ops import Zeros as zeros_initializer
 from tensorflow.python.training.saver import Saver
 from tensorflow.python.framework import importer
 from tensorflow.core.framework import graph_pb2
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import utils
-from tensorflow.neuron.python.graph_util import inference_graph_from_session
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import utils
+from tensorflow_neuron.python.graph_util import inference_graph_from_session
 
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')

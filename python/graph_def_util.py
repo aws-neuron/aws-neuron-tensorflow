@@ -16,13 +16,14 @@ import math
 import reprlib
 from collections import namedtuple
 from tensorflow.core.framework import graph_pb2
+from tensorflow.core.framework import types_pb2
 from tensorflow.python.framework import dtypes
 from tensorflow.python.framework.ops import convert_to_tensor
 from tensorflow.python.framework.tensor_shape import TensorShape
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python.neuron_cc import compile_savetemps
-from tensorflow.neuron.python import neff_util
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python.neuron_cc import compile_savetemps
+from tensorflow_neuron.python import neff_util
+from tensorflow_neuron.python import utils
 
 
 tNeuronOp = 'NeuronOp'
@@ -40,6 +41,8 @@ knOutputShapes = 'output_shapes'
 knInputBatchAxis = 'input_batch_axis'
 knInputShuffles = '_input_shuffles'
 knInputCanUseShm = '_input_can_use_shm'
+knRealInputNames = '_real_input_names'
+knRealInputLocations = '_real_input_locations'
 vInvalidAxis = -1
 
 
@@ -112,6 +115,20 @@ def encode_inferred_shapes(graph_def, shape_feed_dict=None):
                 node.attr[kNeuronInferredShapes].CopyFrom(output_shapes)
     return graph_def
 
+
+def encode_real_input_names_and_locations(graph_def):
+    neuron_nodes = get_neuron_nodes(graph_def)
+    for node in neuron_nodes:
+        real_input_names_list = []
+        real_input_locations_list = []
+        for i in range(len(node.input)):
+            if 'ReadVariableOp' not in node.input[i]:
+                real_input_names_list.append(node.input[i].encode())
+                real_input_locations_list.append(i)
+        node.attr[knRealInputNames].list.s[:] = real_input_names_list
+        node.attr[knRealInputLocations].list.i[:] = real_input_locations_list
+    return graph_def
+  		  
 
 def shape_inference_with_inputs(graph_def, sess, feed_dict):
     """Infer tensor shapes by running inference.
@@ -342,6 +359,8 @@ def run_compiler_on_subgraphs(graph_def, dumper):
             if do_input_shuffles:
                 for shuffle in input_shuffles:
                     idx_ts = node.attr['_input_shuffles'].list.tensor.add()
+                    idx_ts.dtype = types_pb2.DataType.DT_INT64
+                    idx_ts.tensor_shape.dim.add().size = len(shuffle)
                     idx_ts.int64_val.extend(shuffle)
             try:
                 input_batch_axis = [ts.batch_axis for ts in inputs]
@@ -454,8 +473,6 @@ def restore_compiler_failures(compiled_graph_def, original_graph_def):
 
 def set_execution_plan(compiled_graph_def):
     # scan to get num neuroncores and total number of bytes of input and output tensors
-    default_io_buffer_size = 128 * 1024 * 1024
-    cpu_extra_ninfer = 1
     num_cores_tuple_map = {}
     mis_config = False
     neuron_nodes = list(get_neuron_nodes(compiled_graph_def))
@@ -466,26 +483,14 @@ def set_execution_plan(compiled_graph_def):
         else:
             opt_num_cores, _ = num_cores_tuple
             num_cores_tuple_map[node.name] = num_cores_tuple
-    total_io_bytes = 0
-    for node in neuron_nodes:
-        model_io_bytes = 0
-        for enum, shape in zip(node.attr[knInputDtypes].list.type, node.attr[knInputShapes].list.shape):
-            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
-        for enum, shape in zip(node.attr[knOutputDtypes].list.type, node.attr[knOutputShapes].list.shape):
-            model_io_bytes += dtypes.as_dtype(enum).size * TensorShape(shape).num_elements()
-        if node.name not in num_cores_tuple_map:
-            total_io_bytes = 0
-            break
-        this_opt_num_cores, _ = num_cores_tuple_map[node.name]
-        total_io_bytes += model_io_bytes * (this_opt_num_cores + cpu_extra_ninfer)  # io size * ninfer
-    max_num_duplicates = 1
-    if total_io_bytes > 0:
-        max_num_duplicates = math.floor(default_io_buffer_size / total_io_bytes)
-        max_num_duplicates = min(max_num_duplicates, 4)  # use at most 1 MLA (4 cores) by default
-        max_num_duplicates = max(max_num_duplicates, 1)
+    max_num_duplicates = 64
+    tfn_args, _ = utils.parse_neuron_cc_flags()
     if mis_config or not num_cores_tuple_map:
         global_opt_num_cores = -1
         max_num_duplicates = 1
+    elif tfn_args.extract_weights:
+        max_num_duplicates = min(4, calculate_max_num_cores(compiled_graph_def))
+        global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
     else:
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
     if len(neuron_nodes) > 1:
@@ -504,6 +509,28 @@ def set_execution_plan(compiled_graph_def):
         model_config = [global_opt_num_cores, this_opt_num_cores, max_num_duplicates, timeout]
         node.attr['model_config'].list.i[:] = model_config
     return compiled_graph_def
+
+
+def calculate_max_num_cores(compiled_graph_def):
+    # returns the amount number of models that can fit on one channel of memory
+    # NEFF and Weights get loaded into device memory and
+    # One channel of memory is 4gb and there are two channels on an inf1.2xlarge
+    # TODO: Support all inf1 instance types
+    neuron_nodes = get_neuron_nodes(compiled_graph_def)
+    neff_size = 0
+    weights_size = 0
+
+    for node in neuron_nodes:
+        neff_size += len(node.attr[knExecutable].s)
+        for shape, dtype in zip(node.attr['input_shapes'].list.shape, node.attr['input_dtypes'].list.type):
+            num_elements = 1 #accumulator var for calcuating number of elements in a given input tensor
+            for dim in shape.dim:
+                num_elements *= dim.size
+            #multiply num of elements * dtype size to get size of tensor
+            weights_size += num_elements * dtypes.as_dtype(dtype).size
+
+    return math.floor(4e9 / (neff_size + weights_size)) * 2
+
 
 
 def get_neuron_nodes(graph_def):

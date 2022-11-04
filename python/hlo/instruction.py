@@ -12,8 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from tensorflow.neuron.python import custom_call as cstmcl
-from tensorflow.neuron.python.utils import decorate_methods_with
+from tensorflow_neuron.python import custom_call as cstmcl
+from tensorflow_neuron.python.utils import decorate_methods_with
 
 
 @decorate_methods_with(staticmethod)

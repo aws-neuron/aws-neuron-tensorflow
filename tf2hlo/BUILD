@@ -6,8 +6,8 @@ tf_cc_binary(
     name = "aws_neuron_tf2hlo",
     deps = [
         ":aws_neuron_tf2hlo_main",
-        ":aws_neuron_custom_op",
     ],
+    linkopts = ["-Wl,-rpath,$$ORIGIN/../../tensorflow"],
     visibility = ["//visibility:public"],
 )
 
@@ -23,17 +23,6 @@ cc_library(
     deps = [
         "//tensorflow/compiler/tf2xla",
         "//tensorflow/compiler/jit:xla_cpu_jit",
+        "//tensorflow/neuron/grappler/convert:tf2xla",
     ],
-)
-
-cc_library(
-    name = "aws_neuron_custom_op",
-    srcs = [
-        "custom_op.cc",
-    ],
-    deps = [
-        "//tensorflow/compiler/tf2xla",
-        "//tensorflow/compiler/jit:xla_cpu_jit",
-    ],
-    alwayslink = 1,
 )

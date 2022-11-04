@@ -12,6 +12,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#ifndef TENSORFLOW_NEURON_CONVERT_MARK_SHAPE_CONTEXT_H_
+#define TENSORFLOW_NEURON_CONVERT_MARK_SHAPE_CONTEXT_H_
 
-// This file indicates that the NRT library is unavailable, obviously.
-#define _AWS_NEURON_RUNTIME_LIBRARY_IS_FAKE 1
+#include "tensorflow/core/framework/graph.pb.h"
+#include "tensorflow/core/lib/core/status.h"
+
+namespace tensorflow {
+namespace neuron {
+namespace convert {
+
+Status MarkShapeContext(GraphDef* new_graph_def, const GraphDef& graph_def);
+
+}  // end namespace convert
+}  // end namespace neuron
+}  // end namespace tensorflow
+
+#endif  // TENSORFLOW_NEURON_CONVERT_MARK_SHAPE_CONTEXT_H_

@@ -8,6 +8,7 @@ cc_library(
         ":fuse_supported_operators",
         ":auto_mixed_precision",
         ":mark_ops_in_fixed_shape_context",
+        ":split_conv2d_same_padding",
     ],
 )
 
@@ -40,18 +41,12 @@ cc_library(
 
 cc_library(
     name = "static_shape_inference",
-    srcs = [
-        "static_shape_inference.cc",
-        "shape_inference.cc",
-        "shape_inference_helpers.cc",
-    ],
+    srcs = ["static_shape_inference.cc"],
     hdrs = ["static_shape_inference.h"],
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/compiler/jit:xla_jit_headers_lib",
-        "//tensorflow/compiler/xla:statusor",
-        ":graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:shape_inference",
         ":graph_optimizer_registry",
     ],
 )
@@ -62,7 +57,19 @@ cc_library(
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
         "//tensorflow/core/grappler:grappler_item",
-        "//tensorflow/neuron/grappler:graph_constructor_wrapper",
+        "//tensorflow/neuron/grappler/convert:mark_shape_context",
+        ":graph_optimizer_registry",
+    ],
+    alwayslink = 1,
+)
+
+cc_library(
+    name = "split_conv2d_same_padding",
+    srcs = ["split_conv2d_same_padding.cc"],
+    deps = [
+        "//tensorflow/core/grappler/optimizers:custom_graph_optimizer",
+        "//tensorflow/core/grappler:grappler_item",
+        "//tensorflow/neuron/grappler/convert:split_conv2d",
         ":graph_optimizer_registry",
     ],
     alwayslink = 1,
@@ -74,14 +81,5 @@ cc_library(
     hdrs = ["graph_optimizer_registry.h"],
     deps = [
         "//tensorflow/core/grappler/optimizers:custom_graph_optimizer_registry",
-    ],
-)
-
-cc_library(
-    name = "graph_constructor_wrapper",
-    hdrs = ["graph_constructor_wrapper.h"],
-    deps = [
-        "//tensorflow/core:core_cpu",
-        "//tensorflow/neuron/runtime:macros",
     ],
 )

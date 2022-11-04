@@ -20,8 +20,7 @@ limitations under the License.
 #include <string>
 #include <unordered_map>
 
-#include "../macros.h"
-#include "../version.h"
+#include "macros.h"
 #include "nrt/nrt.h"
 #include "nrt/nrt_experimental.h"
 #include "nrt/nrt_profile.h"
@@ -30,11 +29,11 @@ limitations under the License.
 #include "tensorflow/core/platform/default/logging.h"
 #include "tensorflow/core/platform/macros.h"
 #include "tensorflow/core/public/version.h"
+#include "version.h"
 
 namespace tensorflow {
 namespace neuron {
 
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 static std::string NrtErrMsg(NRT_STATUS rt_status) {
   static std::unordered_map<NRT_STATUS, std::string> status_to_msg({
       {NRT_SUCCESS, ""},
@@ -82,10 +81,8 @@ static std::string NrtErrMsg(NRT_STATUS rt_status) {
 #define NRT_RETURN_IF_INVALID_PTR(ptr) \
   TFN_RETURN_IF_NULLPTR(ptr);          \
   NRT_RETURN_IF_INVALID(*(ptr));
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 
 Status Nrt::Init() {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_STATUS rt_status = nrt_init(/*framework=*/NRT_FRAMEWORK_TYPE_TENSORFLOW,
                                   /*fw_version=*/TF_VERSION_STRING,
                                   /*fal_version=*/TFN_VERSION_STRING);
@@ -96,38 +93,26 @@ Status Nrt::Init() {
                       "Nrt::Init failed: nrt_init");
   VLOG(1) << "Nrt::Init OK";
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::GetCoreCount(int32_t *nc_count) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+Status Nrt::GetCoreCount(int32_t* nc_count) {
   TFN_RETURN_IF_NULLPTR(nc_count);
   uint32_t rt_nc_count = 0;
-  NRT_STATUS rt_status = nrt_get_total_nc_count(&rt_nc_count);
+  NRT_STATUS rt_status = nrt_get_visible_nc_count(&rt_nc_count);
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
-                      "Nrt::GetCoreCount failed: nrt_get_total_nc_count");
+                      "Nrt::GetCoreCount failed: nrt_get_visible_nc_count");
   *nc_count = (int32_t)rt_nc_count;
   VLOG(1) << "Nrt::GetCoreCount OK";
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::Close() {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   nrt_close();
   VLOG(1) << "Nrt::Close OK";
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::AllocEmptyBuffer(NrtBuffer* buffer) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(buffer);
   NRT_STATUS rt_status = nrt_tensor_allocate_empty(
       /*name=*/NULL, /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
@@ -136,15 +121,12 @@ Status Nrt::AllocEmptyBuffer(NrtBuffer* buffer) {
   }
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
                       "AllocEmptyBuffer failed: nrt_tensor_allocate_empty");
+  VLOG(1) << "Nrt::AllocEmptyBuffer OK " << buffer->raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
-Status Nrt::AttachCpuToBuffer(NrtBuffer* buffer,
-                              void* cpu_buffer, size_t size) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+Status Nrt::AttachCpuToBuffer(NrtBuffer* buffer, void* cpu_buffer,
+                              size_t size) {
   TFN_RETURN_IF_NULLPTR(buffer);
   TFN_RETURN_IF_NULLPTR(cpu_buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
@@ -157,13 +139,9 @@ Status Nrt::AttachCpuToBuffer(NrtBuffer* buffer,
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
                       "AttachCpuToBuffer failed: nrt_tensor_attach_buffer");
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::AllocHostBuffer(NrtBuffer* buffer, size_t size) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
   constexpr int NRT_HOST_NEURON_CORE_ID = -1;  // TODO: get from nrt.h
@@ -171,6 +149,7 @@ Status Nrt::AllocHostBuffer(NrtBuffer* buffer, size_t size) {
       /*tensor_placement=*/NRT_TENSOR_PLACEMENT_VIRTUAL,
       /*logical_nc_id=*/NRT_HOST_NEURON_CORE_ID, /*size=*/size, /*name=*/NULL,
       /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
+
   // Possible outcomes:
   //  NRT_SUCCESS: ok
   //  NRT_RESOURCE: out of host memory
@@ -190,26 +169,48 @@ Status Nrt::AllocHostBuffer(NrtBuffer* buffer, size_t size) {
                       "AllocHostBuffer failed: nrt_tensor_allocate");
   VLOG(1) << "Nrt::AllocHostBuffer OK " << buffer->raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
+}
+
+Status Nrt::AllocDeviceBuffer(NrtBuffer* buffer, size_t size, int logical_id) {
+  TFN_RETURN_IF_NULLPTR(buffer);
+  TFN_RETURN_IF_ZERO_SIZE(size);
+  constexpr int NRT_HOST_NEURON_CORE_ID = -1;  // TODO: get from nrt.h
+  NRT_STATUS rt_status = nrt_tensor_allocate(
+      /*tensor_placement=*/NRT_TENSOR_PLACEMENT_DEVICE,
+      /*logical_nc_id=*/logical_id, /*size=*/size, /*name=*/NULL,
+      /*tensor=*/(nrt_tensor_t**)&buffer->raw_);
+
+  // Possible outcomes:
+  //  NRT_SUCCESS: ok
+  //  NRT_RESOURCE: out of host memory
+  //  NRT_FAIL_HOST_MEM_ALLOC: out of host memory
+  //  Others: treat as internal error
+  if (TF_PREDICT_FALSE(rt_status != NRT_SUCCESS)) {
+    buffer->raw_ = nullptr;
+  }
+#define NRT_ALLOC_RESOURCE(error_rt_status)                              \
+  NRT_RETURN_IF(rt_status, (error_rt_status), errors::ResourceExhausted, \
+                "Not enough host memory for allocating size=", size,     \
+                ": nrt_tensor_allocate")
+  NRT_ALLOC_RESOURCE(NRT_RESOURCE);
+  NRT_ALLOC_RESOURCE(NRT_FAIL_HOST_MEM_ALLOC);
+#undef NRT_ALLOC_RESOURCE
+  NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
+                      "AllocHostBuffer failed: nrt_tensor_allocate");
+  VLOG(1) << "Nrt::AllocHostBuffer OK " << buffer->raw_;
+  return Status::OK();
 }
 
 Status Nrt::FreeBuffer(NrtBuffer* buffer) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID_PTR(buffer);
   VLOG(1) << "Nrt::FreeBuffer " << buffer->raw_;
   nrt_tensor_free((nrt_tensor_t**)&buffer->raw_);
   buffer->raw_ = nullptr;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::CopyCpuToBuffer(NrtBuffer* buffer, size_t offset,
                             const void* cpu_buffer, size_t size) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID_PTR(buffer);
   TFN_RETURN_IF_NULLPTR(cpu_buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
@@ -226,14 +227,10 @@ Status Nrt::CopyCpuToBuffer(NrtBuffer* buffer, size_t offset,
                       "CopyCpuToBuffer failed: nrt_tensor_write");
   VLOG(1) << "Nrt::CopyCpuToBuffer OK " << cpu_buffer << " -> " << buffer->raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::CopyBufferToCpu(void* cpu_buffer, size_t size,
                             const NrtBuffer& buffer, size_t offset) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(cpu_buffer);
   TFN_RETURN_IF_ZERO_SIZE(size);
   NRT_RETURN_IF_INVALID(buffer);
@@ -250,14 +247,10 @@ Status Nrt::CopyBufferToCpu(void* cpu_buffer, size_t size,
                       "CopyBufferToCpu failed: nrt_tensor_read");
   VLOG(1) << "Nrt::CopyBufferToCpu OK" << buffer.raw_ << " -> " << cpu_buffer;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::Load(NrtModel* model, StringPiece executable, int32_t start_nc,
                  int32_t nc_count) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   // Note: this function performs very little error checking
   // on start_nc and nc_count as it has no idea on device placement.
   TFN_RETURN_IF_NULLPTR(model);
@@ -302,13 +295,9 @@ Status Nrt::Load(NrtModel* model, StringPiece executable, int32_t start_nc,
   VLOG(1) << "Nrt::Load OK " << model->raw_ << ", start_nc=" << start_nc
           << ", nc_count=" << nc_count;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::Unload(const NrtModel& model) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID(model);
   VLOG(1) << "Nrt::Unload " << model.raw_;
   NRT_STATUS rt_status = nrt_unload((nrt_model_t*)model.raw_);
@@ -321,13 +310,9 @@ Status Nrt::Unload(const NrtModel& model) {
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal, "Unload failed: nrt_unload");
   VLOG(1) << "Nrt::Unload OK " << model.raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::AllocBufferMap(NrtBufferMap* map) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   TFN_RETURN_IF_NULLPTR(map);
   NRT_STATUS rt_status =
       nrt_allocate_tensor_set((nrt_tensor_set_t**)&map->raw_);
@@ -345,25 +330,17 @@ Status Nrt::AllocBufferMap(NrtBufferMap* map) {
                       "AllocBufferMap failed: nrt_allocate_tensor_set");
   VLOG(1) << "Nrt::AllocBufferMap OK " << map->raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::FreeBufferMap(const NrtBufferMap& map) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID(map);
   VLOG(1) << "Nrt::FreeBufferMap " << map.raw_;
   nrt_destroy_tensor_set((nrt_tensor_set_t**)&map.raw_);
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::BufferMapAdd(NrtBufferMap* map, const std::string& name,
                          const NrtBuffer& buffer) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID_PTR(map);
   NRT_RETURN_IF_INVALID(buffer);
   void* raw_set = map->raw_;
@@ -385,14 +362,10 @@ Status Nrt::BufferMapAdd(NrtBufferMap* map, const std::string& name,
   VLOG(1) << "Nrt::BufferMapAdd OK " << map->raw_ << ", name=" << name
           << ", buffer=" << buffer.raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::BufferMapGet(NrtBuffer* buffer, const NrtBufferMap& map,
                          const std::string& name) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID(map);
   NRT_RETURN_IF_INVALID_PTR(buffer);
   NRT_STATUS rt_status = nrt_get_tensor_from_tensor_set(
@@ -408,14 +381,10 @@ Status Nrt::BufferMapGet(NrtBuffer* buffer, const NrtBufferMap& map,
   VLOG(1) << "Nrt::BufferMapGet OK " << map.raw_ << ", name=" << name
           << ", buffer=" << buffer->raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::Execute(const NrtModel& model, const NrtBufferMap& input_map,
                     NrtBufferMap* output_map) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID(model);
   NRT_RETURN_IF_INVALID(input_map);
   NRT_RETURN_IF_INVALID_PTR(output_map);
@@ -448,13 +417,9 @@ Status Nrt::Execute(const NrtModel& model, const NrtBufferMap& input_map,
           << ", input_map=" << input_map.raw_
           << ", output_map=" << output_map->raw_;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::ProfileStart(const NrtModel& model, const char* filename) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   NRT_RETURN_IF_INVALID(model);
   VLOG(1) << "Nrt::ProfileStart " << model.raw_;
   NRT_STATUS rt_status = nrt_profile_start((nrt_model_t*)model.raw_, filename);
@@ -462,13 +427,9 @@ Status Nrt::ProfileStart(const NrtModel& model, const char* filename) {
                       "ProfileStart failed: nrt_profile_start");
   VLOG(1) << "Nrt::ProfileStart OK " << model.raw_ << ", filename=" << filename;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 Status Nrt::ProfileStop(const char* filename) {
-#ifndef AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
   VLOG(1) << "Nrt::ProfileStop";
   NRT_STATUS rt_status = nrt_profile_stop(filename);
   NRT_RETURN_IF_ERROR(rt_status, errors::Internal,
@@ -476,9 +437,6 @@ Status Nrt::ProfileStop(const char* filename) {
   VLOG(1) << "Nrt::ProfileStart OK "
           << ", filename=" << filename;
   return Status::OK();
-#else
-  return errors::Unimplemented(__func__);
-#endif  // AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE
 }
 
 #undef NRT_RETURN_IF_INVALID_PTR

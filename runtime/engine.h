@@ -21,7 +21,7 @@ limitations under the License.
 #include "runtime_grpc.h"
 #include "semaphore.h"
 #include "shared_memory.h"
-#include "tensor_util.h"
+#include "direct/tensor_util.h"
 #include "tensorflow/core/platform/mutex.h"
 
 namespace tensorflow {

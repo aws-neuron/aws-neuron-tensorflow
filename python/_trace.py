@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 import os
+import types
 from collections import abc
 from distutils.version import LooseVersion
 from tensorflow.core.protobuf import config_pb2
@@ -31,13 +32,14 @@ from tensorflow.python.keras.engine.training import Model
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.util import nest
 from tensorflow.compiler.xla.service import hlo_pb2
-from tensorflow.neuron.python import meta_graph_util as mgu
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import utils
-from tensorflow.neuron.python.neuron_cc import list_operators, supports_xla
-from tensorflow.neuron.python.hlo.optimize import HloOp
-from tensorflow.neuron.python.custom_call import CustomCallLowering
-from tensorflow_neuron import __version__
+from tensorflow_neuron.python import meta_graph_util as mgu
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import utils
+from tensorflow_neuron.python.neuron_cc import list_operators, supports_xla
+from tensorflow_neuron.python.hlo.optimize import HloOp
+from tensorflow_neuron.python.custom_call import CustomCallLowering
+from tensorflow_neuron.python.libtfneuron import libtfneuron
+from tensorflow_neuron.python._version import __version__
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):
@@ -151,6 +153,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         )
 
     """
+    original_func = func
     if not supports_xla():
         raise RuntimeError(
             'tfn.trace requires neuron-cc version >= 1.6.0.0; please update to latest neuron-cc '
@@ -162,44 +165,56 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         if all(isinstance(item, ops.Tensor) for item in example_inputs):
             input_signature = [TensorSpec(ts.shape, ts.dtype) for ts in example_inputs]
         func = def_function.function(input_signature=input_signature)(func)
-    original_func = func
     if not isinstance(func, function.ConcreteFunction):
         func = func.get_concrete_function(*example_inputs)
-    dumper = OptionalDumper()
 
-    # convert all variables to constants
-    with utils.change_grappler_logging_level_according_to_cc_flags():
-        try:
-            if LooseVersion(__version__) < LooseVersion('2.2.0'):
-                cfunc = convert_variables_to_constants_v2(func)
-            else:
-                cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
-        except InvalidArgumentError as err:
-            if all(op.type != 'StatefulPartitionedCall' for op in func.graph.get_operations()):
-                raise err
-            error_msg = (
-                "convert_variables_to_constants_v2 failed to unpack a StatefulPartitionedCall"
-                " operator; this may be due to StatefulPartitionedCall wrapping custom"
-                " operators, which is caused by saving or serializing models containing"
-                " custom operators. If you are tracing a keras.Model, try to call tfn.trace"
-                " before saving and reloading the model, and please make sure that model"
-                " layers do not contain StatefulPartitionedCall wrapping custom operators."
-            )
-            raise InvalidArgumentError(err.node_def, err.op, error_msg)
+    dumper = OptionalDumper()
+    tfn_args, _ = utils.parse_neuron_cc_flags()
+
+    # Bake constants into graph if extract-weights flag is not set (default)
+    if not tfn_args.extract_weights:
+        # convert all variables to constants
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            try:
+                if LooseVersion(__version__) < LooseVersion('2.2.0'):
+                    cfunc = convert_variables_to_constants_v2(func)
+                else:
+                    cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
+            except InvalidArgumentError as err:
+                if all(op.type != 'StatefulPartitionedCall' for op in func.graph.get_operations()):
+                    raise err
+                error_msg = (
+                    "convert_variables_to_constants_v2 failed to unpack a StatefulPartitionedCall"
+                    " operator; this may be due to StatefulPartitionedCall wrapping custom"
+                    " operators, which is caused by saving or serializing models containing"
+                    " custom operators. If you are tracing a keras.Model, try to call tfn.trace"
+                    " before saving and reloading the model, and please make sure that model"
+                    " layers do not contain StatefulPartitionedCall wrapping custom operators."
+                )
+                raise InvalidArgumentError(err.node_def, err.op, error_msg)
+            except ValueError as err:
+                error_msg = ( 
+                    ", to reduce protobuf size you can extract the model's weights from the protobuf"
+                    " by passing the '--extract-weights' flag during compilation. "
+                    " Example : NEURON_CC_FLAGS='--extract-weights' python your_compile_script.py"
+                )   
+                raise ValueError(str(err) + error_msg)
+    else:
+        cfunc = func
+
+
     graph_def = cfunc.graph.as_graph_def(add_shapes=True)
     if not any(node.op in {'Placeholder', 'PlaceholderWithDefault'} for node in graph_def.node):
         logging.warning('{} does not seem to have any input; returning an uncompiled callable'.format(func))
         return original_func
-    original_graph_def = graph_def
 
     # encode known shapes
     feed_dict = _get_feed_dict(func, example_inputs)
     shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
     graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
-    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
 
     # call main-graph grappler passes
-    graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function)
+    graph_def, original_graph_def = _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function, dumper)
     graph_def = gdu.inline_shape_inputs_in_subgraphs(graph_def)
     dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_fused.pb')
     dumper.maybe_compute_io_tensors(graph_def, original_graph_def, func, feed_dict)
@@ -217,11 +232,19 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.set_execution_plan(graph_def)
     graph_def = gdu.maybe_relax_placeholder_shapes(graph_def)
 
-    # wrap GraphDef as a WrappedFunction
-    cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
+    if tfn_args.extract_weights:
+        graph_def = gdu.encode_real_input_names_and_locations(graph_def)
+        # wrap GraphDef as a WrappedFunction
+        cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
+        ordered_weights = _get_ordered_weights(func, original_func)
+        # wrap ConcreteFunction as a keras model
+        model = AwsNeuronModel(cfunc, func.structured_outputs, ordered_weights=ordered_weights)
+    else:
+        # wrap GraphDef as a WrappedFunction
+        cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
+        # wrap ConcreteFunction as a keras model
+        model = AwsNeuronModel(cfunc, func.structured_outputs)
 
-    # wrap ConcreteFunction as a keras model
-    model = AwsNeuronModel(cfunc, func.structured_outputs)
     _make_keras_model_savable(model, example_inputs)
     return model
 
@@ -233,15 +256,18 @@ class OptionalDumper:
         self.dump_prefix = tfn_args.dump_prefix
         self.dump_tensor_map = None
 
+    def enabled(self):
+        return self.dump_prefix is not None
+
     def maybe_dump_graph_def_as(self, graph_def, filename):
-        if self.dump_prefix is None:
+        if not self.enabled():
             return
         os.makedirs(self.dump_prefix, exist_ok=True)
         with open(os.path.join(self.dump_prefix, filename), 'wb') as f:
             f.write(graph_def.SerializeToString())
 
     def maybe_compute_io_tensors(self, graph_def, original_graph_def, func, feed_dict):
-        if self.dump_prefix is None:
+        if not self.enabled():
             return
         input_names = _get_input_names(func)
         tensor_name_map = {}
@@ -252,7 +278,7 @@ class OptionalDumper:
         self.dump_tensor_map = {}
         dump_tensor_names = []
         for nop in gdu.get_neuron_nodes(graph_def):
-            in_names = [tensor_name_map.get(name, name) for name in nop.input]
+            in_names = [tensor_name_map.get(name, name) for name in nop.input if not name.startswith('^')]
             in_names = [name if ':' in name else '{}:0'.format(name) for name in in_names]
             out_names = [name.decode() for name in nop.attr[gdu.knOutputNames].list.s]
             dump_tensor_names.extend(in_names)
@@ -268,7 +294,7 @@ class OptionalDumper:
             self.dump_tensor_map[op_name] = in_tensors, out_tensors
 
     def maybe_dump_hlo_snapshots_with_inputs_outputs(self, hlo_opt):
-        if self.dump_prefix is None:
+        if not self.enabled():
             return
         for op_name, (inputs, outputs) in self.dump_tensor_map.items():
             inputs = [tensor.numpy() for tensor in inputs]
@@ -315,10 +341,11 @@ def _shuffle(value, shuffle):
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, func, structured_outputs):
+    def __init__(self, func, structured_outputs, ordered_weights=None):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = func
         self._aws_neuron_output_type = None
+        self._ordered_weights = ordered_weights
         if isinstance(structured_outputs, abc.Mapping):
             self._aws_neuron_output_type = type(structured_outputs)
 
@@ -327,7 +354,10 @@ class AwsNeuronModel(Model):
         if isinstance(inputs, abc.Mapping) and not args:
             if set(inputs.keys()) == set(self.aws_neuron_function._arg_keywords):
                 flat_inputs = [inputs[kw] for kw in self.aws_neuron_function._arg_keywords]
-        outputs = self.aws_neuron_function(*flat_inputs)
+        if self._ordered_weights is None:
+            outputs = self.aws_neuron_function(*flat_inputs)
+        else:
+            outputs = self.aws_neuron_function(*flat_inputs, *self._ordered_weights)
         if self._aws_neuron_output_type is not None:
             outputs = self._aws_neuron_output_type(**outputs)
         return outputs
@@ -342,8 +372,8 @@ def _get_feed_dict(func, inputs):
     return {name: ts for name, ts in zip(input_names, inputs_list)}
 
 
-def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function):
-    new_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_function, dumper):
+    new_graph_def, original_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper)
     name_mapping = {}
     for node in gdu.get_neuron_nodes(new_graph_def):
         output_names = node.attr[gdu.knOutputNames].list.s
@@ -368,51 +398,95 @@ def _run_shaper_and_fuser(graph_def, feed_dict, func, cfunc, subgraph_builder_fu
         shape_feed_dict = {name: tensor.shape for name, tensor in feed_dict.items()}
         shape_feed_dict.update((name, ts.shape) for name, ts in zip(need_shape_names, shaper_outputs))
         graph_def = gdu.encode_inferred_shapes(graph_def, shape_feed_dict)
-        graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function)
+        graph_def, original_graph_def = _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper)
     else:
         graph_def = new_graph_def
-    return graph_def
+    return graph_def, original_graph_def
 
 
-def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function):
-    # produce GraphDef by running grappler passes
+def _run_grappler_on_main_graph(graph_def, cfunc, subgraph_builder_function, dumper):
+    if not libtfneuron.available:
+        return _run_grappler_on_main_graph_legacy(graph_def, cfunc, subgraph_builder_function, dumper)
     opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+    signature_def = meta_graph_def.signature_def['serving_default']
     rewriter_config = opt_config.graph_options.rewrite_options
     optimizers = rewriter_config.optimizers
     optimizers.append('debug_stripper')
     pruning_passes = ['pruning', 'dependency']
-    if subgraph_builder_function is None:
-        optimizers.extend(pruning_passes)
-    optimizers.append('aws_neuron_static_shape_inference')
-    optimizers.append('aws_neuron_mark_ops_in_fixed_shape_context')
+    optimizers.extend(pruning_passes)
 
-    # configure operator fusion
-    fuser_config = rewriter_config.custom_optimizers.add()
-    fuser_config.name = 'aws_neuron_fuse_supported_operators'
-    fuser_param_map = fuser_config.parameter_map
-    fuser_param_map['supported_op_types'].list.s.extend(item.encode() for item in list_operators())
-    if subgraph_builder_function is None:
-        fuser_param_map['fuse_foldable_nodes'].b = True
-        fuser_param_map['prune_small_subgraphs_ratio'].f = 0.8
-        no_fuse_ops = _find_pad_ops_preceding_conv2d(cfunc.graph)
-        no_fuse_ops.extend(_find_int64_select_ops(cfunc.graph))
-    else:
-        force_fuse_ops = [node.name for node in graph_def.node if subgraph_builder_function(node)]
-        fuser_param_map['force_fuse_ops'].list.s.extend(item.encode() for item in force_fuse_ops)
-        no_fuse_ops = [node.name for node in graph_def.node]
-    if no_fuse_ops:
-        fuser_param_map['no_fuse_ops'].list.s.extend(item.encode() for item in no_fuse_ops)
-
-    # call all grappler passes
     with utils.change_grappler_logging_level_according_to_cc_flags():
         graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    graph_def = original_graph_def = _neuron_optimize_graph_def(graph_def)
+    dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
+
+    # configure and run operator fusion
+    mgu.setup_opt_config_node(graph_def, signature_def, list_operators(), subgraph_builder_function)
+    graph_def = _neuron_convert_graph_def(graph_def)
     if subgraph_builder_function is not None:
         opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
         optimizers = opt_config.graph_options.rewrite_options.optimizers
         optimizers.extend(pruning_passes)
         with utils.change_grappler_logging_level_according_to_cc_flags():
             graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def, original_graph_def
+
+
+def _neuron_optimize_graph_def(graph_def):
+    s_graph_def = libtfneuron.NeuronOptimize(graph_def.SerializeToString())
+    graph_def.Clear()
+    graph_def.ParseFromString(s_graph_def)
     return graph_def
+
+
+def _neuron_convert_graph_def(graph_def):
+    s_graph_def = libtfneuron.NeuronConvert(graph_def.SerializeToString())
+    graph_def.Clear()
+    graph_def.ParseFromString(s_graph_def)
+    return graph_def
+
+
+def _run_grappler_on_main_graph_legacy(graph_def, cfunc, subgraph_builder_function, dumper):
+    # produce GraphDef by running grappler passes
+    fuser_automatic = subgraph_builder_function is None
+    original_graph_def = graph_def
+    opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+    signature_def = meta_graph_def.signature_def['serving_default']
+    rewriter_config = opt_config.graph_options.rewrite_options
+    optimizers = rewriter_config.optimizers
+    optimizers.append('debug_stripper')
+    pruning_passes = ['pruning', 'dependency']
+    optimizers.extend(pruning_passes)
+    optimizers.append('aws_neuron_static_shape_inference')
+    optimizers.append('aws_neuron_split_conv2d_same_padding')
+    optimizers.append('aws_neuron_static_shape_inference')
+    optimizers.append('aws_neuron_mark_ops_in_fixed_shape_context')
+
+    if dumper.enabled() or not fuser_automatic:
+        # if dumper is enabled or subgraph_builder_function is given, then run pre-fusing passes
+        # and the fuser pass in separate sessions so that Python code can run in the middle
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            graph_def = original_graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+        dumper.maybe_dump_graph_def_as(graph_def, 'graph_def_shaped.pb')
+        opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+        rewriter_config = opt_config.graph_options.rewrite_options
+        optimizers = rewriter_config.optimizers
+        optimizers.append('debug_stripper')
+
+    # configure operator fusion
+    optimizers.append('aws_neuron_fuse_supported_operators')
+    mgu.setup_opt_config_node(meta_graph_def.graph_def, signature_def, list_operators(), subgraph_builder_function)
+
+    # call all grappler passes
+    with utils.change_grappler_logging_level_according_to_cc_flags():
+        graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    if not fuser_automatic:
+        opt_config, meta_graph_def = _build_optimize_graph_args(graph_def, cfunc)
+        optimizers = opt_config.graph_options.rewrite_options.optimizers
+        optimizers.extend(pruning_passes)
+        with utils.change_grappler_logging_level_according_to_cc_flags():
+            graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+    return graph_def, original_graph_def
 
 
 def _build_optimize_graph_args(graph_def, cfunc):
@@ -426,33 +500,12 @@ def _build_optimize_graph_args(graph_def, cfunc):
     return opt_config, meta_graph_def
 
 
-def _find_pad_ops_preceding_conv2d(graph):
-    # exclude Pad that precedes Conv2D for HLO frontend
-    no_fuse_ops = []
-    supported_op_types = list_operators()
-    for op in graph.get_operations():
-        if op.type == 'Pad':
-            consumers = op.outputs[0].consumers()
-            if consumers and consumers[0].type == 'Conv2D':
-                curr_op = op
-                pad_input_ops = [curr_op]
-                while curr_op.inputs and curr_op.type in supported_op_types:
-                    curr_op = curr_op.inputs[0].op
-                    pad_input_ops.append(curr_op)
-                if len(pad_input_ops) <= 3:
-                    no_fuse_ops.append(op.inputs[1].op.name)
-                    no_fuse_ops.extend(piop.name for piop in pad_input_ops)
-    return no_fuse_ops
-
-
-def _find_int64_select_ops(graph):
-    predicate = lambda op: op.type == 'Select' and op.get_attr('T') == dtypes.int64
-    return [op.name for op in graph.get_operations() if predicate(op)]
-
-
 def _get_input_names(func):
     captured_inputs = {ts.name for _, ts in func.graph.captures}
     return [ts.name for ts in func.inputs if ts.name not in captured_inputs]
+
+def _get_all_names(func):
+    return [ts.name for ts in func.inputs]
 
 
 def _get_output_names(func):
@@ -470,11 +523,41 @@ def _get_output_names(func):
     else:
         return [ts.name for ts in outputs]
 
+def _get_ordered_weights(func, original_func):
+    # figure out proper order of weights
+    # python functions passed into trace have their
+    # "weights" stored in captured_inputs as they 
+    # don't really have a graph
+
+    #function only used when --reduce-neff-size flag is passed
+    if isinstance(original_func, types.FunctionType):
+        ordered_weights = func.captured_inputs
+    else:
+        ref_to_var = {var.handle.ref(): var for var in func.graph.variables}
+        ordered_weights = [ref_to_var[captured.ref()] for captured in func.captured_inputs]
+
+    return ordered_weights
+
 
 def _wrap_graph_def_as_concrete_function(graph_def, func_ref):
     # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
     # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
     input_names = _get_input_names(func_ref)
+    output_names = _get_output_names(func_ref)
+    cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
+
+    # TODO: remove this hack once https://github.com/tensorflow/tensorflow/blob/v2.3.1/tensorflow/python/eager/wrap_function.py#L377 is fixed
+    try:
+        if cfunc._arg_keywords != func_ref._arg_keywords:
+            cfunc._arg_keywords = func_ref._arg_keywords
+    except AttributeError:
+        pass
+    return cfunc
+
+def _wrap_variable_graph_def_as_concrete_function(graph_def, func_ref):
+    # Note: if input_names is a dictionary (such as `{ts.name: ts.name for ts in example_inputs}`),
+    # then the WrappedFunction may occationally have feeding tensors going to the wrong inputs.
+    input_names = _get_all_names(func_ref)
     output_names = _get_output_names(func_ref)
     cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
 

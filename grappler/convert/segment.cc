@@ -249,7 +249,7 @@ void StableDFS(const SimpleGraph& g, bool reverse,
     bool leave;  // Are we entering or leaving n?
   };
   std::vector<Work> stack(start.size());
-  for (int i = 0; i < start.size(); ++i) {
+  for (size_t i = 0; i < start.size(); ++i) {
     stack[i] = Work{start[i], false};
   }
 

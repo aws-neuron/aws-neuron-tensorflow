@@ -28,7 +28,7 @@ namespace neuron {
 class NeuronBatchSharder {
  public:
   Status Setup(const NeuronExecutableInfo& info,
-               const std::vector<Tensor>& inputs);
+               const std::vector<TensorShape>& input_shapes);
   const std::vector<TensorShape>& GetClientOutputShapes() const;
   bool CanSkip() { return can_skip_; }
   Status ShardInputs(std::vector<std::vector<Tensor>>* sharded_inputs,

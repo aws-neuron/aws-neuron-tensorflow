@@ -17,8 +17,8 @@ import os
 import unittest
 import numpy as np
 import tensorflow.compat.v1 as tf
-from tensorflow.neuron.python import graph_util
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python import graph_util
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213

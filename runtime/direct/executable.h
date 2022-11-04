@@ -19,11 +19,11 @@ limitations under the License.
 #include <cstddef>
 #include <memory>
 
-#include "../macros.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "executable_info.h"
 #include "host_memory.h"
+#include "macros.h"
 #include "profiler_context.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/lib/core/stringpiece.h"
@@ -38,10 +38,13 @@ class NeuronExecutable {
   ~NeuronExecutable();
   Status GetStatus() { return status_; }
   virtual Status RunOnHostMemory(NeuronHostMemory* memory);
+  virtual Status RunOnDeviceMemory(NeuronDeviceMemory* memory);
 
  protected:
   NrtModel rt_model_;
   Status status_;
+  int32_t start_nc_;
+  int32_t nc_count_;
 
  private:
   TFN_DISALLOW_COPY_MOVE_ASSIGN(NeuronExecutable);
@@ -69,9 +72,11 @@ class NeuronDataParallelExecutable {
                                 const NeuronCoreRange& nc_range,
                                 const std::string& profile_dir);
   Status RunOnHostMemory(NeuronHostMemory* memory);
+  Status RunOnDeviceMemory(NeuronDeviceMemory* memory, int32_t core_id);
+  size_t GetRoundRobinId();
+  size_t GetNumLoadedModels() { return executables_.size(); }
 
  private:
-  size_t GetRoundRobinId();
   tensorflow::mutex mu_;
   std::vector<std::shared_ptr<NeuronExecutable>> executables_;
   size_t round_robin_exe_id_ = 0;

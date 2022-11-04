@@ -17,12 +17,12 @@ limitations under the License.
 
 #include <cstddef>
 
-#include "../macros.h"
 #include "absl/memory/memory.h"
 #include "adaptor.h"
 #include "core_range.h"
 #include "executable_info.h"
 #include "host_memory.h"
+#include "macros.h"
 #include "profiler_context.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -37,6 +37,8 @@ NeuronExecutable::NeuronExecutable(StringPiece executable,
                                    const NeuronCoreRange& nc_range) {
   status_ =
       Nrt::Load(&rt_model_, executable, nc_range.start_nc_, nc_range.nc_count_);
+  start_nc_ = nc_range.start_nc_;
+  nc_count_ = nc_range.nc_count_;
 }
 
 NeuronExecutable::~NeuronExecutable() {
@@ -46,6 +48,12 @@ NeuronExecutable::~NeuronExecutable() {
 }
 
 Status NeuronExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
+  TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status_);
+  return Nrt::Execute(rt_model_, memory->input_buffer_map_.rt_buffer_map_,
+                      &memory->output_buffer_map_.rt_buffer_map_);
+}
+
+Status NeuronExecutable::RunOnDeviceMemory(NeuronDeviceMemory* memory) {
   TFN_RETURN_FAILED_PRECONDITION_IF_ERROR(status_);
   return Nrt::Execute(rt_model_, memory->input_buffer_map_.rt_buffer_map_,
                       &memory->output_buffer_map_.rt_buffer_map_);
@@ -103,6 +111,14 @@ Status NeuronDataParallelExecutable::RunOnHostMemory(NeuronHostMemory* memory) {
   return executables_.at(GetRoundRobinId())->RunOnHostMemory(memory);
 }
 
+Status NeuronDataParallelExecutable::RunOnDeviceMemory(
+    NeuronDeviceMemory* memory, int32_t core_id) {
+  if (TF_PREDICT_FALSE(executables_.empty())) {
+    return errors::FailedPrecondition(__func__, " called without executables");
+  }
+  return executables_.at(core_id)->RunOnDeviceMemory(memory);
+}
+
 size_t NeuronDataParallelExecutable::GetRoundRobinId() {
   tensorflow::mutex_lock lock(mu_);
   size_t exe_id = round_robin_exe_id_;
@@ -110,6 +126,5 @@ size_t NeuronDataParallelExecutable::GetRoundRobinId() {
   round_robin_exe_id_ %= executables_.size();
   return exe_id;
 }
-
 }  // namespace neuron
 }  // namespace tensorflow

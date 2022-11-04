@@ -8,6 +8,7 @@ py_library(
         "api/__init__.py",
     ],
     deps = [
+        "//tensorflow/neuron/python:version_py",
         "//tensorflow/neuron/python:saved_model_py",
         "//tensorflow/neuron/python:saved_model_v2_py",
         "//tensorflow/neuron/python:graph_util_py",
@@ -16,6 +17,8 @@ py_library(
         "//tensorflow/neuron/python:fuse_py",
         "//tensorflow/neuron/python:performance_py",
         "//tensorflow/neuron/python:unittest_py",
+        "//tensorflow/neuron/python:auto_multicore_save_model_py",
+        "//tensorflow/neuron/python:multicore_py",
     ],
 )
 

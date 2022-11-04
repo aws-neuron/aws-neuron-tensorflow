@@ -12,23 +12,251 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-
-#include "tensorflow/neuron/grappler/convert/convert_graph.h"
+#include "graph_constructor_wrapper.h"
+#include "segment.h"
 #include "tensorflow/core/framework/graph_def_util.h"
+#include "tensorflow/core/graph/algorithm.h"
 #include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/graph/node_builder.h"
 #include "tensorflow/core/lib/hash/hash.h"
-#include "tensorflow/neuron/grappler/convert/segment.h"
-#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
-#include "tensorflow/neuron/runtime/macros.h"
 
 namespace tensorflow {
 namespace neuron {
 namespace convert {
 
+namespace {
+
+constexpr char key_minimum_segment_size[] = "minimum_segment_size";
+constexpr char key_fuse_foldable_nodes[] = "fuse_foldable_nodes";
+constexpr char key_automatic[] = "automatic";
+constexpr char key_prune_small_subgraphs_ratio[] =
+    "prune_small_subgraphs_ratio";
+constexpr char key_supported_op_types[] = "supported_op_types";
+constexpr char key_no_fuse_ops[] = "no_fuse_ops";
+constexpr char key_force_fuse_ops[] = "force_fuse_ops";
 constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
 constexpr char kNeuronInFixedShapeContext[] =
     "_aws_neuron_in_fixed_shape_context";
+constexpr int kNeuronFewChannelThreshold = 32;
+constexpr char kNeuronOptimizerConfig[] = "_aws_neuron_optimizer_config";
+constexpr char kInputOpNames[] = "input_op_names";
+constexpr char kOutputOpNames[] = "output_op_names";
+
+template <class T>
+std::string container_debug_string(const T& container) {
+  std::string debug_string;
+  for (const auto& item : container) {
+    debug_string += ",";
+    debug_string += item;
+  }
+  return debug_string.substr(0 < debug_string.size() ? 1 : 0);
+}
+
+PartialTensorShape ReadInferredShape(const Edge* edge) {
+  const Node* node = edge->src();
+  const auto& attr = node->def().attr();
+  if (!attr.count(kNeuronInferredShapes)) {
+    return PartialTensorShape();
+  }
+  const auto& inferred_shapes = attr.at(kNeuronInferredShapes).list();
+  return PartialTensorShape(inferred_shapes.shape(edge->src_output()));
+}
+
+Status MaybeExcludeFirstConv2DParents(std::set<std::string>* no_fuse_ops,
+                                      const Graph& graph) {
+  // Conditions for mapping Conv2D parents to CPU:
+  //  1. There is no built-in padding
+  //  2. Strides are all greater than 1
+  //  3. Strides are all equal
+  //  4. Input spatial sizes are all divisible by corresponding strides
+  //  5. Number of input channels is small (current threshold is 32)
+  //  6. Kernel spatial sizes are all greater than 1
+  //  7. Not running group convolution
+  //  8. Not running dilated convolution
+  Node* first_conv2d = nullptr;
+  for (Node* node : graph.nodes()) {
+    if (node->type_string() == "Conv2D") {
+      first_conv2d = node;
+      break;
+    }
+  }
+  std::vector<Node*> starts;
+  while (first_conv2d != nullptr) {
+    VLOG(1) << "Found Conv2D " << first_conv2d->name();
+    const auto& attr = first_conv2d->def().attr();
+    if (attr.at("padding").s() != "VALID") break;  // condition 1
+    VLOG(3) << "There is no built-in padding";
+    const Edge* input_edge;
+    TF_RETURN_IF_ERROR(first_conv2d->input_edge(0, &input_edge));
+    PartialTensorShape input_shape = ReadInferredShape(input_edge);
+    if (!input_shape.IsFullyDefined()) break;
+    const std::string data_format = attr.at("data_format").s();
+    if (data_format != "NHWC" && data_format != "NCHW") break;
+    int dim_h = data_format.find("H");
+    int dim_w = data_format.find("W");
+    int dim_c = data_format.find("C");
+    AttrValue_ListValue strides = attr.at("strides").list();
+    int stride_h = strides.i(dim_h);
+    int stride_w = strides.i(dim_w);
+    if (stride_h <= 1 && stride_w <= 1) break;  // condition 2
+    VLOG(3) << "Strides are all greater than 1";
+    if (stride_h != stride_w) break;  // condition 3
+    VLOG(3) << "Strides are all equal";
+    bool h_divisible = (input_shape.dim_size(dim_h) % stride_h) == 0;
+    bool w_divisible = (input_shape.dim_size(dim_w) % stride_w) == 0;
+    if (!(h_divisible && w_divisible)) break;  // condition 4
+    VLOG(3) << "Input spatial sizes are all divisible by corresponding strides";
+    int input_channels = input_shape.dim_size(dim_c);
+    if (input_channels >= kNeuronFewChannelThreshold) break;  // condition 5
+    VLOG(3) << "Number of input channels is small";
+    const Edge* filter_edge;
+    TF_RETURN_IF_ERROR(first_conv2d->input_edge(1, &filter_edge));
+    PartialTensorShape filter_shape = ReadInferredShape(filter_edge);
+    if (!filter_shape.IsFullyDefined()) break;
+    int window_h = filter_shape.dim_size(0);
+    int window_w = filter_shape.dim_size(1);
+    int filter_input_channels = filter_shape.dim_size(2);
+    if (window_h <= 1 && window_w <= 1) break;  // condition 6
+    VLOG(3) << "Kernel spatial sizes are all greater than 1";
+    if (input_channels != filter_input_channels) break;  // condition 7
+    VLOG(3) << "Not running group convolution";
+    AttrValue_ListValue dilations = attr.at("dilations").list();
+    int dilation_h = dilations.i(dim_h);
+    int dilation_w = dilations.i(dim_w);
+    if (dilation_h > 1 || dilation_w > 1) break;  // condition 8
+    VLOG(3) << "Not running dilated convolution";
+    starts.push_back(input_edge->src());
+    break;
+  }
+  if (!starts.empty()) {
+    VLOG(1) << "Excluding Conv2D parents from " << starts.back()->name();
+    auto enter = [&](Node* node) {
+      if (node->IsOp() && node->type_string() != "Placeholder") {
+        no_fuse_ops->emplace(node->name());
+      }
+    };
+    ReverseDFSFrom(graph, starts, enter, /*leave=*/nullptr);
+  }
+  if (no_fuse_ops->size() > (size_t)(graph.num_op_nodes() / 2)) {
+    // Don't exclude if need to exclude more than 50% of total ops
+    no_fuse_ops->clear();
+  }
+  return Status::OK();
+}
+
+void ExcludeInt64Select(std::set<std::string>* no_fuse_ops,
+                        const Graph& graph) {
+  for (const Node* node : graph.nodes()) {
+    const auto& attr = node->def().attr();
+    if (node->type_string() == "Select" && attr.at("T").type() == DT_INT64) {
+      no_fuse_ops->emplace(node->name());
+    }
+  }
+}
+
+void ExcludeConcatCheapConsumers(
+    std::set<std::string>* no_fuse_ops, const Graph& graph,
+    const std::set<std::string>& expensive_op_types) {
+  std::vector<Node*> starts;
+  for (Node* node : graph.nodes()) {
+    if (node->type_string() == "ConcatV2") {
+      const auto& attr = node->def().attr();
+      DataType dtype(attr.at("T").type());
+      int in_degree = attr.at("N").i();
+      if (DataTypeIsFloating(dtype) && in_degree > 3) {
+        starts.push_back(node);
+      }
+    }
+  }
+  std::vector<Node*> consumers;
+  auto enter = [&](Node* node) {
+    if (node->IsOp()) {
+      consumers.push_back(node);
+    }
+  };
+  DFSFrom(graph, starts, enter, /*leave=*/nullptr);
+  bool found_expensive_ops = false;
+  for (const Node* node : consumers) {
+    if (expensive_op_types.count(node->type_string())) {
+      found_expensive_ops = true;
+      break;
+    }
+  }
+  if (!found_expensive_ops) {
+    for (const Node* node : consumers) {
+      no_fuse_ops->emplace(node->name());
+    }
+  }
+}
+
+std::set<std::string> ExpensiveTypeStrings() {
+  return {
+      "BatchMatMul",
+      "BatchMatMulV2",
+      "BatchMatMulV3",
+      "Conv2D",
+      "Conv2DBackpropFilter",
+      "Conv2DBackpropInput",
+      "Conv3D",
+      "Conv3DBackpropFilterV2",
+      "Conv3DBackpropInputV2",
+      "DepthwiseConv2dNative",
+      "DepthwiseConv2dNativeBackpropFilter",
+      "DepthwiseConv2dNativeBackpropInput",
+      "Einsum",
+      "MatMul",
+  };
+}
+
+}  // namespace
+
+struct SubGraphParams {
+  SubGraphParams(tensorflow::Graph& inp_graph,
+                 const std::set<int>& subgraph_node_id_numbers,
+                 const std::vector<string>& output_tensor_names,
+                 const std::vector<std::pair<int, int> >& output_indices,
+                 tensorflow::EdgeSet& incoming_edges,
+                 tensorflow::Node* constructed_neuron_node,
+                 const int neuron_op_ind)
+      : graph(&inp_graph),
+        output_names(&output_tensor_names),
+        subgraph_node_ids(&subgraph_node_id_numbers),
+        output_inds(&output_indices),
+        neuron_node(constructed_neuron_node),
+        neuron_op_index(neuron_op_ind) {
+    for (const tensorflow::Edge* edge : incoming_edges) {
+      subgraph_incoming_edges.push_back(edge);
+    }
+  }
+
+  tensorflow::Graph* graph;
+  const std::vector<string>* output_names;
+  const std::set<int>* subgraph_node_ids;
+  const std::vector<std::pair<int, int> >*
+      output_inds;  // {node_id, output_idx}
+  std::vector<const tensorflow::Edge*> subgraph_incoming_edges;
+  tensorflow::Node* neuron_node;
+  const int neuron_op_index;
+};
+
+struct ConvertGraphParams {
+  ConvertGraphParams(tensorflow::Graph& inp_graph,
+                     const std::vector<string>& output_tensor_names,
+                     const std::set<int>& subgraph_node_id_numbers,
+                     int neuron_op_index)
+      : graph(&inp_graph),
+        output_names(&output_tensor_names),
+        subgraph_node_ids(&subgraph_node_id_numbers),
+        neuron_op_count(neuron_op_index) {}
+
+  tensorflow::Graph* graph;
+  const std::vector<string>* output_names;
+  const std::set<int>* subgraph_node_ids;
+  std::vector<std::pair<int, int> > subgraph_outputs;
+  tensorflow::EdgeSet subgraph_incoming_edges;
+  tensorflow::EdgeSet subgraph_outgoing_edges;
+  int neuron_op_count;
+};
 
 class EdgeValidator {
  public:
@@ -40,6 +268,7 @@ class EdgeValidator {
     DataType dtype = node->output_type(port);
     return !illegal_dtypes_.count(dtype);
   }
+
  private:
   const std::unordered_set<DataType> illegal_dtypes_ = {DT_INT64, DT_DOUBLE};
 };
@@ -53,7 +282,7 @@ class OutputEdgeValidator {
   bool operator()(const Edge* out_edge) const {
     if (out_edge->IsControlEdge()) return true;
     if (out_edge->src()->type_string() == "Const") {
-      VLOG(1) << "--> Need to remove output node " << out_edge->src()->name()
+      VLOG(3) << "--> Need to remove output node " << out_edge->src()->name()
               << " which is a Const.";
       return false;
     }
@@ -146,7 +375,7 @@ static bool IsPlaceholder(const NodeDef& node) {
 tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   string neuron_op_name =
       tensorflow::strings::StrCat("neuron_op_", sg_params.neuron_op_index);
-  VLOG(1) << "Start Node building ...." << neuron_op_name;
+  VLOG(3) << "Start Node building ...." << neuron_op_name;
 
   std::vector<string> input_names;
   std::vector<tensorflow::DataType> input_dtypes;
@@ -285,8 +514,8 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
             : inside_node->def();
     inside_node_def.set_input(inside_node_index, placeholder_name.c_str());
 
-    VLOG(2) << "Input node def:" << inside_node_def.DebugString();
-    VLOG(2) << " Place holder def :" << placeholder_def.DebugString();
+    VLOG(5) << "Input node def:" << inside_node_def.DebugString();
+    VLOG(5) << " Place holder def :" << placeholder_def.DebugString();
 
     // Storing/updating  values in  nodedef map
     subgraph_nodes[inside_node->name()] = inside_node_def;
@@ -295,7 +524,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   // Debug code
   VLOG(2) << " Incoming nodes in graphdef";
   for (auto it = subgraph_nodes.begin(); it != subgraph_nodes.end(); it++) {
-    VLOG(2) << "name:" << it->first << "\n Nodedef:\n"
+    VLOG(5) << "name:" << it->first << "\n Nodedef:\n"
             << it->second.DebugString();
   }
 
@@ -321,7 +550,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
         DataType tensor_dtype = node->output_type(port);
         main_graph_output_nodes[node->name()].push_back(
             std::make_pair(tensor_dtype, v_partial_shape[port]));
-        VLOG(1) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
+        VLOG(3) << " ConvertSubGraphToNeuronNodeDef node: making pair: ("
                 << node->name() << " , " << tensor_dtype << " )";
       }
     }
@@ -336,7 +565,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     (*subgraph_graph_def.add_node()) = it->second;
   }
 
-  VLOG(2) << "Neuron subgraph graphdef: " << subgraph_graph_def.DebugString();
+  VLOG(5) << "Neuron subgraph graphdef: " << subgraph_graph_def.DebugString();
 
   std::string in_graph_def_string = "";
   if (!subgraph_graph_def.SerializeToString(&in_graph_def_string)) {
@@ -386,7 +615,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     for (auto dtype_shape : name_type.second) {
       auto dtype = dtype_shape.first;
       auto shape = dtype_shape.second;
-      VLOG(1) << "tensorname: " << name << " dtype: " << dtype;
+      VLOG(3) << "tensorname: " << name << " dtype: " << dtype;
       std::string tensor_name = name + ":" + std::to_string(counter++);
       neuron_node_output_names.push_back(tensor_name);
       neuron_node_output_dtypes.push_back(dtype);
@@ -394,7 +623,7 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     }
   }
 
-  VLOG(1) << "Finished op preparation";
+  VLOG(2) << "Finished op preparation";
 
   StringPieceHasher hasher;
   std::string hash_string = "";
@@ -411,11 +640,11 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   stream << std::hex << hasher(hash_string);
   std::string hex_string(stream.str());
 
-  VLOG(2) << "String to be hashed " << hash_string << "Hashed String "
+  VLOG(3) << "String to be hashed " << hash_string << "Hashed String "
           << hasher(hash_string) << "Hex Rep" << hex_string;
 
   neuron_op_name = "neuron_op_" + hex_string;
-  VLOG(1) << "Hashed neuron_op_name: " << neuron_op_name;
+  VLOG(2) << "Hashed neuron_op_name: " << neuron_op_name;
 
   Node* neuron_node;
   TF_CHECK_OK(NodeBuilder(neuron_op_name, "NeuronOp")
@@ -436,17 +665,17 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
   // subgraph
   // start_index is the index of Neuron op output to which IdentityN node should
   // be connected to.
-  VLOG(1) << "start_index: " << start_index;
+  VLOG(3) << "start_index: " << start_index;
   std::vector<tensorflow::NodeBuilder::NodeOut> identity_inputs;
 
   // Iterate through the output node list found.
   for (auto name_index : main_graph_output_nodes) {
     identity_inputs.clear();
     auto name = name_index.first;
-    VLOG(1) << " indentity inputs: name:" << name;
-    VLOG(1) << " max index: " << map_out_names_to_index[name];
+    VLOG(3) << " indentity inputs: name:" << name;
+    VLOG(3) << " max index: " << map_out_names_to_index[name];
     for (size_t i = 0; i < main_graph_output_nodes[name].size(); ++i) {
-      VLOG(1) << "start_index: " << start_index;
+      VLOG(3) << "start_index: " << start_index;
       identity_inputs.push_back(
           NodeBuilder::NodeOut(neuron_node, start_index++));
     }
@@ -454,11 +683,11 @@ tensorflow::Status ConvertSubGraphToNeuronNodeDef(SubGraphParams& sg_params) {
     TF_CHECK_OK(NodeBuilder(name, "IdentityN")
                     .Input(identity_inputs)
                     .Finalize(sg_params.graph, &node));
-    VLOG(1) << " New output IdentityN node: " << node->def().DebugString();
+    VLOG(3) << " New output IdentityN node: " << node->def().DebugString();
   }
 
-  VLOG(1) << "Created new node ..............";
-  VLOG(2) << " new node: " << neuron_node->def().DebugString();
+  VLOG(3) << "Created new node ..............";
+  VLOG(5) << " new node: " << neuron_node->def().DebugString();
 
   return tensorflow::Status::OK();
 }
@@ -524,9 +753,9 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
     params->graph->RemoveEdge(edge);
   }
 
-  VLOG(2) << "new wiring edges: " << neuron_node->in_edges().size();
+  VLOG(3) << "new wiring edges: " << neuron_node->in_edges().size();
   for (const tensorflow::Edge* edge : neuron_node->in_edges()) {
-    VLOG(2) << edge->src()->name() << " port: " << edge->src_output();
+    VLOG(3) << edge->src()->name() << " port: " << edge->src_output();
   }
 
   // Re-map outgoing edges to use the new Neuron node instead of the orig
@@ -537,7 +766,7 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
     } else {
       std::string old_src_name =
           edge->src()->name() + ":" + std::to_string(edge->src_output());
-      VLOG(1) << "Old src: " << old_src_name;
+      VLOG(3) << "Old src: " << old_src_name;
       auto& output_names = neuron_node_def.attr().at("output_names").list().s();
       auto iter =
           std::find(output_names.begin(), output_names.end(), old_src_name);
@@ -549,7 +778,7 @@ tensorflow::Status ConvertSubGraphToNeuron(ConvertGraphParams* params) {
       } else {
         new_src_output = std::distance(output_names.begin(), iter);
       }
-      VLOG(1) << "Updating " << neuron_node->name() << ":" << new_src_output
+      VLOG(3) << "Updating " << neuron_node->name() << ":" << new_src_output
               << " --> " << edge->dst()->name();
       TF_RETURN_IF_ERROR(params->graph->UpdateEdge(
           neuron_node, new_src_output, edge->dst(), edge->dst_input()));
@@ -601,8 +830,8 @@ static tensorflow::Status ProcessSegments(
       }
       subgraph_node_ids.insert(node_map.at(node->name())->id());
     }
-    VLOG(1) << "Subgraph num nodes" << subgraph_node_ids.size();
-    VLOG(2) << "Subgraph nodes" << oss.str();
+    VLOG(2) << "Subgraph num nodes" << subgraph_node_ids.size();
+    VLOG(3) << "Subgraph nodes" << oss.str();
 
     ConvertGraphParams params(graph, output_names, subgraph_node_ids,
                               neuron_op_index++);
@@ -618,7 +847,7 @@ static tensorflow::Status ProcessSegments(
   return status;
 }
 
-void PreProcessSegmentsForResources(
+Status PreProcessSegmentsForResources(
     tensorflow::Graph& graph,
     tensorflow::tensorrt::segment::SegmentNodesVector& normal_segments) {
   /*
@@ -630,7 +859,7 @@ void PreProcessSegmentsForResources(
     3. Remove all segments in remove list from segment list.
   */
   std::unordered_map<string, tensorflow::Node*> node_map;
-  TF_LOG_IF_ERROR(BuildNodeMap(graph, &node_map));
+  TF_RETURN_IF_ERROR(BuildNodeMap(graph, &node_map));
   std::set<int> remove_segment_index;
   for (auto idx = 0; idx < (int)normal_segments.size(); idx++) {
     std::set<const Node*>& nodes_in_segment = normal_segments[idx];
@@ -646,7 +875,7 @@ void PreProcessSegmentsForResources(
 
     for (const tensorflow::Edge* edge : incoming_edges) {
       if (edge->dst()->input_type(edge->dst_input()) == DT_RESOURCE) {
-        VLOG(1) << "incoming edge src: " << edge->src()->name()
+        VLOG(3) << "incoming edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
         remove_segment_index.insert(idx);
         break;
@@ -655,7 +884,7 @@ void PreProcessSegmentsForResources(
 
     for (const tensorflow::Edge* edge : outgoing_edges) {
       if (edge->src()->output_type(edge->src_output()) == DT_RESOURCE) {
-        VLOG(1) << "outgoing edge src: " << edge->src()->name()
+        VLOG(3) << "outgoing edge src: " << edge->src()->name()
                 << " dst: " << edge->dst()->name();
         remove_segment_index.insert(idx);
         break;
@@ -667,10 +896,11 @@ void PreProcessSegmentsForResources(
   uint remove_segment_count = 0;
   for (auto idx : remove_segment_index) {
     uint rel_idx = idx - remove_segment_count++;
-    VLOG(1) << " Removing segment :" << idx
+    VLOG(3) << " Removing segment :" << idx
             << " num of segment nodes : " << normal_segments[rel_idx].size();
     normal_segments.erase(normal_segments.begin() + rel_idx);
   }
+  return Status::OK();
 }
 
 // Performing :
@@ -691,7 +921,7 @@ Status PreProcessingGraphDef(GraphDef& in_graph_def) {
     }
   }
 
-  VLOG(2) << in_graph_def.DebugString();
+  VLOG(5) << in_graph_def.DebugString();
   return tensorflow::Status::OK();
 }
 
@@ -701,13 +931,13 @@ static Status FindConstantFoldableNodes(
   // TODO: determine if we need grappler::TopologicalSort
   std::unordered_map<std::string, const NodeDef*> name_to_node;
   for (const auto& node : graph_def.node()) {
-    VLOG(1) << "adding node " << node.name();
+    VLOG(3) << "adding node " << node.name();
     name_to_node[node.name()] = &node;
   }
   for (const auto& node : graph_def.node()) {
     bool foldable = false;
     if (node.op() == "Shape" || node.op() == "Size") {
-      VLOG(1) << "looking at input " << node.input(0);
+      VLOG(3) << "looking at input " << node.input(0);
       auto in_name_port = ParseTensorName(node.input(0));
       std::string in_name = in_name_port.first;
       int in_port = in_name_port.second;
@@ -715,7 +945,7 @@ static Status FindConstantFoldableNodes(
       const auto& attr = in_node->attr();
       const auto& shape = attr.at(kNeuronInferredShapes).list().shape(in_port);
       foldable = PartialTensorShape(shape).IsFullyDefined();
-      VLOG(1) << "node " << node.name() << ", foldable " << foldable;
+      VLOG(3) << "node " << node.name() << ", foldable " << foldable;
     } else {
       const auto& inputs = node.input();
       auto predicate = [foldable_nodes,
@@ -729,7 +959,7 @@ static Status FindConstantFoldableNodes(
         if (index_start != std::string::npos) {
           node_name = node_name.substr(0, index_start);
         }
-        VLOG(1) << "determining status of node " << node_name;
+        VLOG(3) << "determining status of node " << node_name;
         return foldable_nodes->count(node_name) ||
                name_to_node.at(node_name)->op() == "Const";
       };
@@ -737,16 +967,47 @@ static Status FindConstantFoldableNodes(
                  std::all_of(inputs.begin(), inputs.end(), predicate);
     }
     if (foldable) {
-      VLOG(1) << "found constant-foldable node " << node.name();
+      VLOG(3) << "found constant-foldable node " << node.name();
       foldable_nodes->insert(node.name());
     }
   }
   return Status::OK();
 }
 
-// This function is the base function which does:
-// Step 1: Find Neuron Segments.
-// Step 2: Calls functions to create Neuron subgraphs.
+namespace {
+
+void PruneCheapSegments(tensorrt::segment::SegmentNodesVector& segments,
+                        const std::set<std::string>& expensive_op_types) {
+  int total_expensive_op_count = 0;
+  for (std::set<const Node*>& nodes : segments) {
+    for (const Node* node : nodes) {
+      total_expensive_op_count += expensive_op_types.count(node->type_string());
+    }
+  }
+  if (0 == total_expensive_op_count) {
+    VLOG(1) << "No expensive operator found in the entire graph -- do nothing";
+    return;
+  }
+  for (std::set<const Node*>& nodes : segments) {
+    int expensive_op_count = 0;
+    for (const Node* node : nodes) {
+      expensive_op_count += expensive_op_types.count(node->type_string());
+    }
+    if (0 == expensive_op_count) {
+      nodes.clear();
+    }
+  }
+  tensorrt::segment::SegmentNodesVector new_segments;
+  for (std::set<const Node*>& nodes : segments) {
+    if (!nodes.empty()) {
+      new_segments.push_back(nodes);
+    }
+  }
+  segments = new_segments;
+}
+
+}  // namespace
+
 Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
                             const std::vector<std::string>& input_op_names,
                             const std::vector<std::string>& output_op_names,
@@ -755,7 +1016,8 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
                             const double prune_small_subgraphs_ratio,
                             const std::set<std::string>& supported_op_types,
                             const std::set<std::string>& no_fuse_ops,
-                            const std::set<std::string>& force_fuse_ops) {
+                            const std::set<std::string>& force_fuse_ops,
+                            const std::set<std::string>& expensive_op_types) {
   // Segment the graph into subgraphs that can be converted to Neuron op
   tensorflow::tensorrt::segment::SegmentOptions segment_options;
 
@@ -782,7 +1044,7 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   for (const auto& op_name : output_op_names) {
     const Node* node = op_name_to_node[op_name];
     int64 num_outputs = node->num_outputs();
-    VLOG(1) << "Output " << op_name << " contains " << num_outputs
+    VLOG(3) << "Output " << op_name << " contains " << num_outputs
             << " outputs";
     for (int64 idx = 0; idx < num_outputs; ++idx) {
       outputs.push_back(op_name + ":" + std::to_string(idx));
@@ -811,11 +1073,14 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
     bool fuseable = supported_can_fuse || force_fuse || is_foldable;
     if (node->def().attr().count(kNeuronInFixedShapeContext)) {
       bool fixed_shape = node->def().attr().at(kNeuronInFixedShapeContext).b();
-      VLOG(1) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
+      VLOG(2) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
       fuseable &= fixed_shape;
     }
     if (!fuseable) {
+      VLOG(2) << "Node " << node->name() << " will not be fused";
       segment_options.exclude_node_list.insert(node->name());
+    } else {
+      VLOG(2) << "Will try fusing node " << node->name();
     }
   }
 
@@ -845,8 +1110,12 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
 
   TF_RETURN_IF_ERROR(tensorflow::tensorrt::segment::SegmentGraph(
       &graph, [](const Node* node) { return Status::OK(); },
-      input_edge_validator, output_edge_validator,
-      segment_options, &segments));
+      input_edge_validator, output_edge_validator, segment_options, &segments));
+  if (segments.size() > 1 && !expensive_op_types.empty()) {
+    VLOG(1) << "MULTIPLE Neuron candidates -- pruning away those without"
+            << " any arithmetic-intensive operator";
+    PruneCheapSegments(segments, expensive_op_types);
+  }
   if (segments.size() > 1) {
     VLOG(1) << "MULTIPLE Neuron candidate conversion: " << segments.size();
     if (prune_small_subgraphs_ratio < 0.0 ||
@@ -877,13 +1146,125 @@ Status CreateNeuronGraphDef(GraphDef* new_graph_def, const GraphDef& graph_def,
   }
 
   if (segments.size()) {
-    PreProcessSegmentsForResources(graph, segments);
+    TF_RETURN_IF_ERROR(PreProcessSegmentsForResources(graph, segments));
     TF_RETURN_IF_ERROR(ProcessSegments(graph, outputs, node_map, segments));
   }
 
   graph.ToGraphDef(new_graph_def);
-  VLOG(2) << "new_graph_def: " << new_graph_def->DebugString();
+  VLOG(5) << "new_graph_def: " << new_graph_def->DebugString();
   return tensorflow::Status::OK();
+}
+
+// This function is the base function which does:
+// Step 1: Find Neuron Segments.
+// Step 2: Calls functions to create Neuron subgraphs.
+Status ConvertToNeuron(GraphDef* new_graph_def, const GraphDef& graph_def) {
+  VLOG(5) << "graph_def=" << graph_def.DebugString();
+  const NodeDef* oc_node = nullptr;
+  for (const NodeDef& node : graph_def.node()) {
+    if (node.op() == "Placeholder" || node.op() == "PlaceholderWithDefault") {
+      if (node.attr().count(kNeuronOptimizerConfig)) {
+        oc_node = &node;
+        break;
+      }
+    }
+  }
+  if (nullptr == oc_node) {
+    return errors::InvalidArgument("Did not find optimizer config node.");
+  }
+  const auto& attr = oc_node->attr().at(kNeuronOptimizerConfig).func().attr();
+  std::vector<std::string> input_op_names;
+  std::vector<std::string> output_op_names;
+  int minimum_segment_size = 1;
+  bool fuse_foldable_nodes = false;
+  bool automatic = false;
+  double prune_small_subgraphs_ratio = 0.0;
+  std::set<std::string> supported_op_types;
+  std::set<std::string> no_fuse_ops;
+  std::set<std::string> force_fuse_ops;
+  if (!attr.count(kInputOpNames)) {
+    return errors::InvalidArgument("Missing input op names");
+  }
+  const auto& attr_input_op_names = attr.at(kInputOpNames).list().s();
+  input_op_names = {attr_input_op_names.begin(), attr_input_op_names.end()};
+  if (!attr.count(kOutputOpNames)) {
+    return errors::InvalidArgument("Missing output op names");
+  }
+  std::unordered_set<std::string> all_node_names;
+  for (const NodeDef& node : graph_def.node()) {
+    all_node_names.insert(node.name());
+  }
+  for (const std::string& op_name : input_op_names) {
+    if (!all_node_names.count(op_name)) {
+      return errors::InvalidArgument("Invalid input op name ", op_name);
+    }
+  }
+  for (const std::string& op_name : output_op_names) {
+    if (!all_node_names.count(op_name)) {
+      return errors::InvalidArgument("Invalid output op name ", op_name);
+    }
+  }
+  const auto& attr_output_op_names = attr.at(kOutputOpNames).list().s();
+  output_op_names = {attr_output_op_names.begin(), attr_output_op_names.end()};
+  if (attr.count(key_minimum_segment_size)) {
+    minimum_segment_size = attr.at(key_minimum_segment_size).i();
+  }
+  if (attr.count(key_fuse_foldable_nodes)) {
+    fuse_foldable_nodes = attr.at(key_fuse_foldable_nodes).b();
+  }
+  if (attr.count(key_automatic)) {
+    automatic = attr.at(key_automatic).b();
+  }
+  if (attr.count(key_prune_small_subgraphs_ratio)) {
+    prune_small_subgraphs_ratio = attr.at(key_prune_small_subgraphs_ratio).f();
+  }
+  if (!attr.count(key_supported_op_types)) {
+    return errors::InvalidArgument("Missing supported operator types");
+  }
+  const auto& param_supported_op_types =
+      attr.at(key_supported_op_types).list().s();
+  supported_op_types = {param_supported_op_types.begin(),
+                        param_supported_op_types.end()};
+  VLOG(2) << "supported_op_types "
+          << container_debug_string(supported_op_types);
+  if (attr.count(key_no_fuse_ops)) {
+    const auto& param_no_fuse_ops = attr.at(key_no_fuse_ops).list().s();
+    no_fuse_ops = {param_no_fuse_ops.begin(), param_no_fuse_ops.end()};
+  }
+  VLOG(2) << "no_fuse_ops " << container_debug_string(no_fuse_ops);
+  if (attr.count(key_force_fuse_ops)) {
+    const auto& param_force_fuse_ops = attr.at(key_force_fuse_ops).list().s();
+    force_fuse_ops = {param_force_fuse_ops.begin(), param_force_fuse_ops.end()};
+  }
+  VLOG(2) << "force_fuse_ops " << container_debug_string(force_fuse_ops);
+
+  std::set<std::string> expensive_op_types;
+  if (automatic) {
+    no_fuse_ops.clear();
+    force_fuse_ops.clear();
+    FunctionLibraryDefinition flib(OpRegistry::Global(), graph_def.library());
+    Graph graph(flib);
+    TF_RETURN_IF_ERROR(
+        ConvertGraphDefToGraph(GraphConstructorOptions(), graph_def, &graph));
+
+    // Exclude Pad etc. that precede the first few-channel Conv2D
+    TF_RETURN_IF_ERROR(MaybeExcludeFirstConv2DParents(&no_fuse_ops, graph));
+
+    // Exclude int64 Select ops
+    ExcludeInt64Select(&no_fuse_ops, graph);
+
+    // Exclude arithmetic-unintensive consumers of Concat for object detectors
+    expensive_op_types = ExpensiveTypeStrings();
+    ExcludeConcatCheapConsumers(&no_fuse_ops, graph, expensive_op_types);
+
+    VLOG(2) << "auto no_fuse_ops " << container_debug_string(no_fuse_ops);
+  }
+  VLOG(2) << "input_op_names " << container_debug_string(input_op_names);
+  VLOG(2) << "output_op_names " << container_debug_string(output_op_names);
+  return CreateNeuronGraphDef(
+      new_graph_def, graph_def, input_op_names, output_op_names,
+      fuse_foldable_nodes, minimum_segment_size, prune_small_subgraphs_ratio,
+      supported_op_types, no_fuse_ops, force_fuse_ops, expensive_op_types);
 }
 
 }  // namespace convert

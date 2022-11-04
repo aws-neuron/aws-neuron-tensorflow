@@ -13,12 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 from distutils.version import LooseVersion
+import os
 import inspect
 import itertools
 import unittest
 import tensorflow as tf
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV2Only, RemoveTestSession
+from tensorflow_neuron.python.unittest_base import TestV2Only, RemoveTestSession
 
 
 # Generators take mandatory arguments input_shapes and input_dtypes.
@@ -108,11 +109,22 @@ class KerasLayerGenerator(RemoveTestSession):
                     print('output shapes:', [out.shape for out in output])
                 else:
                     print('output shape:', output.shape)
-                layer_neuron = tfn.trace(layer, example_inputs)
-                # assert everything is on Neuron
-                graph = layer_neuron.aws_neuron_function.graph
-                op_type_set = {op.type for op in graph.get_operations()}
-                assert op_type_set == {'Placeholder', 'IdentityN', 'NeuronOp'}
+        
+                if (os.environ.get('NEURON_CC_FLAGS') is not None 
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS')):
+                    layer_neuron = tfn.trace(layer, example_inputs)
+                    # assert at least some ops got compiled into a neuron op
+                    assert any([op.type == 'NeuronOp' for op in layer_neuron.aws_neuron_function.graph.get_operations()])
+                else:
+                    subgraph_builder_function = lambda node: True
+                    layer_neuron = tfn.trace(layer, example_inputs, subgraph_builder_function)
+                    allowed_ops = {'Placeholder', 'IdentityN', 'NeuronOp'}
+                
+                    # assert everything is on Neuron
+                    graph = layer_neuron.aws_neuron_function.graph
+                    op_type_set = {op.type for op in graph.get_operations()}
+                    assert op_type_set == allowed_ops
+                
                 output_neuron = layer_neuron(*inputs)
                 self.assertAllClose(output_neuron, output, rtol=rtol, atol=atol)
             return test

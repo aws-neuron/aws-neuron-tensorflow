@@ -19,7 +19,7 @@ limitations under the License.
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
-#include "env.h"
+#include "direct/env.h"
 #include "tensorflow/core/platform/env.h"
 
 namespace tensorflow {

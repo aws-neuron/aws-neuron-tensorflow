@@ -24,6 +24,7 @@ from concurrent.futures import ThreadPoolExecutor
 import subprocess
 import shlex
 import collections
+from copy import deepcopy
 import itertools
 from distutils import spawn
 from contextlib import contextmanager
@@ -37,17 +38,18 @@ from tensorflow.python.framework import graph_util_impl as tf_graph_util
 from tensorflow.python.framework.tensor_shape import TensorShape, dimension_value
 from tensorflow.python.ops import array_ops
 from tensorflow.python.ops import nn_ops
-from tensorflow.core.framework import graph_pb2
+from tensorflow.core.framework import attr_value_pb2, graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import rewriter_config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.framework import meta_graph
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import meta_graph_util as mgu
-from tensorflow.neuron.python import neuron_cc as ncc
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import meta_graph_util as mgu
+from tensorflow_neuron.python import neuron_cc as ncc
+from tensorflow_neuron.python import utils
 
+tNeuronOp = 'NeuronOp'
 
 @deprecated(None, 'Please refer to AWS documentation on Neuron integrated TensorFlow 2.0.')
 def inference_graph_from_session(
@@ -108,7 +110,7 @@ def inference_graph_from_session(
     if 'NEURON_CC_FLAGS' in os.environ:
         parser = argparse.ArgumentParser()
         parser.add_argument('--must-compile', action='store_true')
-        parser.add_argument('--dump-prefix', default=None)
+        parser.add_argument('--workdir', dest='dump_prefix', default=None)
         parser.add_argument('--verbose', type=int, default=None)
         tf_neuron_args, neuron_cc_args = parser.parse_known_args(shlex.split(os.environ['NEURON_CC_FLAGS']))
         if tf_neuron_args.verbose is not None:
@@ -355,6 +357,23 @@ def shape_inference(graph_def, shape_feed_dict, output_tensors):
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
     return graph_def
 
+def tag_multicore(graph_def, num_cores=1):
+    """Adds an attribute to graph def to tag for multicore utilization
+       API here is necessary for OpenPose tutorial
+
+    Args:
+        graph_def: input `GraphDef` proto.
+        num_multicores: number of multicores to tag this graph as
+
+    Returns:
+        A `GraphDef` proto with the new attribute added
+    """
+    for node in graph_def.node:
+        if node.op == tNeuronOp:
+            node.attr['_automatic_multicore'].i = num_cores
+
+    return graph_def
+
 def amp_optimization(graph_def, signature_def):
     """Runs a AutoMixedPrecision pass to insert fp16/bf16 cast nodes at appropriate places.
 
@@ -389,6 +408,29 @@ def amp_optimization(graph_def, signature_def):
 
     return graph_def
 
+def conv2d_padding_optimization(graph_def, signature_def):
+    """Runs a pass to split a Conv2D operation with SAME to one with VALID and a Pad operation
+
+    Args:
+        graph_def: input `GraphDef` proto.
+        signature_def: a `SignatureDef` protobuf message marking graph inputs and outputs.
+
+    Returns:
+        A `GraphDef` proto with cast operators inserted at appropriate places.
+    """
+
+    opt_config = config_pb2.ConfigProto()
+    rewriter_config = opt_config.graph_options.rewrite_options
+    rewriter_config.meta_optimizer_iterations = 1
+    rewriter_config.min_graph_nodes = 1
+    rewriter_config.optimizers.append('aws_neuron_split_conv2d_same_padding')
+
+    # create meta_graph_def and run grappler passes
+    meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
+    meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
+    graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
+
+    return graph_def
 
 def whitelist_partition(graph_def, signature_def,
                         supported_op_types=None, no_fuse_ops=None, force_fuse_ops=None,
@@ -451,6 +493,7 @@ def whitelist_partition(graph_def, signature_def,
     # create meta_graph_def and run grappler passes
     meta_graph_def = meta_graph_pb2.MetaGraphDef(graph_def=graph_def)
     meta_graph_def.signature_def['serving_default'].CopyFrom(signature_def)
+    mgu.setup_opt_config_node_v1(meta_graph_def, supported_op_types, minimum_segment_size, no_fuse_ops, force_fuse_ops)
     graph_def = tf_optimizer.OptimizeGraph(opt_config, meta_graph_def)
 
     # add subgraph's control input to `NeuronOp`'s control input

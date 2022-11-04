@@ -18,7 +18,7 @@ limitations under the License.
 
 #include "device.h"
 #include "engine.h"
-#include "env.h"
+#include "direct/env.h"
 #include "tensorflow/core/common_runtime/device_factory.h"
 #include "tensorflow/core/common_runtime/process_state.h"
 #include "tensorflow/core/framework/tensor_util.h"

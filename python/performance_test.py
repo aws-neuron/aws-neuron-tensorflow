@@ -23,7 +23,7 @@ import numpy as np
 import tensorflow.compat.v1 as tf
 from tensorflow.core.framework.tensor_pb2 import TensorProto
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
 def can_import_serving():

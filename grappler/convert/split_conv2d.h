@@ -1,4 +1,4 @@
-/* Copyright Amazon Web Services and its Affiliates. All Rights Reserved.
+/* Copyright 2018 The TensorFlow Authors. All Rights Reserved.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -12,10 +12,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#ifndef TENSORFLOW_NEURON_CONVERT_SPLIT_CONV2D_H_
+#define TENSORFLOW_NEURON_CONVERT_SPLIT_CONV2D_H_
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_PROFILE_H_
-#define TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_PROFILE_H_
+#include "tensorflow/core/framework/graph.pb.h"
+#include "tensorflow/core/lib/core/status.h"
 
-// This file a dummy file.
+namespace tensorflow {
+namespace neuron {
+namespace convert {
 
-#endif  // TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_PROFILE_H_
+Status SplitConv2DSame(GraphDef* new_graph_def, const GraphDef& graph_def);
+
+}  // namespace convert
+}  // namespace neuron
+}  // namespace tensorflow
+
+#endif  // TENSORFLOW_NEURON_CONVERT_SPLIT_CONV2D_H_
