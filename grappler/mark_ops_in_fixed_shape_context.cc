@@ -12,18 +12,8 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
-
-#include <string>
-#include <unordered_set>
-#include <vector>
-#include "absl/algorithm/container.h"
-#include "tensorflow/core/framework/attr_value.pb.h"
-#include "tensorflow/core/framework/function.h"
-#include "tensorflow/core/framework/node_def.pb.h"
-#include "tensorflow/core/framework/op.h"
-#include "tensorflow/core/graph/graph.h"
 #include "tensorflow/core/grappler/grappler_item.h"
-#include "tensorflow/neuron/grappler/graph_constructor_wrapper.h"
+#include "tensorflow/neuron/grappler/convert/mark_shape_context.h"
 #include "tensorflow/neuron/grappler/graph_optimizer_registry.h"
 
 namespace tensorflow {
@@ -32,9 +22,6 @@ namespace neuron {
 namespace {
 
 constexpr char kNameOptimizer[] = "aws_neuron_mark_ops_in_fixed_shape_context";
-constexpr char kNeuronInferredShapes[] = "_aws_neuron_inferred_shapes";
-constexpr char kNeuronInFixedShapeContext[] =
-    "_aws_neuron_in_fixed_shape_context";
 
 class MarkOpsInFixedShapeContext : public CustomGraphOptimizer {
  public:
@@ -46,7 +33,7 @@ class MarkOpsInFixedShapeContext : public CustomGraphOptimizer {
   Status Optimize(Cluster* cluster, const GrapplerItem& item,
                   GraphDef* output) override;
   void Feedback(Cluster* cluster, const GrapplerItem& item,
-                const GraphDef& optimize_output, double result) override;
+                const GraphDef& optimize_output, double result);
 };
 
 Status MarkOpsInFixedShapeContext::Init(
@@ -60,46 +47,7 @@ Status MarkOpsInFixedShapeContext::Optimize(Cluster* cluster,
   if (cluster == nullptr) {
     return errors::InvalidArgument("cluster == nullptr");
   }
-  FunctionLibraryDefinition flib(OpRegistry::Global(), item.graph.library());
-  Graph graph(flib);
-  TF_RETURN_IF_ERROR(
-      ConvertGraphDefToGraph(GraphConstructorOptions(), item.graph, &graph));
-
-  // Collect node names with fixed shape outputs
-  std::unordered_set<std::string> fixed_shape_node_names;
-  for (Node* node : graph.op_nodes()) {
-    if (!node->def().attr().count(kNeuronInferredShapes)) {
-      continue;
-    }
-    AttrValue_ListValue inferred_shapes =
-        node->def().attr().at(kNeuronInferredShapes).list();
-    if (node->type_string() == "FusedBatchNormV3") {
-      // FusedBatchNormV3's last output is a temporary buffer used only
-      // by FusedBatchNormV3Grad
-      inferred_shapes.mutable_shape()->RemoveLast();
-    }
-    bool has_fixed_shape_outputs = absl::c_all_of(
-        inferred_shapes.shape(), [](const TensorShapeProto& shape_proto) {
-          return PartialTensorShape(shape_proto).IsFullyDefined();
-        });
-    if (has_fixed_shape_outputs) {
-      fixed_shape_node_names.insert(node->name());
-    }
-  }
-
-  // Mark nodes whose all inputs and outputs are fixed shape tensors
-  for (Node* node : graph.op_nodes()) {
-    bool fixed_shape = absl::c_all_of(node->in_nodes(), [&](Node* in_node) {
-      return fixed_shape_node_names.count(in_node->name());
-    });
-    fixed_shape |= node->num_inputs() == 0;
-    VLOG(1) << "Node " << node->name() << " inputs_fixed_shape=" << fixed_shape;
-    fixed_shape &= fixed_shape_node_names.count(node->name());
-    VLOG(1) << "Node " << node->name() << " fixed_shape=" << fixed_shape;
-    node->AddAttr(kNeuronInFixedShapeContext, fixed_shape);
-  }
-  graph.ToGraphDef(output);
-  return Status::OK();
+  return tensorflow::neuron::convert::MarkShapeContext(output, item.graph);
 }
 
 void MarkOpsInFixedShapeContext::Feedback(Cluster* cluster,

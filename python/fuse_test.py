@@ -19,7 +19,7 @@ import unittest
 import numpy as np
 import tensorflow as tf
 from tensorflow.neuron import fuse
-from tensorflow.neuron.python.unittest_base import TestV1Only
+from tensorflow_neuron.python.unittest_base import TestV1Only
 
 
 _RANDOM_SEED = 15213
@@ -35,7 +35,7 @@ def network_body(input0, input1, kernel0, kernel1):
     sigmoid0 = tf.sigmoid(add0, name='sigmoid0')
     return relu0, sigmoid0
 
-@fuse
+
 def network_neuron(input0, input1, kernel0, kernel1):
     return network_body(input0, input1, kernel0, kernel1)
 
@@ -180,7 +180,7 @@ class TestFuse(TestV1Only):
     @unittest.skip('unsupported in libmode')
     def test_fuse_eager_execution(self):
         assert subprocess.run([
-            sys.executable, '-c', 'from tensorflow.neuron.python import fuse_test;'
+            sys.executable, '-c', 'from tensorflow_neuron.python import fuse_test;'
                                   'fuse_test.actualtest_fuse_eager_execution()'
         ]).returncode == 0
 
@@ -361,7 +361,7 @@ def actualtest_fuse_eager_execution():
     result_ref = network_body(input0, input1, kernel0, kernel1)
 
     if 'NEURON_TF_COMPILE_ONLY' not in os.environ:
-        result_neuron = network_neuron(input0, input1, kernel0, kernel1)
+        result_neuron = fuse(network_neuron)(input0, input1, kernel0, kernel1)
         for res_neuron, res_ref in zip(result_neuron, result_ref):
             np.testing.assert_allclose(res_neuron.numpy(), res_ref.numpy(), rtol=1e-2, atol=1e-3)
 

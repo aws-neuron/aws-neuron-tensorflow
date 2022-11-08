@@ -18,7 +18,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.framework import convert_to_constants
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.unittest_base import TestV2Only
 
 
 _RANDOM_SEED = 15213
@@ -120,7 +120,7 @@ class TestCompileV1SavedModel(TestV2Only):
         def fake_list_operators():
             return {'Conv2D', 'Const'}
 
-        with patch('tensorflow.neuron.python._trace.list_operators', fake_list_operators):
+        with patch('tensorflow_neuron.python._trace.list_operators', fake_list_operators):
             result_compile = tfn.saved_model.compile(
                 model_dir, new_model_dir, model_feed_dict=feeds,
             )
@@ -154,9 +154,9 @@ class TestCompileV1SavedModel(TestV2Only):
         }
 
         def fake_list_operators():
-            return {'Conv2D', 'Const', 'Add', 'Relu'}
+            return {'Conv2D', 'Const', 'Add', 'AddV2', 'Relu'}
 
-        with patch('tensorflow.neuron.python._trace.list_operators', fake_list_operators):
+        with patch('tensorflow_neuron.python._trace.list_operators', fake_list_operators):
             result_compile = tfn.saved_model.compile(
                 model_dir, new_model_dir, model_feed_dict=feeds,
             )

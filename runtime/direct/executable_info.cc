@@ -14,33 +14,22 @@ limitations under the License.
 ==============================================================================*/
 
 #include "executable_info.h"
+
 #include <google/protobuf/map.h>
+
 #include <cstdint>
 #include <string>
+
+#include "node_def_keys.h"
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/node_def.pb.h"
+#include "tensorflow/core/framework/tensor.h"
 #include "tensorflow/core/lib/core/errors.h"
 #include "tensorflow/core/lib/core/status.h"
 #include "tensorflow/core/platform/default/logging.h"
 
 namespace tensorflow {
 namespace neuron {
-
-// Required keys
-constexpr char kExecutable[] = "executable";
-constexpr char kGraphDef[] = "graph_def";
-constexpr char kModelConfig[] = "model_config";
-constexpr char kInputNames[] = "input_names";
-constexpr char kInputDtypes[] = "input_dtypes";
-constexpr char kInputShapes[] = "input_shapes";
-constexpr char kInputBatchAxis[] = "input_batch_axis";
-constexpr char kOutputNames[] = "output_names";
-constexpr char kOutputDtypes[] = "output_dtypes";
-constexpr char kOutputShapes[] = "output_shapes";
-constexpr char kOutputBatchAxis[] = "output_batch_axis";
-
-// Optional keys
-constexpr char kInputShuffles[] = "_input_shuffles";
 
 Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   name = node_def.name();
@@ -89,8 +78,32 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   SIZE_CHECK(num_outputs == output_shapes.shape_size(), kOutputShapes);
   SIZE_CHECK(num_outputs == output_batch_axis.i_size(), kOutputBatchAxis);
   if (attr.count(kInputShuffles)) {
-    input_shuffles = &attr.at(kInputShuffles).list();
-    SIZE_CHECK(num_inputs == input_shuffles->tensor_size(), kInputShuffles);
+    input_shuffles = attr.at(kInputShuffles).list();
+    SIZE_CHECK(num_inputs == input_shuffles.tensor_size(), kInputShuffles);
+    for (TensorProto& shuffle_proto: *input_shuffles.mutable_tensor()) {
+      if (shuffle_proto.int64_val_size()) {
+        shuffle_proto.set_dtype(DataType::DT_INT64);
+        auto* shape = shuffle_proto.mutable_tensor_shape();
+        shape->clear_dim();
+        shape->add_dim()->set_size(shuffle_proto.int64_val_size());
+      }
+      Tensor shuffle;
+      if (!shuffle.FromProto(shuffle_proto)) {
+        return errors::InvalidArgument(
+          "Invalid shuffle proto found in NodeDef \"", node_def.name(), "\".");
+      }
+      shuffle.AsProtoField(&shuffle_proto);
+    }
+  }
+  if (attr.count(kAutoMulticore)) {
+    auto_multicore_enabled = true;
+    requested_num_cores = attr.at(kAutoMulticore).i();
+  }
+  if (attr.count(kRealInputNames)) {
+    real_input_names = &attr.at(kRealInputNames).list();
+  }
+  if (attr.count(kRealInputLocations)) {
+    real_input_locations = &attr.at(kRealInputLocations).list();
   }
 #undef SIZE_CHECK
   return ParseModelConfig(node_def);

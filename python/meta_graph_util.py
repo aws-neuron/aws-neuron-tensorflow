@@ -16,8 +16,9 @@ from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.grappler import tf_optimizer
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python import utils
+from tensorflow.python.util import compat
 
 
 def build_signature_def(input_tensors, output_tensors):
@@ -29,6 +30,68 @@ def build_signature_def(input_tensors, output_tensors):
             tensor_info.dtype = tensor.dtype.as_datatype_enum
             tensor_info.tensor_shape.CopyFrom(tensor.shape.as_proto())
     return sdef
+
+
+def setup_opt_config_node_v1(meta_graph_def, supported_op_types, minimum_segment_size, no_fuse_ops, force_fuse_ops):
+    graph_def = meta_graph_def.graph_def
+    signature_def = meta_graph_def.signature_def['serving_default']
+    placeholders = [node for node in graph_def.node if node.op in {'Placeholder', 'PlaceholderWithDefault'}]
+    if not placeholders:
+        return
+    opt_config_node, *_ = placeholders
+    attr = opt_config_node.attr['_aws_neuron_optimizer_config'].func.attr
+    attr['minimum_segment_size'].i = minimum_segment_size
+    attr['supported_op_types'].list.s.extend(compat.as_bytes(item) for item in supported_op_types)
+    attr['no_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in no_fuse_ops)
+    attr['force_fuse_ops'].list.s.extend(compat.as_bytes(getattr(item, 'name', item)) for item in force_fuse_ops)
+    input_op_names = _read_op_names(signature_def.inputs)
+    output_op_names = _read_op_names(signature_def.outputs)
+    attr['input_op_names'].list.s.extend(name.encode() for name in input_op_names)
+    attr['output_op_names'].list.s.extend(name.encode() for name in output_op_names)
+
+
+def setup_opt_config_node(graph_def, signature_def, supported_op_types, subgraph_builder_function=None):
+    placeholders = [node for node in graph_def.node if node.op in {'Placeholder', 'PlaceholderWithDefault'}]
+    if not placeholders:
+        return
+    opt_config_node, *_ = placeholders
+    attr = opt_config_node.attr['_aws_neuron_optimizer_config'].func.attr
+    automatic = subgraph_builder_function is None
+    attr['automatic'].b = automatic
+    attr['supported_op_types'].list.s.extend(item.encode() for item in supported_op_types)
+    if automatic:
+        attr['fuse_foldable_nodes'].b = True
+        attr['prune_small_subgraphs_ratio'].f = 0.8
+    else:
+        force_fuse_ops = [node.name.encode() for node in graph_def.node if subgraph_builder_function(node)]
+        attr['force_fuse_ops'].list.s.extend(force_fuse_ops)
+        no_fuse_ops = [node.name.encode() for node in graph_def.node]
+        attr['no_fuse_ops'].list.s.extend(no_fuse_ops)
+    input_op_names = _read_op_names(signature_def.inputs)
+    output_op_names = _read_op_names(signature_def.outputs)
+    attr['input_op_names'].list.s.extend(name.encode() for name in input_op_names)
+    attr['output_op_names'].list.s.extend(name.encode() for name in output_op_names)
+
+
+def _read_op_names(sig_def_tensors):
+    op_names = [_tensor_name_to_op_name(value.name) for value in sig_def_tensors.values()]
+    return _unique_string_list(op_names)
+
+
+def _tensor_name_to_op_name(name):
+    if ':' in name:
+        name, _ = name.split(':')
+    return name
+
+
+def _unique_string_list(strings):
+    unique_set = set()
+    uniques = []
+    for string in strings:
+        if string not in unique_set:
+            uniques.append(string)
+        unique_set.add(string)
+    return uniques
 
 
 def run_grappler_on_subgraphs(graph_def):

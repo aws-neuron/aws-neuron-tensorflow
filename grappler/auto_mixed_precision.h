@@ -50,7 +50,7 @@ class AutoMixedPrecisionNeuron : public CustomGraphOptimizer {
                   GraphDef* output) override;
 
   void Feedback(Cluster* cluster, const GrapplerItem& item,
-                const GraphDef& optimize_output, double result) override;
+                const GraphDef& optimize_output, double result);
 
  private:
   AutoMixedPrecisionMode mode_;

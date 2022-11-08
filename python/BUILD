@@ -25,6 +25,13 @@ py_library(
 )
 
 py_library(
+    name = "version_py",
+    srcs = [
+        "_version.py",
+    ],
+)
+
+py_library(
     name = "neff_util_py",
     srcs = [
         "neff_util.py",
@@ -76,6 +83,7 @@ py_library(
         ":meta_graph_util_py",
         ":neuron_cc_py",
         ":custom_call_py",
+        ":libtfneuron_py",
         "//tensorflow/neuron/python/hlo:hlo_py",
     ],
 )
@@ -91,12 +99,36 @@ py_library(
 )
 
 py_library(
+    name = "libtfneuron_py",
+    srcs = [
+        "libtfneuron.py",
+    ],
+)
+
+py_library(
     name = "saved_model_v2_py",
     srcs = [
         "saved_model_v2.py",
     ],
     deps = [
         ":trace_py",
+    ],
+)
+
+py_library(
+    name = "multicore_py",
+    srcs = [
+        "multicore.py",
+    ],
+    deps = [
+        ":trace_py",
+    ],
+)
+
+py_library(
+    name = "auto_multicore_save_model_py",
+    srcs = [
+        "auto_multicore_save_model.py",
     ],
 )
 
@@ -158,6 +190,7 @@ py_library(
     name = "unittest_py",
     srcs = [
         "graph_util_test.py",
+        "graph_util_v2_test.py",
         "tfv1_while_loop_test.py",
         "saved_model_test.py",
         "keras_test.py",
@@ -172,6 +205,9 @@ py_library(
         "tf2_keras_test.py",
         "keras_layer_test.py",
         "custom_ops_test.py",
+        "extract_weights_test.py",
+        "auto_multicore_save_model_test.py",
+        "multicore_test.py",
     ],
     deps = [
         ":graph_util_py",
@@ -179,5 +215,7 @@ py_library(
         ":fuse_py",
         ":trace_py",
         ":saved_model_v2_py",
+        ":auto_multicore_save_model_py",
+        ":multicore_py",
     ],
 )

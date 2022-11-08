@@ -16,7 +16,7 @@ limitations under the License.
 #include "runtime_grpc.h"
 #include <grpcpp/grpcpp.h>
 #include "nmgr.pb.h"
-#include "version.h"
+#include "direct/version.h"
 
 namespace tensorflow {
 namespace neuron {

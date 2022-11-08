@@ -34,7 +34,7 @@ static bool IsValidBatchAxis(int batch_axis) { return batch_axis <= 0; }
 static bool BatchAxisIsDynamic(int batch_axis) { return batch_axis == 0; }
 
 Status NeuronBatchSharder::Setup(const NeuronExecutableInfo& info,
-                                 const std::vector<Tensor>& inputs) {
+                                 const std::vector<TensorShape>& input_shapes) {
   // Batch axis argument validity checking
   for (int idx = 0; idx < info.input_batch_axis.i_size(); ++idx) {
     int batch_axis = info.input_batch_axis.i(idx);
@@ -74,24 +74,24 @@ Status NeuronBatchSharder::Setup(const NeuronExecutableInfo& info,
     }
 
     // Client/NEFF batch sizes
-    const Tensor& input_tensor = inputs.at(idx);
+    const TensorShape& input_shape = input_shapes.at(idx);
     const TensorShapeProto& neff_shape_proto = info.input_shapes.shape(idx);
     TF_RETURN_IF_ERROR(TensorShape::IsValidShape(neff_shape_proto));
     TensorShape neff_shape(neff_shape_proto);
-    if (input_tensor.shape() == neff_shape) {
+    if (input_shape == neff_shape) {
       continue;
     }
-    if (TF_PREDICT_FALSE(input_tensor.dims() <= batch_axis + 1)) {
+    if (TF_PREDICT_FALSE(input_shape.dims() <= batch_axis + 1)) {
       return errors::InvalidArgument(
           "Input tensor #", idx, " has dynamic batch axis ", batch_axis,
-          ", but it only has ", input_tensor.dims(), " dimensions");
+          ", but it only has ", input_shape.dims(), " dimensions");
     }
     if (TF_PREDICT_FALSE(neff_shape.dims() <= batch_axis + 1)) {
       return errors::InvalidArgument(
           "NEFF input tensor #", idx, " has dynamic batch axis ", batch_axis,
           ", but it only has ", neff_shape.dims(), " dimensions");
     }
-    client_batch_size_set.insert(input_tensor.dim_size(batch_axis));
+    client_batch_size_set.insert(input_shape.dim_size(batch_axis));
     neff_batch_size_set.insert(neff_shape.dim_size(batch_axis));
     inputs_need_sharding_.at(idx) = true;
   }

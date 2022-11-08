@@ -12,19 +12,20 @@ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 See the License for the specific language governing permissions and
 limitations under the License.
 ==============================================================================*/
+#ifndef TENSORFLOW_NEURON_CONVERT_SHAPE_INFERENCE_H_
+#define TENSORFLOW_NEURON_CONVERT_SHAPE_INFERENCE_H_
 
-#ifndef TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_H_
-#define TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_H_
+#include "tensorflow/core/framework/graph.pb.h"
+#include "tensorflow/core/lib/core/status.h"
 
-// This file indicates that the NRT library is unavailable, obviously.
-#define AWS_NEURON_RUNTIME_LIBRARY_UNAVAILABLE 1
+namespace tensorflow {
+namespace neuron {
+namespace convert {
 
-extern "C" {
+Status ShapeInference(GraphDef* new_graph_def, const GraphDef& graph_def);
 
-typedef struct nrt_tensor nrt_tensor_t;
+}  // end namespace convert
+}  // end namespace neuron
+}  // end namespace tensorflow
 
-inline void nrt_tensor_free(nrt_tensor_t** tensor) {}
-
-}
-
-#endif  // TENSORFLOW_NEURON_RUNTIME_DIRECT_INCLUDE_NRT_NRT_H_
+#endif  // TENSORFLOW_NEURON_CONVERT_SHAPE_INFERENCE_H_

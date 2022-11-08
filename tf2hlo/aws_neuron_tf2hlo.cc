@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/core/platform/init_main.h"
 #include "tensorflow/core/util/command_line_flags.h"
 #include "tensorflow/compiler/xla/service/hlo_proto_util.h"
+#include "tensorflow/neuron/grappler/convert/tf2xla.h"
 #include "tensorflow/neuron/tf2hlo/compile.h"
 #include "tensorflow/neuron/tf2hlo/flags.h"
 
@@ -61,9 +62,7 @@ int main(int argc, char** argv) {
     xla::HloSnapshot hlo_snapshot;
     TF_QCHECK_OK(ReadProtoFile(flags.in_session_module, &hlo_snapshot));
     const xla::HloModuleProto& hlo_module = hlo_snapshot.hlo().hlo_module();
-    xla::ProgramShape program_shape(hlo_module.host_program_shape());
-    xla::HloModuleConfig config(program_shape);
-    TF_QCHECK_OK(xla::CreateModuleFromProto(hlo_module, config).status());
+    TF_QCHECK_OK(convert::VerifyHloModuleProto(hlo_module));
     return 0;
   }
 

@@ -19,7 +19,7 @@ import tensorflow.neuron as tfn
 import random
 from itertools import product
 import shutil
-from tensorflow.neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.unittest_base import TestV2Only
 
 # each number represents the number of random
 # parameters from that catergory

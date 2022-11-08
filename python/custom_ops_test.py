@@ -15,12 +15,12 @@
 import unittest
 import tensorflow as tf
 from tensorflow.compat import v1 as tfv1
-from tensorflow.neuron.python import graph_def_util as gdu
-from tensorflow.neuron.python.custom_call import CustomCallLowering
-from tensorflow.neuron.python.neuron_cc_hlo import graph_def_to_hlo, tf2xla_pb2
+from tensorflow_neuron.python import graph_def_util as gdu
+from tensorflow_neuron.python.custom_call import CustomCallLowering
+from tensorflow_neuron.python.neuron_cc_hlo import graph_def_to_hlo, tf2xla_pb2
 import numpy as np
-from tensorflow.neuron.python.unittest_base import TestV2Only
-from tensorflow.neuron.python.ops.gen_neuron_op import is_libmode_available_op
+from tensorflow_neuron.python.unittest_base import TestV2Only
+from tensorflow_neuron.python.ops.gen_neuron_op import is_libmode_available_op
 
 
 def run_channels_first_simple(mode):

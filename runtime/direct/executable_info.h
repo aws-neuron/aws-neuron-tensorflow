@@ -19,6 +19,7 @@ limitations under the License.
 #include <cstddef>
 #include <cstdint>
 #include <string>
+
 #include "tensorflow/core/framework/attr_value.pb.h"
 #include "tensorflow/core/framework/node_def.pb.h"
 #include "tensorflow/core/lib/core/status.h"
@@ -43,7 +44,13 @@ class NeuronExecutableInfo {
   AttrValue_ListValue output_dtypes;
   AttrValue_ListValue output_shapes;
   AttrValue_ListValue output_batch_axis;
-  const AttrValue_ListValue* input_shuffles = nullptr;
+
+  // Optional values
+  AttrValue_ListValue input_shuffles;
+  bool auto_multicore_enabled = false;
+  int32_t requested_num_cores = -1;
+  const AttrValue_ListValue* real_input_names = nullptr;
+  const AttrValue_ListValue* real_input_locations = nullptr;
 
  private:
   Status ParseModelConfig(const NodeDef& node_def);

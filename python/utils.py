@@ -67,24 +67,42 @@ def model_conversion_report(model_dir, new_model_dir, on_neuron_ratio):
         logging.warning('Converted {} {}'.format(converted_msg, warning_msg))
 
 
-def parse_neuron_cc_flags(args=None, dest_set=None):
+def parse_neuron_cc_flags(args=None, flag_set=None):
     if args is None:
         neuron_cc_flags = os.environ.get('NEURON_CC_FLAGS', '')
         args = shlex.split(neuron_cc_flags)
     parser = argparse.ArgumentParser()
 
-    def maybe_add_argument(dest, *args, **kwargs):
-        if dest_set is None or dest in dest_set:
-            parser.add_argument(dest, *args, **kwargs)
+    def maybe_add_argument(flag, *args, **kwargs):
+        if flag_set is None or flag in flag_set:
+            parser.add_argument(flag, *args, **kwargs)
 
-    maybe_add_argument('--dump-prefix', default=None)
-    maybe_add_argument('--log-level', type=int, default=logging.WARN)
+    maybe_add_argument('--workdir', dest='dump_prefix', default=None)
+    verbose_choices = ['debug', 'info', 'warning', 'error', 'critical']
+    verbose_choices.extend([key.upper() for key in verbose_choices])
+    maybe_add_argument('--verbose', choices=verbose_choices, default=None)
     maybe_add_argument('--dynamic-batch-size', action='store_true')
     maybe_add_argument('--fp32-cast', default='matmult-fp16')
     maybe_add_argument('--neuroncore-pipeline-cores', default=None)
+    maybe_add_argument('--extract-weights', action='store_true')
     tfn_args, compiler_args = parser.parse_known_args(args)
+    verbose = getattr(tfn_args, 'verbose', None)
+    if verbose is None:
+        # set between WARN and ERROR to trigger neuron-cc progress bar
+        tfn_args.verbose = tfn_args.log_level = 35
+    else:
+        verbose_map = {
+            'debug': 'DEBUG',
+            'info': 'INFO',
+            'warning': 'WARN',
+            'error': 'ERROR',
+            'critical': 'FATAL',
+        }
+        tfn_args.log_level = getattr(logging, verbose_map.get(verbose.lower(), 'WARN'))
     return tfn_args, compiler_args
 
+def _assert_compiler_success_func(wfunc):
+    assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())
 
 @contextmanager
 def change_grappler_logging_level_according_to_cc_flags():

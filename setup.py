@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+import os
 from distutils.version import LooseVersion
 from setuptools import setup, PEP420PackageFinder
 from setuptools.command.install import install as InstallCommandBase
@@ -47,14 +48,15 @@ class BDistWheelCommand(BDistWheelCommandBase):
 
 
 def get_version():
-    return '_VERSION'
+    return os.environ.get('TFN_VERSION', '2.3.0')
 
 
 def get_install_requires():
     major, minor, patch, *_ = LooseVersion(get_version()).version
     tf_compat_version = '{}.{}.{}'.format(major, minor, patch)
-    install_requires = ['tensorflow == {}'.format(tf_compat_version)]
-    install_requires.append('tensorboard-plugin-neuron')
+    install_requires = ['tensorflow ~= {}.0'.format(tf_compat_version)]
+    install_requires.append('tensorboard-plugin-neuronx')
+    install_requires.append('protobuf<4')
     return install_requires
 
 
@@ -64,7 +66,10 @@ def get_package_data():
         'tensorflow_neuron': [
             'LICENSE',
             'THIRD-PARTY-LICENSES.txt',
-            'runtime/direct/lib/nrt/*.so.*',
+            'tf2hlo/aws_neuron_tf2hlo',
+            '*.so.*',
+            '*.so',
+            'runtime/direct/nrt/*.so.*',
             'neuroncc/*/*',
             'neuroncc/*/*/*',
             'neuroncc/*/*/*/*',
@@ -72,11 +77,6 @@ def get_package_data():
             'neuroncc/*/*/*/*/*/*',
         ],
     }
-    if LooseVersion(get_version()) < LooseVersion('2.2'):
-        package_key = 'tensorflow_core'
-    else:
-        package_key = 'tensorflow'
-    package_data[package_key] = ['neuron/tf2hlo/aws_neuron_tf2hlo']
     return package_data
 
 
@@ -122,4 +122,7 @@ setup(
     },
     install_requires=get_install_requires(),
     extras_require={'cc': [get_extras_require_cc()]},
+    entry_points = {
+        'console_scripts': ['tf-neuron-auto-multicore=tensorflow_neuron.python.auto_multicore_save_model:convert_model'],
+    }
 )

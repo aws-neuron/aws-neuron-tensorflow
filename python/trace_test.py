@@ -15,11 +15,12 @@
 import os
 import unittest
 from unittest.mock import patch
+from tensorflow.core.framework import types_pb2
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
-from tensorflow.neuron.python.unittest_base import TestV2Only, xfail_for_versions
-
+from tensorflow_neuron.python.unittest_base import TestV2Only, xfail_for_versions
+from tensorflow_neuron.python.utils import _assert_compiler_success_func
 
 class TestTraceKerasModel(TestV2Only):
 
@@ -36,6 +37,9 @@ class TestTraceKerasModel(TestV2Only):
         for res_ref, res_neuron in zip(result_model_ref, result_model_neuron):
             self.assertAllClose(res_ref, res_neuron, rtol=1e-2, atol=1e-2)
 
+    @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'Dynamic batching not supported with extract weights')
     def test_keras_model_3in_5out_dynamic_batch_size(self):
         model = self._model_3in_5out()
         input0_tensor = tf.random.uniform([3, 3])
@@ -123,6 +127,9 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = func_neuron([input_tensor])
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
+    @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'input shuffling not supported with extract weights')
     def test_func_1conv_with_shuffle(self):
         kernel = tf.random.uniform([3, 3, 3, 6])
 
@@ -150,7 +157,10 @@ class TestTraceFunction(TestV2Only):
                 indices = tf.reshape(indices, input_tensor.shape)
                 indices_t = tf.transpose(indices, [0, 3, 1, 2])
                 indices_t = tf.reshape(indices_t, [-1])
-                idx_ts.int64_val.extend(indices_t.numpy())
+                shuffle = indices_t.numpy()
+                idx_ts.dtype = types_pb2.DataType.DT_INT64
+                idx_ts.tensor_shape.dim.add().size = len(shuffle)
+                idx_ts.int64_val.extend(shuffle)
         input_names = [ts.name for ts in cfunc.inputs]
         output_names = cfunc.outputs[0].name
         cfunc = wrap_function.function_from_graph_def(graph_def, input_names, output_names)
@@ -159,6 +169,9 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = cfunc(tf.reshape(input_tensor, input_tensor_tracing.shape))
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
+    @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'Dynamic batching not supported with extract weights')
     def test_func_pad_conv(self):
         kernel = tf.random.uniform([7, 7, 3, 64])
         kernel = tf.cast(kernel, tf.float16)
@@ -192,6 +205,28 @@ class TestTraceFunction(TestV2Only):
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
 
+    @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                    'fails due to replication assertion have strong assumption that graph is frozen')
+    def test_func_conv_same(self):
+        kernel = tf.random.uniform([4, 4, 3, 64])
+        kernel = tf.cast(kernel, tf.float16)
+
+        def func(tensor):
+            return tf.nn.conv2d(tensor, kernel, padding='SAME', strides=[1, 2, 2, 1])
+
+        input_tensor = tf.random.uniform([1, 224, 224, 3])
+        input_tensor = tf.cast(input_tensor, tf.float16)
+        func_neuron = tfn.trace(func, input_tensor)
+        compiled_func = func_neuron.aws_neuron_function
+        _assert_compiler_success_func(compiled_func)
+        neuron_op = [op for op in compiled_func.graph.get_operations() if op.type == 'NeuronOp'][0]
+        neff_size = len(neuron_op.get_attr('executable'))
+        assert neff_size < 2e5, 'neff too large -- replication is probably not working'
+        result_func_ref = func(input_tensor)
+        result_func_neuron = func_neuron(input_tensor)
+        self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-3, atol=1e-5)
+
     def test_func_conv_relu_cpu_conv_relu(self):
         kernel0 = tf.random.uniform([1, 1, 64, 64])
         kernel1 = tf.random.uniform([1, 1, 64, 64])
@@ -213,12 +248,15 @@ class TestTraceFunction(TestV2Only):
         func_neuron = tfn.trace(func, input_tensor, subgraph_builder_function=subgraph_builder_function)
         wfunc = func_neuron.aws_neuron_function
         _assert_compiler_success_func(wfunc)
-        assert len([op for op in wfunc.graph.get_operations() if op.type == 'NeuronOp']) == 2
+        assert len([op for op in wfunc.graph.get_operations() if op.type == 'Sigmoid']) == 1
         result_func_ref = func(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
         result_func_neuron = func_neuron(input_tensor)
         self.assertAllClose(result_func_neuron, result_func_ref, rtol=1e-2, atol=1e-2)
 
+    @unittest.skipIf(os.environ.get('NEURON_CC_FLAGS') is not None 
+                    and '--extract-weights' in os.environ.get('NEURON_CC_FLAGS'),
+                        'extract weights not supported with RNS')
     def test_func_rtr_conv_multiple_consumers(self):
         kernel0 = tf.random.uniform([7, 7, 3, 64])
         kernel0 = tf.cast(kernel0, tf.float16)
@@ -445,5 +483,3 @@ class TestTraceFunction(TestV2Only):
         self.assertAllClose(result_layer_neuron, result_layer, rtol=1e-2, atol=1e-2)
 
 
-def _assert_compiler_success_func(wfunc):
-    assert any(op.type == 'NeuronOp' for op in wfunc.graph.get_operations())

@@ -14,34 +14,23 @@ It is available in the following two forms.
 
 The AWS Neuron runtime is integrated into TensorFlow as a TensorFlow custom operator,
 namely [NeuronOp](https://github.com/aws/aws-neuron-tensorflow/blob/main/runtime/ops/neuron_op.cc),
-without any modification to the core TensorFlow runtime code. As a result, AWS customers may
+without any modification to the core TensorFlow code. As a result, AWS customers may
 bring in their own fork of TensorFlow, potentially with their own modifications,
 and expect it to work with AWS Neuron seemlessly together.
 
-Conceptually, `NeuronOp` is a [gRPC](https://grpc.io/) client based on the
-[AWS Neuron Runtime Protocol Buffer](https://github.com/aws/aws-neuron-runtime-proto) interface.
-Note that the open source distribution of tensorflow-neuron does not yet support
-[AWS Neuron Runtime 2.x (libnrt.so)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/neuron-guide/appnotes/neuron-components/introducing-libnrt.html#introduce-libnrt),
-while the official tensorflow-neuron release does.
+The open source distribution of tensorflow-neuron requires deb/rpm package
+`aws-neuronx-runtime-lib` at run-time. For more information, please refer to
+[Introducing Packaging and installation changes](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/general/announcements/neuron2.x/neuron230-packages-changes.html)
+and
+[AWS Neuron Runtime 2.x (libnrt.so)](https://awsdocs-neuron.readthedocs-hosted.com/en/latest/neuron-guide/appnotes/neuron-components/introducing-libnrt.html#introduce-libnrt).
 
 ## Install build tool
-We recommend [Bazelisk](https://github.com/bazelbuild/bazelisk) (go-version)
+We recommend [Bazelisk](https://github.com/bazelbuild/bazelisk)
 which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
-1. Install [go](https://golang.org/)
-    - On Debian-based OS (e. g., Ubuntu):
-        1. `sudo add-apt-repository -y ppa:longsleep/golang-backports`
-        1. `sudo apt-get update`
-        1. `sudo apt-get install golang`
-    - On AmazonLinux2: `sudo yum install golang`
-    - On other CentOS-based OS:
-        1. `sudo rpm --import https://mirror.go-repo.io/centos/RPM-GPG-KEY-GO-REPO`
-        1. `curl -s https://mirror.go-repo.io/centos/go-repo.repo | sudo tee /etc/yum.repos.d/go-repo.repo`
-        1. `sudo yum install golang`
-    - Verify by running `go version`
-1. Install Bazelisk (from [https://github.com/bazelbuild/bazelisk#requirements]) and name it as `bazel`
-    1. `go get github.com/bazelbuild/bazelisk`
+1. Install Bazelisk (from [https://github.com/bazelbuild/bazelisk#installation]) and name it as `bazel`
     1. `mkdir -p $HOME/bin`
-    1. `install $(go env GOPATH)/bin/bazelisk $HOME/bin/bazel`
+    1. `curl -L https://github.com/bazelbuild/bazelisk/releases/download/v1.14.0/bazelisk-linux-amd64 --output $HOME/bin/bazel`
+    1. `chmod +x $HOME/bin/bazel`
     1. `export PATH=$PATH:$HOME/bin`
     1. Verify by running `bazel version`
 
@@ -54,20 +43,18 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
     1. `python3 -m venv env_tfn`
     1. `source ./env_tfn/bin/activate`
     1. `pip install pip -U`
-    1. `pip install numpy==1.19.2 wheel six`
+    1. `pip install numpy==1.20.0 wheel six`
     1. `pip install keras_preprocessing --no-deps`
-1. Clone `tensorflow` source code and setup `tensorflow-neuron` and Neuron runtime `proto` directories
-    1. `git clone https://github.com/tensorflow/tensorflow.git -b v2.5.1 tensorflow`
+1. Clone `tensorflow` source code and setup `tensorflow-neuron` directory
+    1. `git clone https://github.com/tensorflow/tensorflow.git -b v2.8.3 tensorflow`
     1. `git clone https://github.com/aws/aws-neuron-tensorflow ./tensorflow/tensorflow/neuron`
-    1. `git clone https://github.com/aws/aws-neuron-runtime-proto ./tensorflow/tensorflow/neuron/runtime/proto`
 1. Build `tensorflow-neuron` pip whl
     1. `cd tensorflow`
-    1. `git checkout refs/tags/v2.5.1`
     1. `./configure`
     1. `bazel build --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0" //tensorflow/neuron:build_pip_package`
     1. `./bazel-bin/tensorflow/neuron/build_pip_package ./`
     1. pip whl can be found by `ls tensorflow_neuron-*.whl`
-1. (Optional) Validate the `tensorflow-neuron` pip whl on an `inf1` instance with `aws-neuron-runtime` already installed
+1. (Optional) Validate the `tensorflow-neuron` pip whl on an `inf1` instance with pre-installed `aws-neuronx-dkms` and `aws-neuronx-runtime-lib`
     1. Copy `tensorflow_neuron-*.whl` to the `inf1` instance's `$HOME` directory, e. g. `scp tensorflow_neuron-*.whl my_inf1:~/`
     1. On the `inf1` instance:
         1. `mkdir ~/rundir`
@@ -81,22 +68,23 @@ which is "a user-friendly launcher for [Bazel](https://bazel.build/)".
 
 ### `tensorflow_model_server_neuron` 2.x binary executable
 We recommend building and running `tensorflow_model_server_neuron` on docker image
-`tensorflow/serving:2.5.1-devel` which includes the source code of
-tf-serving 2.5.1 and its entire build dependency environment. To install docker, please refer to
+`tensorflow/serving:2.8.3-devel` which includes the source code of
+tf-serving 2.8.3 and its entire build dependency environment. To install docker, please refer to
 https://docs.docker.com/engine/install/.
-1. `docker run -it --rm -v $(pwd):/host_workspace tensorflow/serving:2.5.1-devel bash`
+1. `docker run -it --rm -v $(pwd):/host_workspace tensorflow/serving:2.8.3-devel bash`
     - This step should let you drop into `/tensorflow-serving` which has the same content as
-    https://github.com/tensorflow/serving/tree/2.5.1.
+    https://github.com/tensorflow/serving/tree/2.8.3.
 1. `git clone https://github.com/aws/aws-neuron-tensorflow ./tensorflow_serving/neuron`
-1. `git clone https://github.com/aws/aws-neuron-runtime-proto ./tensorflow_serving/neuron/runtime/proto`
 1. `sed -i 's/SUPPORTED_TENSORFLOW_OPS = /SUPPORTED_TENSORFLOW_OPS = ["\/\/tensorflow_serving\/neuron\/runtime:all_ops"] + /g' ./tensorflow_serving/model_servers/BUILD`
     - If the sed command fails to execute, you may choose to manually edit
     `tensorflow_serving/model_servers/BUILD` to let `SUPPORTED_TENSORFLOW_OPS` include
     Bazel target `"//tensorflow_serving/neuron/runtime:all_ops"`.
 1. `bazel build //tensorflow_serving/model_servers:tensorflow_model_server`
 1. `install bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server ./tensorflow_model_server_neuron`
-1. Verify by running `./tensorflow_model_server_neuron --help`
-
+1. Verify by installing `aws-neuronx-runtime-lib` and running `tensorflow_model_server_neuron`
+    1. `echo "deb [trusted=yes] https://apt.repos.neuron.amazonaws.com bionic main" > /etc/apt/sources.list.d/neuron.list`
+    1. `apt-get update && apt-get install -y aws-neuronx-runtime-lib`
+    1. `./tensorflow_model_server_neuron --help`
 
 ### `tensorflow-neuron` 1.x pip whl
 1. Install Python3 developer package
@@ -108,13 +96,12 @@ https://docs.docker.com/engine/install/.
     1. `pip install pip -U`
     1. `pip install numpy==1.18.5 wheel six`
     1. `pip install keras_preprocessing --no-deps`
-1. Clone `tensorflow` source code and setup `tensorflow-neuron` and Neuron runtime `proto` directories
-    1. `git clone https://github.com/tensorflow/tensorflow.git -b v1.15.4 tensorflow`
+1. Clone `tensorflow` source code and setup `tensorflow-neuron` directory
+    1. `git clone https://github.com/tensorflow/tensorflow.git -b v1.15.5 tensorflow`
     1. `git clone https://github.com/aws/aws-neuron-tensorflow ./tensorflow/tensorflow/neuron`
-    1. `git clone https://github.com/aws/aws-neuron-runtime-proto ./tensorflow/tensorflow/neuron/runtime/proto`
 1. Build `tensorflow-neuron` pip whl
     1. `cd tensorflow`
-    1. `git checkout refs/tags/v1.15.4`
+    1. `git checkout refs/tags/v1.15.5`
     1. `USE_BAZEL_VERSION=0.26.1 ./configure`
     1. `USE_BAZEL_VERSION=0.26.1 bazel build --incompatible_remap_main_repo --cxxopt="-D_GLIBCXX_USE_CXX11_ABI=0" //tensorflow/neuron:build_pip_package`
     1. `./bazel-bin/tensorflow/neuron/build_pip_package ./`
@@ -125,7 +112,7 @@ https://docs.docker.com/engine/install/.
     1. `pip install pytest`
     1. `pip install neuron-cc ../tensorflow/tensorflow_neuron-*.whl --extra-index-url=https://pip.repos.neuron.amazonaws.com`
     1. `env NEURON_TF_COMPILE_ONLY=1 pytest --pyargs tensorflow_neuron`, all tests should pass.
-        - If tests are running on `inf1` instances with `aws-neuron-runtime` installed,
+        - If tests are running on `inf1` instances with pre-installed `aws-neuronx-dkms` and `aws-neuronx-runtime-lib`,
         then you may simply run `pytest --pyargs tensorflow_neuron` and expect all tests passing.
         - Known issue: if you have `h5py>=3` installed, some Keras related tests may fail due to https://github.com/tensorflow/tensorflow/issues/44467
 
@@ -138,7 +125,6 @@ https://docs.docker.com/engine/install/.
     - This step should let you drop into `/tensorflow-serving` which has the same content as
     https://github.com/tensorflow/serving/tree/1.15.0.
 1. `git clone https://github.com/aws/aws-neuron-tensorflow ./tensorflow_serving/neuron`
-1. `git clone https://github.com/aws/aws-neuron-runtime-proto ./tensorflow_serving/neuron/runtime/proto`
 1. `git apply ./tensorflow_serving/neuron/runtime/serving_neuron_op.diff`
     - All this patch does is to register `NeuronOp` into tf-serving by adding
     the following line of code into Bazel BUILD file `tensorflow_serving/model_servers/BUILD`.
@@ -150,4 +136,7 @@ https://docs.docker.com/engine/install/.
     Bazel target `"//tensorflow_serving/neuron/runtime:all_ops"`.
 1. `bazel build //tensorflow_serving/model_servers:tensorflow_model_server`
 1. `install bazel-bin/tensorflow_serving/model_servers/tensorflow_model_server ./tensorflow_model_server_neuron`
-1. Verify by running `./tensorflow_model_server_neuron --help`
+1. Verify by installing `aws-neuronx-runtime-lib` and running `tensorflow_model_server_neuron`
+    1. `echo "deb [trusted=yes] https://apt.repos.neuron.amazonaws.com bionic main" > /etc/apt/sources.list.d/neuron.list`
+    1. `apt-get update && apt-get install -y aws-neuronx-runtime-lib`
+    1. `./tensorflow_model_server_neuron --help`

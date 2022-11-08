@@ -17,10 +17,21 @@ import os
 import json
 import subprocess
 import tempfile
+import logging
 from distutils import spawn
 from distutils.version import LooseVersion
 from tensorflow_neuron import __version__
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import utils
+
+
+_NEURON_CC_CLI = ['neuron-cc']
+
+
+def configure_compiler_cli(neuron_cc_cli):
+    old_config = _NEURON_CC_CLI.copy()
+    _NEURON_CC_CLI.clear()
+    _NEURON_CC_CLI.extend(neuron_cc_cli)
+    return old_config
 
 
 def list_operators():
@@ -86,7 +97,13 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
 
 def find_neuron_cc():
     path = '{}:{}'.format(os.path.dirname(sys.executable), os.environ.get('PATH', ''))
-    return spawn.find_executable('neuron-cc', path)
+    neuron_cc_cli_name, *_ = _NEURON_CC_CLI
+    return spawn.find_executable(neuron_cc_cli_name, path)
+
+
+def read_default_args():
+    _, *args = _NEURON_CC_CLI
+    return args
 
 
 def supports_xla():
@@ -100,9 +117,12 @@ def supports_xla():
 
 
 try:
-    import neuroncc
+    try:
+        import neuroncc
+    except ImportError:
+        import neuronxcc as neuroncc
 except ImportError:
     neuroncc = None
 else:
     if LooseVersion(__version__) >= LooseVersion('2.0.0') and supports_xla():
-        from tensorflow.neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
+        from tensorflow_neuron.python.neuron_cc_hlo import list_operators, compile_savetemps

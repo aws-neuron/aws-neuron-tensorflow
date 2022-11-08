@@ -31,11 +31,11 @@ from tensorflow.python.client import session
 from tensorflow.python.framework import ops, constant_op
 from tensorflow.python.ops import array_ops, variables, variable_scope, init_ops
 from tensorflow.python.eager.context import executing_eagerly
-from tensorflow.neuron.python import neff_util
-from tensorflow.neuron.python.ops.gen_neuron_op import neuron_op
-from tensorflow.neuron.python.graph_def_util import normalize_operators, erase_large_constants
-from tensorflow.neuron.python import neuron_cc as ncc
-from tensorflow.neuron.python import utils
+from tensorflow_neuron.python import neff_util
+from tensorflow_neuron.python.ops.gen_neuron_op import neuron_op
+from tensorflow_neuron.python.graph_def_util import normalize_operators, erase_large_constants
+from tensorflow_neuron.python import neuron_cc as ncc
+from tensorflow_neuron.python import utils
 
 
 _neuron_sess_run_decorated = False

@@ -61,7 +61,7 @@ function main() {
     mkdir "${TMPDIR}/tensorflow-plugins"
     mv ${TMPDIR}/tensorflow_neuron/python/libaws_neuron_plugin.* "${TMPDIR}/tensorflow-plugins"
 
-    # whether to put api definition and aws_neuron_tf2hlo under tensorflow_core vs tensorflow
+    # whether to put api definition under tensorflow_core vs tensorflow
     UNDER_TF_CORE=$(python3 -c "from distutils.version import LooseVersion; print(LooseVersion(\"${VERSION}\") < LooseVersion('2.2'))")
     if [[ ${UNDER_TF_CORE} == "True" ]]; then
         TF_CORE_PATH="${TMPDIR}/tensorflow_core"
@@ -72,9 +72,8 @@ function main() {
     fi
     mkdir -p "${TF_CORE_PATH}/neuron/"
     cp "${TMPDIR}/tensorflow_neuron/api/__init__.py" "${TF_CORE_PATH}/neuron/"
-    mv "${TMPDIR}/tensorflow_neuron/tf2hlo/" "${TF_CORE_PATH}/neuron/"
-    sed "s/_VERSION/${VERSION}/g" tensorflow/neuron/setup.py > "${TMPDIR}/setup.py"
-    echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/__init__.py"
+    cp tensorflow/neuron/setup.py "${TMPDIR}/setup.py"
+    echo "__version__ = '${VERSION}'" >> "${TMPDIR}/tensorflow_neuron/python/_version.py"
 
     # Before we leave the top-level directory, make sure we know how to
     # call python.
@@ -84,7 +83,7 @@ function main() {
 
     echo $(date) : "=== Building wheel"
     cd "${TMPDIR}"
-    "${PYTHON_BIN_PATH:-python}" setup.py -q bdist_wheel ${PLATFORM}
+    env TFN_VERSION="${VERSION}" "${PYTHON_BIN_PATH:-python}" setup.py -q bdist_wheel ${PLATFORM}
     mkdir -p "${DSTDIR}"
     cp "${TMPDIR}"/dist/* "${DSTDIR}"
     echo $(date) : "=== Output wheel file is in: ${DSTDIR}"

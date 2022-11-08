@@ -21,14 +21,15 @@ try:
     from tensorflow.compiler.tf2xla import tf2xla_pb2
 except ImportError:
     try:
-        from tensorflow.neuron.python.tf2xla import tf2xla_pb2
+        from tensorflow_neuron.python.tf2xla import tf2xla_pb2
     except ImportError:
         tf2xla_pb2 = None
 from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow.python.platform import tf_logging as logging
-from tensorflow.neuron.python import utils
-from tensorflow.neuron.python.hlo.optimize import HloOptimizer
-from tensorflow.neuron.python.neuron_cc import find_neuron_cc
+from tensorflow_neuron.python import utils
+from tensorflow_neuron.python.hlo.optimize import HloOptimizer
+from tensorflow_neuron.python.neuron_cc import find_neuron_cc, read_default_args
+from tensorflow_neuron.python.libtfneuron import libtfneuron
 
 
 _SUPPORTED_OPERATOR_TYPES = '''
@@ -57,11 +58,13 @@ Elu
 Erf
 Exp
 ExpandDims
+FakeQuantWithMinMaxVars
 FusedBatchNorm
 FusedBatchNormV2
 FusedBatchNormV3
 Greater
 Identity
+IdentityN
 LeakyRelu
 LogicalAnd
 LogicalNot
@@ -87,6 +90,7 @@ Select
 SelectV2
 Selu
 Sigmoid
+Slice
 Softmax
 Softplus
 Softsign
@@ -127,18 +131,32 @@ def compile_savetemps(graph_def, inputs, outputs, node_name, dumper=None):
             item.type = ts.dtype.as_datatype_enum
 
     # call graph_def_to_hlo and then hlo_to_neff
-    tfn_args, compiler_args = utils.parse_neuron_cc_flags(dest_set={'--dump-prefix'})
+    tfn_args, compiler_args = utils.parse_neuron_cc_flags(flag_set={'--workdir'})
     with tempfile.TemporaryDirectory() as workdir:
         if tfn_args.dump_prefix is not None:
             workdir = os.path.join(os.path.realpath(tfn_args.dump_prefix), node_name)
             os.makedirs(workdir, exist_ok=True)
         hlo_module = graph_def_to_hlo(graph_def, tf2xla_config, workdir)
-        compiler_args.append('--dump-prefix={}'.format(workdir))
+        compiler_args.append('--workdir={}'.format(workdir))
         executable, new_inputs, new_outputs = hlo_to_neff(hlo_module, compiler_args, dumper)
     return executable, new_inputs, new_outputs
 
 
 def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
+    if not libtfneuron.available:
+        return graph_def_to_hlo_legacy(graph_def, tf2xla_config, workdir)
+    return _neuron_tf2xla(graph_def, tf2xla_config)
+
+
+def _neuron_tf2xla(graph_def, tf2xla_config):
+    s_config = tf2xla_config.SerializeToString()
+    s_hlo_snapshot = libtfneuron.NeuronTf2Xla(graph_def.SerializeToString(), s_config)
+    hlo_snapshot = hlo_pb2.HloSnapshot()
+    hlo_snapshot.ParseFromString(s_hlo_snapshot)
+    return hlo_snapshot.hlo.hlo_module
+
+
+def graph_def_to_hlo_legacy(graph_def, tf2xla_config, workdir=None):
     # call aws_neuron_tf2hlo
     with workdir_context(workdir) as workdir:
         graph_def_path = os.path.join(workdir, 'graph_def.pb')
@@ -159,10 +177,9 @@ def graph_def_to_hlo(graph_def, tf2xla_config, workdir=None):
 
 
 def get_aws_neuron_tf2hlo_path():
-    temp_path = hlo_pb2.__file__
-    for _ in range(4):
-        temp_path = os.path.dirname(temp_path)
-    return os.path.join(temp_path, 'neuron', 'tf2hlo', 'aws_neuron_tf2hlo')
+    temp_path = os.path.dirname(__file__)
+    temp_path = os.path.dirname(temp_path)
+    return os.path.join(temp_path, 'tf2hlo', 'aws_neuron_tf2hlo')
 
 
 @contextmanager
@@ -184,6 +201,7 @@ def hlo_to_neff(hlo_module, args=None, dumper=None):
     hlo_opt.batchify_reshape_dot_reshape()
     hlo_opt.fold_no_op_instructions()
     hlo_opt.dead_code_elimination()
+    hlo_opt.rewrite_depthwise_convolution()
     hlo_opt.maybe_enable_rtr_shuffle()
     hlo_opt.maybe_enable_dynamic_batch_size()
     hlo_opt.maybe_rewrite_batch_size()
@@ -200,6 +218,12 @@ def hlo_to_neff(hlo_module, args=None, dumper=None):
 
 
 def verify_hlo_opt(hlo_opt):
+    if not libtfneuron.available:
+        return verify_hlo_opt_legacy(hlo_opt)
+    libtfneuron.NeuronVerifyHlo(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
+
+
+def verify_hlo_opt_legacy(hlo_opt):
     with tempfile.TemporaryDirectory() as workdir:
         hlo_ss_opt_path = os.path.join(workdir, 'hlo_snapshot_opt.pb')
         with open(hlo_ss_opt_path, 'wb') as f:
@@ -215,7 +239,10 @@ def hlo_opt_to_neff_bytes(hlo_opt, args):
             from tensorflow_neuron.neuroncc.hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
         except ImportError:
             return b''
-        logging.warning('running a fall-back code generator to mitigate compilation failure')
+        logging.warning('\n################### Attention!!! ###################'
+                        '\nAccording to semantic analysis, this model requires'
+                        '\na neuron-cc 1.3 based fall-back code generator.'
+                        '\n####################################################')
         parsed_args, _ = utils.parse_neuron_cc_flags(args)
         if parsed_args.neuroncore_pipeline_cores is not None:
             raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
@@ -240,9 +267,10 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     output_path = os.path.join(workdir, 'hlo_module.neff')
     with open(input_path, 'wb') as f:
         f.write(hlo_opt.get_snapshot().hlo.hlo_module.SerializeToString())
-    command = [find_neuron_cc(), 'compile', input_path, '--framework', 'XLA',
+    command = [find_neuron_cc(), 'compile', *read_default_args(), input_path,
+               '--framework', 'XLA', '--verbose={}'.format(parsed_args.verbose),
                '--pipeline', 'compile', 'SaveTemps', '--output', output_path,
-               '--verbose=35', '--fast-math=none', '--fp32-cast={}'.format(parsed_args.fp32_cast)]
+               '--fast-math=none', '--fp32-cast={}'.format(parsed_args.fp32_cast)]
     if parsed_args.neuroncore_pipeline_cores is None:
         command.append('--enable-fast-context-switch')
     else:
@@ -250,11 +278,15 @@ def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     command.extend(compiler_args)
     with open(os.path.join(workdir, 'neuron_cc_xla_command.log'), 'w') as f:
         f.write(' '.join(command))
-    with open(os.path.join(workdir, 'neuron_cc_xla.log'), 'w') as f:
-        proc = subprocess.run(command, cwd=workdir, stdout=f, stderr=f)
+    stderr_log_path = os.path.join(workdir, 'neuron_cc_xla.stderr.log')
+    with open(stderr_log_path, 'w') as f:
+        proc = subprocess.run(command, cwd=workdir, stderr=f)
     if proc.returncode == 0:
         with open(output_path, 'rb') as f:
             neff_bytes = f.read()
+    else:
+        with open(stderr_log_path, 'r') as f:
+            logging.warning('neuron-cc failed with:\n{}'.format(f.read()))
     return neff_bytes
 
 
