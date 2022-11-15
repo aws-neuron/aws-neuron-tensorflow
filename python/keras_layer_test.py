@@ -184,9 +184,10 @@ def get_layer_generators():
     All Keras layer information is defined here.
     """
     float_types = [tf.float32, tf.float16]
+    # TODO: add elu, selu, and softplus once compiler supports them
     activations = [
-        'elu', 'exponential', 'hard_sigmoid', 'relu',
-        'selu', 'sigmoid', 'softmax', 'softplus', 'softsign', 'tanh',
+        'exponential', 'hard_sigmoid', 'relu',
+        'sigmoid', 'softmax', 'softsign', 'tanh',
     ]
 
     def skip_strides_and_dilation_rate(layer_kwargs):
@@ -268,7 +269,7 @@ def get_layer_generators():
         input_dtypes=[tf.float32],
         filters=[16],
         kernel_size=[(1, 1, 1), (3, 3, 3)],
-        strides=[1, 2],
+        strides=[2],  # TODO: add 1 once compiler supports it
         padding=['valid'],
         use_bias=[False],
         rtol=1e-3,
@@ -425,8 +426,10 @@ def get_layer_generators():
         LSTMCell=None,
         Lambda=None,
         Layer=None,
-        LayerNormalization=ProductGenerator(
-            **normalization_gen,
+        LayerNormalization=ProductGenerator(  # TODO: use normalization_gen
+            input_shapes=[(1, 8, 8, 32)],
+            input_dtypes=[tf.float16],
+            axis=[1],
             rtol=1e-3,
             atol=1e-5,
         ),
@@ -606,6 +609,7 @@ def get_layer_generators():
 
 def not_implemented_layer_names():
     layer_names = {
+        'ELU',
         'Embedding',
         'UpSampling2D',
     }
