@@ -199,6 +199,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
                     " Example : NEURON_CC_FLAGS='--extract-weights' python your_compile_script.py"
                 )   
                 raise ValueError(str(err) + error_msg)
+        raise_for_unhandled_resources(cfunc)
     else:
         cfunc = func
 
@@ -247,6 +248,23 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     _make_keras_model_savable(model, example_inputs)
     return model
+
+
+def raise_for_unhandled_resources(cfunc):
+    resources = [ts for ts in cfunc.inputs if ts.dtype == dtypes.resource]
+    if not resources:
+        return
+    consumers = [ts.consumers() for ts in resources]
+    raise TypeError(
+        'Found unhandled resource tensors {}, most likely due to the following ops {}. '
+        'tfn.trace can only trace pure functions (i. e., functions with all the input data '
+        'passed through as function parameters, and all the output data returned through '
+        'the function results), but the above unhandled resource tensors would require '
+        'an extra initialization step at run-time prior to the actual inference logic '
+        'and be passed to the traced function in addition to `example_inputs`. As a result, '
+        'we kindly ask you to refactor the computationally expensive part of your model as '
+        'a pure function.'.format(resources, consumers)
+    )
 
 
 class OptionalDumper:
