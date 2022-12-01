@@ -51,16 +51,13 @@ def get_version():
     return os.environ.get('TFN_VERSION', '2.3.0')
 
 
-def get_tf_version_range():
-    return os.environ.get('TF_VERSION_RANGE', '')
-
-
 def get_install_requires():
-    return [
-        'tensorflow{}'.format(get_tf_version_range()),
-        'tensorboard-plugin-neuronx',
-        'protobuf<4',
-    ]
+    major, minor, patch, *_ = LooseVersion(get_version()).version
+    tf_compat_version = '{}.{}.{}'.format(major, minor, patch)
+    install_requires = ['tensorflow ~= {}.0'.format(tf_compat_version)]
+    install_requires.append('tensorboard-plugin-neuronx')
+    install_requires.append('protobuf<4')
+    return install_requires
 
 
 def get_package_data():
@@ -99,6 +96,9 @@ setup(
         'Intended Audience :: Science/Research',
         'License :: OSI Approved :: Apache Software License',
         'Programming Language :: Python :: 3',
+        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8',
         'Topic :: Scientific/Engineering',
         'Topic :: Scientific/Engineering :: Mathematics',
         'Topic :: Scientific/Engineering :: Artificial Intelligence',
