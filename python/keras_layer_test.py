@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from distutils.version import LooseVersion
 import os
 import inspect
 import itertools
@@ -188,6 +187,7 @@ def get_layer_generators():
     activations = [
         'exponential', 'hard_sigmoid', 'relu',
         'sigmoid', 'softmax', 'softsign', 'tanh',
+        'swish', 'gelu',
     ]
 
     def skip_strides_and_dilation_rate(layer_kwargs):
@@ -272,7 +272,7 @@ def get_layer_generators():
         strides=[2],  # TODO: add 1 once compiler supports it
         padding=['valid'],
         use_bias=[False],
-        rtol=1e-3,
+        rtol=5e-3,
         atol=5e-5,
     )
     global_pooling_common = dict(
@@ -343,6 +343,7 @@ def get_layer_generators():
             axis=[-1, 1],
         ),
         Conv1D=conv1d_gen,
+        Conv1DTranspose=conv1d_gen,
         Conv2D=conv2d_gen,
         Conv2DTranspose=conv2d_gen,
         Conv3D=conv3d_gen,
@@ -465,6 +466,14 @@ def get_layer_generators():
         MaxPool3D=pool3d_gen,
         Maximum=reduce_gen,
         Minimum=reduce_gen,
+        MultiHeadAttention=ProductGenerator(
+            input_shapes=[((1, 8, 16), (1, 4, 16))],
+            input_dtypes=[(tf.float32, tf.float32), (tf.float16, tf.float16)],
+            num_heads=[2],
+            key_dim=[2],
+            rtol=1e-3,
+            atol=5e-5,
+        ),
         Multiply=reduce_gen,
         PReLU=ProductGenerator(
             input_shapes=[(1, 8, 8, 6)],
@@ -509,7 +518,7 @@ def get_layer_generators():
             depth_multiplier=[1, 2],
             use_bias=[False],
             rtol=1e-2,
-            atol=1e-5,
+            atol=5e-5,
         ),
         SeparableConv2D=ProductGenerator(
             input_shapes=[(1, 20, 20, 32)],
@@ -582,26 +591,6 @@ def get_layer_generators():
             padding=[1, 2],
         ),
     )
-
-    # update with some newly introduced layers/activations
-    if LooseVersion(tf.__version__) >= LooseVersion('2.2.0'):
-        activations.append('swish')
-    if LooseVersion(tf.__version__) >= LooseVersion('2.3.0'):
-        layer_generators.update(
-            Conv1DTranspose=conv1d_gen,
-        )
-    if LooseVersion(tf.__version__) >= LooseVersion('2.4.0'):
-        activations.append('gelu')
-        layer_generators.update(
-            MultiHeadAttention=ProductGenerator(
-                input_shapes=[((1, 8, 16), (1, 4, 16))],
-                input_dtypes=[(tf.float32, tf.float32), (tf.float16, tf.float16)],
-                num_heads=[2],
-                key_dim=[2],
-                rtol=1e-3,
-                atol=1e-5,
-            ),
-        )
 
     # sort all layer types alphabetically
     return dict(sorted(layer_generators.items()))
