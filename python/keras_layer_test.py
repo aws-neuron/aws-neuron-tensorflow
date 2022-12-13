@@ -55,6 +55,8 @@ class KerasLayerGenerator(RemoveTestSession):
     """
 
     def __new__(mcs, name, bases, dct):
+        if tf.__version__.startswith('1.'):  # don't generate tests for tf 1.x
+            return RemoveTestSession.__new__(mcs, name, bases, dct)
 
         def legalize(string):
             return ''.join(ch for ch in string if ch.isalpha() or ch.isnumeric() or ch in '_.-')
