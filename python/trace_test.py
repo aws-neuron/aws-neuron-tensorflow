@@ -19,8 +19,9 @@ from tensorflow.core.framework import types_pb2
 import tensorflow as tf
 from tensorflow.python.eager import wrap_function
 import tensorflow.neuron as tfn
-from tensorflow_neuron.python.unittest_base import TestV2Only, xfail_for_versions
+from tensorflow_neuron.python.unittest_base import TestV2Only
 from tensorflow_neuron.python.utils import _assert_compiler_success_func
+
 
 class TestTraceKerasModel(TestV2Only):
 

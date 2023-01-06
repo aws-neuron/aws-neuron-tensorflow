@@ -16,7 +16,6 @@ import os
 import subprocess
 import tempfile
 from contextlib import contextmanager
-from distutils.version import LooseVersion
 try:
     from tensorflow.compiler.tf2xla import tf2xla_pb2
 except ImportError:

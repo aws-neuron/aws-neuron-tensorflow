@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 import os
-from distutils.version import LooseVersion
 from setuptools import setup, PEP420PackageFinder
 from setuptools.command.install import install as InstallCommandBase
 from setuptools.dist import Distribution
@@ -52,7 +51,7 @@ def get_version():
 
 
 def get_install_requires():
-    major, minor, patch, *_ = LooseVersion(get_version()).version
+    major, minor, patch, *_ = get_version().split('.')
     tf_compat_version = '{}.{}.{}'.format(major, minor, patch)
     install_requires = ['tensorflow ~= {}.0'.format(tf_compat_version)]
     install_requires.append('tensorboard-plugin-neuronx')
@@ -73,13 +72,6 @@ def get_package_data():
         ],
     }
     return package_data
-
-
-def get_extras_require_cc():
-    if LooseVersion(get_version()) < LooseVersion('2.0'):
-        return 'neuron-cc'
-    else:
-        return 'neuron-cc >= 1.7.0'
 
 
 setup(
@@ -116,7 +108,7 @@ setup(
         'install': InstallCommand,
     },
     install_requires=get_install_requires(),
-    extras_require={'cc': [get_extras_require_cc()]},
+    extras_require={'cc': ['neuron-cc']},
     entry_points = {
         'console_scripts': ['tf-neuron-auto-multicore=tensorflow_neuron.python.auto_multicore_save_model:convert_model'],
     }
