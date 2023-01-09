@@ -19,8 +19,8 @@ import subprocess
 import tempfile
 import logging
 from distutils import spawn
-from tensorflow_neuron import is_tf_v1
 from tensorflow_neuron.python import utils
+from tensorflow_neuron.python._version import is_tf_v1
 
 
 _NEURON_CC_CLI = ['neuron-cc']
