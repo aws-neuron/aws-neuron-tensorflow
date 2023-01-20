@@ -529,7 +529,15 @@ def calculate_max_num_cores(compiled_graph_def):
             #multiply num of elements * dtype size to get size of tensor
             weights_size += num_elements * dtypes.as_dtype(dtype).size
 
-    return math.floor(4e9 / (neff_size + weights_size)) * 2
+    result = math.floor(4e9 / (neff_size + weights_size)) * 2
+    if result == 0:
+        error_str = (f'Your total model size including weights is {(neff_size + weights_size) / 1e9} GB'
+                        ', which is greater than the current limitation of 4GB with the --extract_weights'
+                        'flag enabled. Reducing model size or splitting your model into smaller parts can' 
+                        'help you get around this limitation.')
+        raise ValueError(error_str)
+
+    return result
 
 
 
