@@ -31,6 +31,13 @@ _DEFAULT_IO_BUFFER_NUM_BYTES = 128 * 1024 * 1024
 _DEFAULT_CACHE_CAPACITY = 12 * 1024 * 1024
 
 
+def configure_cache_capacity(capacity):
+    global _DEFAULT_CACHE_CAPACITY
+    old_capacity = _DEFAULT_CACHE_CAPACITY
+    _DEFAULT_CACHE_CAPACITY = capacity
+    return old_capacity
+
+
 class HloOptimizer:
 
     tuple_output_opcodes = {'batch-norm-training'}

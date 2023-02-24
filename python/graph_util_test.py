@@ -221,13 +221,9 @@ class TestInferenceGraphFromSession(TestV1Only):
             }
             result_names = ['relu0:0', 'relu1:0']
             result_ref = sess.run(result_names, feed_dict)
-            import neuroncc
-            from distutils.version import LooseVersion
-            neuroncc_version = LooseVersion(neuroncc.__version__.split('+')[0])
             infer_graph = graph_util.inference_graph_from_session(
                 sess, supported_op_types={'Conv2D', 'Const', 'Add', 'Relu', 'IdentityN'},
                 feed_dict=feed_dict, output_tensors=result_names,
-                compiler_args=['--experimental-suppress-scheduler-data-race'] if neuroncc_version > LooseVersion('1.0.10450') else None,
                 compiler_workdir='./workdir')
         for name in feed_dict.keys():
             infer_graph.get_tensor_by_name(name)

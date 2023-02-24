@@ -62,7 +62,7 @@ function main() {
     mv ${TMPDIR}/tensorflow_neuron/python/libaws_neuron_plugin.* "${TMPDIR}/tensorflow-plugins"
 
     # whether to put api definition under tensorflow_core vs tensorflow
-    UNDER_TF_CORE=$(python3 -c "from distutils.version import LooseVersion; print(LooseVersion(\"${VERSION}\") < LooseVersion('2.2'))")
+    UNDER_TF_CORE=$(python3 -c "print(\"${VERSION}\".startswith('1.'))")
     if [[ ${UNDER_TF_CORE} == "True" ]]; then
         TF_CORE_PATH="${TMPDIR}/tensorflow_core"
         mkdir -p "${TMPDIR}/tensorflow/neuron/"

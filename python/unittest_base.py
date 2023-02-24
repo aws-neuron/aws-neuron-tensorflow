@@ -14,9 +14,9 @@
 # ==============================================================================
 import os
 import unittest
-from distutils.version import LooseVersion
 import tensorflow as tf
 from tensorflow.python.eager import function
+from tensorflow_neuron.python._version import is_tf_v1
 
 
 
@@ -33,7 +33,7 @@ class TestV1Only(tf.test.TestCase, metaclass=RemoveTestSession):
 
     @classmethod
     def setUpClass(cls):
-        if LooseVersion(tf.__version__) >= LooseVersion('2.0.0'):
+        if not is_tf_v1():
             raise unittest.SkipTest('tf v1 only tests is not supported under tf 2.x')
 
 
@@ -42,7 +42,7 @@ class TestV2Only(tf.test.TestCase, metaclass=RemoveTestSession):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
-        if LooseVersion(tf.__version__) < LooseVersion('2.0.0'):
+        if is_tf_v1():
             raise unittest.SkipTest('tf v2 only tests is not supported under tf 1.x')
 
     def setUp(self):
@@ -54,13 +54,3 @@ class TestV2Only(tf.test.TestCase, metaclass=RemoveTestSession):
 
         if 'NEURON_TF_COMPILE_ONLY' in os.environ:
             function.ConcreteFunction.__call__ = fake_call
-
-
-def xfail_for_versions(*versions):
-    def major_minor(ver):
-        return LooseVersion(ver).version[:2]
-    def wrapper(test_func):
-        if any(major_minor(tf.__version__) == major_minor(ver) for ver in versions):
-            test_func = unittest.expectedFailure(test_func)
-        return test_func
-    return wrapper

@@ -16,7 +16,6 @@ import os
 import subprocess
 import tempfile
 from contextlib import contextmanager
-from distutils.version import LooseVersion
 try:
     from tensorflow.compiler.tf2xla import tf2xla_pb2
 except ImportError:
@@ -233,33 +232,6 @@ def verify_hlo_opt_legacy(hlo_opt):
 
 
 def hlo_opt_to_neff_bytes(hlo_opt, args):
-    neff_bytes = _run_neuron_cc_with_dump_prefix(hlo_opt, args)
-    if not neff_bytes:
-        try:
-            from tensorflow_neuron.neuroncc.hlo2neuron.driver import hlo_opt_to_neff_bytes as hlo_opt_to_neff_bytes_fallback
-        except ImportError:
-            return b''
-        logging.warning('\n################### Attention!!! ###################'
-                        '\nAccording to semantic analysis, this model requires'
-                        '\na neuron-cc 1.3 based fall-back code generator.'
-                        '\n####################################################')
-        parsed_args, _ = utils.parse_neuron_cc_flags(args)
-        if parsed_args.neuroncore_pipeline_cores is not None:
-            raise RuntimeError('--neuroncore-pipeline-cores is unsupported in the fall-back code generator')
-        try:
-            neff_bytes = hlo_opt_to_neff_bytes_fallback(hlo_opt, args)
-        except Exception as err:
-            logging.debug('fall-back code generator failed due to {}: {}'.format(type(err).__name__, err))
-            return b''
-
-        def lazy_neff_bytes():
-            return neff_bytes
-
-        _maybe_dump_bytes_as(parsed_args, lazy_neff_bytes, 'hlo_snapshot_opt.neff')
-    return neff_bytes
-
-
-def _run_neuron_cc_with_dump_prefix(hlo_opt, args):
     parsed_args, compiler_args = utils.parse_neuron_cc_flags(args)
     workdir = parsed_args.dump_prefix
     neff_bytes = b''
