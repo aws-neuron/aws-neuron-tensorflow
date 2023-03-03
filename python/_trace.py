@@ -39,6 +39,7 @@ from tensorflow_neuron.python.hlo.optimize import HloOp
 from tensorflow_neuron.python.custom_call import CustomCallLowering
 from tensorflow_neuron.python.libtfneuron import libtfneuron
 from tensorflow_neuron.python._version import is_tf_v1
+from tensorflow_neuron.python.neuron_cc_hlo import _SUPPORTED_OPERATOR_TYPES
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):
@@ -153,15 +154,8 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     """
     original_func = func
-    if not isinstance(example_inputs, tuple):
-        example_inputs = (example_inputs,)
-    if not isinstance(func, (def_function.Function, function.ConcreteFunction)):
-        input_signature = None
-        if all(isinstance(item, ops.Tensor) for item in example_inputs):
-            input_signature = [TensorSpec(ts.shape, ts.dtype) for ts in example_inputs]
-        func = def_function.function(input_signature=input_signature)(func)
-    if not isinstance(func, function.ConcreteFunction):
-        func = func.get_concrete_function(*example_inputs)
+    func, example_inputs = _func_to_concrete_func(func, example_inputs)
+    real_op_count = len(_get_real_ops(func.graph.as_graph_def()))
 
     dumper = OptionalDumper()
     tfn_args, _ = utils.parse_neuron_cc_flags()
@@ -231,15 +225,28 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
         ordered_weights = _get_ordered_weights(func, original_func)
         # wrap ConcreteFunction as a keras model
-        model = AwsNeuronModel(cfunc, func.structured_outputs, ordered_weights=ordered_weights)
+        model = AwsNeuronModel(cfunc, func.structured_outputs, real_op_count, ordered_weights=ordered_weights)
     else:
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_graph_def_as_concrete_function(graph_def, func)
         # wrap ConcreteFunction as a keras model
-        model = AwsNeuronModel(cfunc, func.structured_outputs)
+        model = AwsNeuronModel(cfunc, func.structured_outputs, real_op_count)
 
     _make_keras_model_savable(model, example_inputs)
+
     return model
+
+def _func_to_concrete_func(func, example_inputs):
+    if not isinstance(example_inputs, tuple):
+        example_inputs = (example_inputs,)
+    if not isinstance(func, (def_function.Function, function.ConcreteFunction)):
+        input_signature = None
+        if all(isinstance(item, ops.Tensor) for item in example_inputs):
+            input_signature = [TensorSpec(ts.shape, ts.dtype) for ts in example_inputs]
+        func = def_function.function(input_signature=input_signature)(func)
+    if not isinstance(func, function.ConcreteFunction):
+        func = func.get_concrete_function(*example_inputs)
+    return func, example_inputs
 
 
 def raise_for_unhandled_resources(cfunc):
@@ -351,11 +358,14 @@ def _shuffle(value, shuffle):
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, func, structured_outputs, ordered_weights=None):
+    def __init__(self, func, structured_outputs, real_op_count, ordered_weights=None):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = func
         self._aws_neuron_output_type = None
         self._ordered_weights = ordered_weights
+        self.on_neuron_ratio = self.calculate_on_neuron_ratio(real_op_count)
+        if self.on_neuron_ratio < .5:
+            logging.warning(f'Warning: Your traced model has {self.on_neuron_ratio * 100}% of operators compiled to neuron.')
         if isinstance(structured_outputs, abc.Mapping):
             self._aws_neuron_output_type = type(structured_outputs)
 
@@ -372,6 +382,32 @@ class AwsNeuronModel(Model):
             outputs = self._aws_neuron_output_type(**outputs)
         return outputs
 
+    # Calculates the ratio between the number of original ops in the graph
+    # and the number ops compiled to neuron.
+    # It ignores Placeholder, Idnetity, ReadVariableOp, NoOp, and NeuronOp
+    # The first four being very insignifcant ops and the last representing
+    # all the successfully compiled ops.
+    def calculate_on_neuron_ratio(self, real_op_count):
+        non_compiled_op_count = 0
+        found_at_least_one_neuron_op = False
+        for op in self.aws_neuron_function.graph.get_operations():
+            if op.type not in {'Placeholder', 'IdentityN', 'NeuronOp', 'ReadVariableOp', 'NoOp'}:
+                non_compiled_op_count += 1
+            elif op.type == 'NeuronOp':
+                found_at_least_one_neuron_op = True
+
+        if found_at_least_one_neuron_op:
+            return 1 - (non_compiled_op_count/real_op_count)
+        return 0
+
+def _get_real_ops(graph_def):
+    real_ops = []
+    for node in graph_def.node:
+        if node.op not in {'Placeholder', 'ReadVariableOp', 'Identity', 'NoOp'}:
+            real_ops.append(node.op)
+
+    return real_ops
+    
 
 def _get_feed_dict(func, inputs):
     if len(inputs) == 1:
@@ -594,3 +630,60 @@ def _make_keras_model_savable(model, example_inputs):
                         'before trying to save it'.format(model))
     if set_save_spec is not None:
         set_save_spec(example_inputs)
+
+
+def analyze_model(func, example_inputs):
+    func, example_inputs = _func_to_concrete_func(func, example_inputs)
+    graph_def = func.graph.as_graph_def()
+
+    # Get the operators in the model
+    operators_in_model = set()
+    supported_in_model = set()
+    not_supported_operators = set()
+    operators_in_model_count = dict()
+    total_count = 0
+    supported_count = 0
+
+    real_ops = _get_real_ops(graph_def)
+
+    for op in real_ops:
+        operators_in_model.add(op) 
+        operators_in_model_count[op] = operators_in_model_count.get(op, 0) + 1
+        total_count += 1
+        if op in _SUPPORTED_OPERATOR_TYPES:
+            supported_in_model.add(op)
+            supported_count += 1
+        else:
+            not_supported_operators.add(op)
+
+    if len(supported_in_model) > 0:
+        print(
+            "The following operations are currently supported in tensorflow-neuron for this model:")
+        for op in supported_in_model:
+            print(op)
+
+    sorted_not_supported_ops = sorted(not_supported_operators)
+
+    if len(sorted_not_supported_ops) > 0:
+        print(
+            "The following operations are currently not supported in tensorflow-neuron for this model:")
+        for op in sorted_not_supported_ops:
+            print(op)
+
+    percent_supported = 100.0 * float(supported_count) / float(total_count)
+    print("{:.2f}% of all operations ({} of {}) are supported".format(
+                percent_supported, supported_count, total_count))
+
+    sorted_all_model_ops = sorted(list(operators_in_model))
+    results = {}
+    results['percent_supported'] = percent_supported
+    results['supported_count'] = supported_count
+    results['total_count'] = total_count
+    results['supported_operators'] = supported_in_model
+    results['unsupported_operators'] = sorted_not_supported_ops
+    results['operators'] = sorted_all_model_ops
+    results['operator_count'] = operators_in_model_count
+
+    return results
+
+
