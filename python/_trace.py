@@ -358,14 +358,17 @@ def _shuffle(value, shuffle):
 
 class AwsNeuronModel(Model):
 
-    def __init__(self, func, structured_outputs, real_op_count, ordered_weights=None):
+    def __init__(self, func, structured_outputs, real_op_count=None, ordered_weights=None):
         super().__init__(trainable=False, autocast=False)
         self.aws_neuron_function = func
         self._aws_neuron_output_type = None
         self._ordered_weights = ordered_weights
-        self.on_neuron_ratio = self.calculate_on_neuron_ratio(real_op_count)
-        if self.on_neuron_ratio < .5:
-            logging.warning(f'Warning: Your traced model has {self.on_neuron_ratio * 100}% of operators compiled to neuron.')
+        # this class is sometimes inherited namely from the auto multicore
+        # so we cannot assume that there will always be a real_op_count
+        if real_op_count is not None:
+            self.on_neuron_ratio = self.calculate_on_neuron_ratio(real_op_count)
+            if self.on_neuron_ratio < .5:
+                logging.warning(f'Warning: Your traced model has {self.on_neuron_ratio * 100}% of operators compiled to neuron.')
         if isinstance(structured_outputs, abc.Mapping):
             self._aws_neuron_output_type = type(structured_outputs)
 
