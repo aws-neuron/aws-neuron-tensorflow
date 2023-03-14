@@ -17,3 +17,4 @@
 from tensorflow_neuron.python._version import __version__
 from tensorflow_neuron.python._trace import trace
 from tensorflow_neuron.python.neuron_cc import configure_compiler_cli
+from tensorflow_neuron.python.hlo.optimize import configure_cache_capacity

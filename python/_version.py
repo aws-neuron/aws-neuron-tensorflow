@@ -12,5 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from tensorflow.python.framework.versions import __version__ as __tf_version__
 
-__version__ = '2.8.2.dev0'
+
+__version__ = '2.8.2.dev0'  # the build system will overwrite it
+
+
+def is_tf_v1():
+    return __tf_version__.startswith('1.')

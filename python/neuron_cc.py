@@ -19,9 +19,8 @@ import subprocess
 import tempfile
 import logging
 from distutils import spawn
-from distutils.version import LooseVersion
-from tensorflow_neuron import __version__
 from tensorflow_neuron.python import utils
+from tensorflow_neuron.python._version import is_tf_v1
 
 
 _NEURON_CC_CLI = ['neuron-cc']
@@ -106,23 +105,5 @@ def read_default_args():
     return args
 
 
-def supports_xla():
-    if not hasattr(neuroncc, '__version__'):
-        return False
-    ncc_ver = LooseVersion(neuroncc.__version__)
-    dev_delim_ver = LooseVersion('1.1.0.0')
-    dev_min_ver = LooseVersion('1.0.35000.0')
-    rel_min_ver = LooseVersion('1.7.0.0')
-    return dev_min_ver <= ncc_ver < dev_delim_ver or rel_min_ver <= ncc_ver
-
-
-try:
-    try:
-        import neuroncc
-    except ImportError:
-        import neuronxcc as neuroncc
-except ImportError:
-    neuroncc = None
-else:
-    if LooseVersion(__version__) >= LooseVersion('2.0.0') and supports_xla():
-        from tensorflow_neuron.python.neuron_cc_hlo import list_operators, compile_savetemps
+if not is_tf_v1():
+    from tensorflow_neuron.python.neuron_cc_hlo import list_operators, compile_savetemps

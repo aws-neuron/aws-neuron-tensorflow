@@ -15,7 +15,6 @@
 import os
 import types
 from collections import abc
-from distutils.version import LooseVersion
 from tensorflow.core.protobuf import config_pb2
 from tensorflow.core.protobuf import meta_graph_pb2
 from tensorflow.python.eager import function
@@ -35,11 +34,11 @@ from tensorflow.compiler.xla.service import hlo_pb2
 from tensorflow_neuron.python import meta_graph_util as mgu
 from tensorflow_neuron.python import graph_def_util as gdu
 from tensorflow_neuron.python import utils
-from tensorflow_neuron.python.neuron_cc import list_operators, supports_xla
+from tensorflow_neuron.python.neuron_cc import list_operators
 from tensorflow_neuron.python.hlo.optimize import HloOp
 from tensorflow_neuron.python.custom_call import CustomCallLowering
 from tensorflow_neuron.python.libtfneuron import libtfneuron
-from tensorflow_neuron.python._version import __version__
+from tensorflow_neuron.python._version import is_tf_v1
 
 
 def trace(func, example_inputs, subgraph_builder_function=None):
@@ -154,10 +153,6 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     """
     original_func = func
-    if not supports_xla():
-        raise RuntimeError(
-            'tfn.trace requires neuron-cc version >= 1.6.0.0; please update to latest neuron-cc '
-            'by `pip install neuron-cc -U --extra-index-url=https://pip.repos.neuron.amazonaws.com`')
     if not isinstance(example_inputs, tuple):
         example_inputs = (example_inputs,)
     if not isinstance(func, (def_function.Function, function.ConcreteFunction)):
@@ -176,10 +171,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
         # convert all variables to constants
         with utils.change_grappler_logging_level_according_to_cc_flags():
             try:
-                if LooseVersion(__version__) < LooseVersion('2.2.0'):
-                    cfunc = convert_variables_to_constants_v2(func)
-                else:
-                    cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
+                cfunc = convert_variables_to_constants_v2(func, aggressive_inlining=True)
             except InvalidArgumentError as err:
                 if all(op.type != 'StatefulPartitionedCall' for op in func.graph.get_operations()):
                     raise err
@@ -199,6 +191,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
                     " Example : NEURON_CC_FLAGS='--extract-weights' python your_compile_script.py"
                 )   
                 raise ValueError(str(err) + error_msg)
+        raise_for_unhandled_resources(cfunc)
     else:
         cfunc = func
 
@@ -247,6 +240,23 @@ def trace(func, example_inputs, subgraph_builder_function=None):
 
     _make_keras_model_savable(model, example_inputs)
     return model
+
+
+def raise_for_unhandled_resources(cfunc):
+    resources = [ts for ts in cfunc.inputs if ts.dtype == dtypes.resource]
+    if not resources:
+        return
+    consumers = [ts.consumers() for ts in resources]
+    raise TypeError(
+        'Found unhandled resource tensors {}, most likely due to the following ops {}. '
+        'tfn.trace can only trace pure functions (i. e., functions with all the input data '
+        'passed through as function parameters, and all the output data returned through '
+        'the function results), but the above unhandled resource tensors would require '
+        'an extra initialization step at run-time prior to the actual inference logic '
+        'and be passed to the traced function in addition to `example_inputs`. As a result, '
+        'we kindly ask you to refactor the computationally expensive part of your model as '
+        'a pure function.'.format(resources, consumers)
+    )
 
 
 class OptionalDumper:
