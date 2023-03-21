@@ -51,6 +51,7 @@ class NeuronExecutableInfo {
   int32_t requested_num_cores = -1;
   const AttrValue_ListValue* real_input_names = nullptr;
   const AttrValue_ListValue* real_input_locations = nullptr;
+  StringPiece instance_type;
 
  private:
   Status ParseModelConfig(const NodeDef& node_def);

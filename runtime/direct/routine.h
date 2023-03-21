@@ -50,7 +50,7 @@ class NeuronRoutine {
                    std::vector<Tensor>* outputs);
   void MaybeInitInputLocations();
   void MaybeInitCache();
-  int32_t CoreIDToMemoryID(int32_t core_id);
+  int32_t CoreIDToMemoryID(int32_t core_id, StringPiece& instance_type);
   tensorflow::mutex mu_;
   NeuronExecutableInfo info_;
   std::unique_ptr<NeuronDataParallelExecutable> exe_;
