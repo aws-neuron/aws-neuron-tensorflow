@@ -24,7 +24,7 @@ class TestExtractWeights(TestV2Only):
     def setUp(self):
         # returns None if NEURON_CC_FLAGS is not set
         self.old_flags = os.environ.get('NEURON_CC_FLAGS')
-        os.environ['NEURON_CC_FLAGS'] = "--extract-weights"
+        os.environ['NEURON_CC_FLAGS'] = "--extract-weights inf1.2xlarge"
     
     def tearDown(self):
         if self.old_flags is not None:

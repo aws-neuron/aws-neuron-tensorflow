@@ -37,6 +37,7 @@ constexpr char kAutoMulticore[] = "_automatic_multicore";
 constexpr char kInputShuffles[] = "_input_shuffles";
 constexpr char kRealInputNames[] = "_real_input_names";
 constexpr char kRealInputLocations[] = "_real_input_locations";
+constexpr char kInstanceType[] = "_instance_type";
 
 }  // namespace neuron
 }  // namespace tensorflow

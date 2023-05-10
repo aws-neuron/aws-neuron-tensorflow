@@ -383,6 +383,14 @@ Status NeuronDeviceMemory::SetupBuffers(
   VLOG(1) << "entering NeuronDeviceMemory::SetupBuffers";
   input_buffers_.reserve(info.input_dtypes.type_size());
   bool cache_setup = cache.size() > 0;
+  // with a lot of threads having the cache being in middle
+  // of a setup can create race conditions, stop here to make
+  // sure cache is fully set up.
+  if (cache_setup) {
+    while (cache.size() < info.input_dtypes.type_size()) {
+      // do nothing
+    }
+  }
   std::shared_ptr<NeuronDeviceBuffer> buffer;
   for (int idx = 0; idx < info.input_dtypes.type_size(); ++idx) {
     size_t size =
@@ -393,6 +401,7 @@ Status NeuronDeviceMemory::SetupBuffers(
       TF_RETURN_IF_ERROR(buffer->CopyCpuToBuffer(GetData(tensor), size));
       input_buffers_.push_back(buffer);
       std::shared_ptr<NeuronDeviceBuffer> cached_buffer = buffer;
+      VLOG(1) << "created cache on core " << memory_id_ << " with size " << info.input_dtypes.type_size();
       // add buffer to cache
       cache.push_back(cached_buffer);
       TF_RETURN_IF_ERROR(input_buffers_.back()->GetStatus());

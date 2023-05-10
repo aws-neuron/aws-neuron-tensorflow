@@ -19,6 +19,7 @@ import shlex
 from contextlib import contextmanager
 from tensorflow.python.platform import tf_logging as logging
 from tensorflow.python.grappler import tf_optimizer
+import tensorflow_neuron.python.neuron_cc as ncc
 
 
 @contextmanager
@@ -84,7 +85,10 @@ def parse_neuron_cc_flags(args=None, flag_set=None):
     maybe_add_argument('--dynamic-batch-size', action='store_true')
     maybe_add_argument('--fp32-cast', default='matmult-fp16')
     maybe_add_argument('--neuroncore-pipeline-cores', default=None)
-    maybe_add_argument('--extract-weights', action='store_true')
+    extract_weights_choices = ['inf1.xlarge', 'inf1.2xlarge', 'inf1.6xlarge', 'inf1.24xlarge',
+                               'trn1.2xlarge', 'trn1.32xlarge', 
+                               'inf2.xlarge', 'inf2.8xlarge', 'inf2.24xlarge', 'inf2.48xlarge']
+    maybe_add_argument('--extract-weights', choices=extract_weights_choices, default=None)
     tfn_args, compiler_args = parser.parse_known_args(args)
     verbose = getattr(tfn_args, 'verbose', None)
     if verbose is None:
@@ -132,3 +136,10 @@ def decorate_methods_with(decorator):
         return cls
 
     return decorate_methods
+
+
+def using_neuronx():
+    assert ncc.find_neuron_cc() is not None, ("It appears neuron-cc or neuronx-cc is not installed."
+                                              " Please follow the installation instructions here:"
+                                              " https://awsdocs-neuron.readthedocs-hosted.com/en/latest/")
+    return 'neuronx-cc' in ncc.find_neuron_cc()

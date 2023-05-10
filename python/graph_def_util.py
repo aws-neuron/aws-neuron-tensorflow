@@ -43,6 +43,7 @@ knInputShuffles = '_input_shuffles'
 knInputCanUseShm = '_input_can_use_shm'
 knRealInputNames = '_real_input_names'
 knRealInputLocations = '_real_input_locations'
+knInstanceType = '_instance_type'
 vInvalidAxis = -1
 
 
@@ -116,7 +117,7 @@ def encode_inferred_shapes(graph_def, shape_feed_dict=None):
     return graph_def
 
 
-def encode_real_input_names_and_locations(graph_def):
+def encode_extract_weights_info(graph_def, instance_type):
     neuron_nodes = get_neuron_nodes(graph_def)
     for node in neuron_nodes:
         real_input_names_list = []
@@ -127,6 +128,7 @@ def encode_real_input_names_and_locations(graph_def):
                 real_input_locations_list.append(i)
         node.attr[knRealInputNames].list.s[:] = real_input_names_list
         node.attr[knRealInputLocations].list.i[:] = real_input_locations_list
+        node.attr[knInstanceType].s = instance_type.encode()
     return graph_def
   		  
 
@@ -489,7 +491,7 @@ def set_execution_plan(compiled_graph_def):
         global_opt_num_cores = -1
         max_num_duplicates = 1
     elif tfn_args.extract_weights:
-        max_num_duplicates = min(4, calculate_max_num_cores(compiled_graph_def))
+        max_num_duplicates = calculate_max_num_cores(compiled_graph_def, tfn_args.extract_weights)
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
     else:
         global_opt_num_cores = max(opt_nc for opt_nc, _ in num_cores_tuple_map.values())
@@ -511,11 +513,11 @@ def set_execution_plan(compiled_graph_def):
     return compiled_graph_def
 
 
-def calculate_max_num_cores(compiled_graph_def):
+def calculate_max_num_cores(compiled_graph_def, instance_type):
     # returns the amount number of models that can fit on one channel of memory
     # NEFF and Weights get loaded into device memory and
     # One channel of memory is 4gb and there are two channels on an inf1.2xlarge
-    # TODO: Support all inf1 instance types
+    # Now supports all neuron instance types
     neuron_nodes = get_neuron_nodes(compiled_graph_def)
     neff_size = 0
     weights_size = 0
@@ -529,14 +531,33 @@ def calculate_max_num_cores(compiled_graph_def):
             #multiply num of elements * dtype size to get size of tensor
             weights_size += num_elements * dtypes.as_dtype(dtype).size
 
-    result = math.floor(4e9 / (neff_size + weights_size)) * 2
-    if result == 0:
-        error_str = (f'Your total model size including weights is {(neff_size + weights_size) / 1e9} GB'
-                        ', which is greater than the current limitation of 4GB with the --extract_weights'
-                        'flag enabled. Reducing model size or splitting your model into smaller parts can' 
-                        'help you get around this limitation.')
-        raise ValueError(error_str)
+    if 'inf1' in instance_type:
+        max_mem = 4
+        if instance_type == 'inf1.2xlarge' or instance_type =='inf1.xlarge':
+            num_mem_channels = 2
+        elif instance_type == 'inf1.6xlarge':
+            num_mem_channels = 8
+        elif instance_type == 'inf1.32xlarge':
+            num_mem_channels = 32
+        result = min(math.floor(4e9 / (neff_size + weights_size)), 2) * num_mem_channels
+    elif 'trn1' in instance_type or 'inf2' in instance_type:
+        max_mem = 16 
+        if instance_type == 'trn1.2xlarge' or instance_type == 'inf2.xlarge' or instance_type == 'inf2.8xlarge':
+            num_mem_channels = 2
+        elif instance_type == 'inf2.24xlarge':
+            num_mem_channels = 12
+        elif instance_type == 'inf2.48xlarge':
+            num_mem_channels = 24
+        elif instance_type == 'trn1.32xlarge':
+            num_mem_channels = 32 
+        result = min(math.floor(16e9 / (neff_size + weights_size)), 1) * num_mem_channels
 
+    if result == 0:
+        error_str = (f'Your total model size including weights is {(neff_size + weights_size) / 1e9}GB'
+                        ', which is greater than the current limitation of {max_mem}GB with --extract_weights ' 
+                        '{instance_type} flag enabled. Reducing model size or splitting your model into ' 
+                        'smaller parts can help you get around this limitation.')
+        raise ValueError(error_str)
     return result
 
 
