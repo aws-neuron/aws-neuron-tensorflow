@@ -143,19 +143,42 @@ void NeuronRoutine::MaybeInitInputLocations() {
 
 void NeuronRoutine::MaybeInitCache() {
   if (cache_.size() == 0) {
-    // do this 16 times since max number of cores on inf1 is 16
-    for (int i = 0; i < 16; ++i) {
+    // do this 64 times since max number of cores on a neuron device is 64
+    for (int i = 0; i < 64; ++i) {
       cache_.push_back(std::vector<std::shared_ptr<NeuronDeviceBuffer>>());
     }
   }
 }
 
-int32_t NeuronRoutine::CoreIDToMemoryID(int32_t core_id) {
-  // a function for the --extract-weights feature
-  // hard coded 4 for inf1.2xlarge, todo: support all 1.6xlarge as well
-  // the size for exe_ should only be 1, 2, or 4.
-  int32_t multiplier = 4 / exe_->GetNumLoadedModels();
-  return core_id * multiplier;
+int32_t NeuronRoutine::CoreIDToMemoryID(int32_t core_id, StringPiece& instance_type) {
+  // A function for the --extract-weights feature that maps the models
+  // to the location of the memory depending on instance type.
+  // Note trn1 and inf2 instances always return core_id as memory cannot
+  // be placed on a different core from the model.
+  VLOG(1) << "calculating memory id for core_id " << core_id;
+  VLOG(1) << "Detected extract weights model compiled for " << instance_type.data() << " instance";
+  if (strcmp(instance_type.data(), "inf1.2xlarge") == 0 ||
+      strcmp(instance_type.data(), "inf1.xlarge") == 0) {
+    int32_t multiplier = 4 / exe_->GetNumLoadedModels();
+    return core_id * multiplier;
+  }
+  else if (strcmp(instance_type.data(), "inf1.6xlarge") == 0) {
+    int32_t multiplier = 16 / exe_->GetNumLoadedModels();
+    return core_id * multiplier;
+  }
+  else if (strcmp(instance_type.data(), "inf1.32xlarge") == 0) {
+    int32_t multiplier = 64 / exe_->GetNumLoadedModels();
+    return core_id * multiplier;
+  }
+  else if (strcmp(instance_type.data(), "trn1.2xlarge")  == 0 ||
+           strcmp(instance_type.data(), "trn1.32xlarge") == 0 ||
+           strcmp(instance_type.data(), "inf2.xlarge")   == 0 ||
+           strcmp(instance_type.data(), "inf2.8xlarge")  == 0 || 
+           strcmp(instance_type.data(), "inf2.24xlarge") == 0 ||
+           strcmp(instance_type.data(), "inf2.48xlarge") == 0 ) {
+
+    return core_id;
+  }
 }
 
 Status NeuronRoutine::MaybeShuffle(std::vector<Tensor>* inputs,
@@ -182,7 +205,7 @@ Status NeuronRoutine::RunWithIO(std::vector<Tensor>* inputs,
   TF_RETURN_IF_ERROR(MaybeShuffle(inputs, shuffle_buffers));
   if (real_input_locations_.size() > 0) {
     int32_t core_id = exe_->GetRoundRobinId();
-    int32_t memory_id = CoreIDToMemoryID(core_id);
+    int32_t memory_id = CoreIDToMemoryID(core_id, info_.instance_type);
     VLOG(1) << "Trying to create NeuronDeviceMemory on core " << memory_id
             << " for model on core " << core_id;
     NeuronDeviceMemory memory(memory_id);

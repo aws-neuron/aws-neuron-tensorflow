@@ -105,6 +105,9 @@ Status NeuronExecutableInfo::ParseFromNodeDef(const NodeDef& node_def) {
   if (attr.count(kRealInputLocations)) {
     real_input_locations = &attr.at(kRealInputLocations).list();
   }
+  if (attr.count(kInstanceType)) {
+    instance_type = attr.at(kInstanceType).s();
+  }
 #undef SIZE_CHECK
   return ParseModelConfig(node_def);
 }

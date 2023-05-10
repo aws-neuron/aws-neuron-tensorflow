@@ -181,12 +181,22 @@ def trace(func, example_inputs, subgraph_builder_function=None):
             except ValueError as err:
                 error_msg = ( 
                     ", to reduce protobuf size you can extract the model's weights from the protobuf"
-                    " by passing the '--extract-weights' flag during compilation. "
-                    " Example : NEURON_CC_FLAGS='--extract-weights' python your_compile_script.py"
+                    " by passing the '--extract-weights RUNTIME_INSTANCE_TYPE' flag during compilation. "
+                    " Example : NEURON_CC_FLAGS='--extract-weights inf1.2xlarge' python your_compile_script.py"
                 )   
                 raise ValueError(str(err) + error_msg)
         raise_for_unhandled_resources(cfunc)
     else:
+        if 'inf1' in tfn_args.extract_weights:
+            assert utils.using_neuronx() == False, ('It appears you are attempting compile for an'
+                                                ' inf1 isntance while using tensorflow_neuronx.'
+                                                ' Please either use tensorflow.neuron or compile'
+                                                ' for an inf2 or trn1 instance.')
+        elif 'trn1' in tfn_args.extract_weights or 'inf2' in tfn_args.extract_weights:
+            assert utils.using_neuronx() == True, ('It appears you are attempting compile for an'
+                                                ' inf2 or trn1 instance while using tensorflow_neuron.'
+                                                ' Please either use tensorflow_neuronx or compile' 
+                                                ' for an inf1 instance.')
         cfunc = func
 
 
@@ -220,7 +230,7 @@ def trace(func, example_inputs, subgraph_builder_function=None):
     graph_def = gdu.maybe_relax_placeholder_shapes(graph_def)
 
     if tfn_args.extract_weights:
-        graph_def = gdu.encode_real_input_names_and_locations(graph_def)
+        graph_def = gdu.encode_extract_weights_info(graph_def, tfn_args.extract_weights)
         # wrap GraphDef as a WrappedFunction
         cfunc = _wrap_variable_graph_def_as_concrete_function(graph_def, func)
         ordered_weights = _get_ordered_weights(func, original_func)
